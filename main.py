@@ -43,8 +43,8 @@ NEW_USER_BONUS = 5
 MIN_ACCOUNT_AGE_DAYS = 7
 REFERRAL_STAY_HOURS = 24
 
-if not BOT_TOKEN or not BOT_TOKEN.startswith("789"):
-    logging.error("Invalid BOT_TOKEN. Please check your token.")
+if not BOT_TOKEN:
+    logging.error("BOT_TOKEN environment variable not set. Please set it on Railway.")
     exit(1)
 
 # ==================== LOGGING ====================
