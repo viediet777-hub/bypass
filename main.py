@@ -1540,8 +1540,11 @@ if __name__ == "__main__":
     task_thread = threading.Thread(target=run_scheduled_tasks, daemon=True)
     task_thread.start()
     logger.info("🤖 Bot is starting with referral system...")
-    # Remove any existing webhook
+    
+    # Remove webhook and wait
     bot.remove_webhook()
+    time.sleep(2)  # <-- ADD THIS LINE
+    
     # Poll with retry
     while True:
         try:
