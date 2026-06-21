@@ -4,7 +4,11 @@
 import os
 import logging
 import telebot
-from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
+from menu import (
+    main_menu_text, main_menu_keyboard,
+    shopsy_menu_text, shopsy_menu_keyboard,
+    firebase_menu_text, firebase_menu_keyboard
+)
 
 # ==================== CONFIG ====================
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
@@ -36,78 +40,49 @@ def get_user_data(user_id):
         user_status[user_id] = "ACTIVE"
     return user_balances[user_id], user_status[user_id]
 
-# ==================== MAIN MENU ====================
-def main_menu_text(user_id: int, username: str = None) -> str:
-    balance, status = get_user_data(user_id)
-    return (
-        f"🚀 <b>VIEDIET UTILITY BOT</b>\n\n"
-        f"Hello, <b>{username or 'User'}</b>\n"
-        f"Your workspace is ready.\n\n"
-        f"╭─ ACCOUNT\n"
-        f"├ 🆔 <code>{user_id}</code>\n"
-        f"├ 💰 {balance} Credits\n"
-        f"╰ ⭐ {status}\n\n"
-        f"💎 Rewards, bypass tools, APK utilities and more — all available from the dashboard below more featurs adding soon.\n\n"
-        f"👇 Choose a module to get started."
-    )
-
-def main_menu_keyboard():
-    kb = InlineKeyboardMarkup(row_width=1)
-    kb.add(InlineKeyboardButton("🎁 Shopsy Coin", callback_data="module_shopsy", style="primary"))
-    return kb
-
-# ==================== SHOPSY SUB-MENU ====================
-def shopsy_menu_text(user_id: int) -> str:
-    balance, status = get_user_data(user_id)
-    return (
-        f"🎯 <b>SHOPSY AUTO-MINE</b>\n\n"
-        f"Status: <b>{status}</b>\n"
-        f"Balance: <b>{balance} Credits</b>\n"
-        f"Run Cost: <b>1 Credit / run</b>\n\n"
-        f"Select an operation below:"
-    )
-
-def shopsy_menu_keyboard():
-    kb = InlineKeyboardMarkup(row_width=1)
-    kb.row(
-        InlineKeyboardButton("▶️ Start New Task", callback_data="shopsy_start", style="success"),
-        InlineKeyboardButton("📁 My Accounts", callback_data="shopsy_accounts", style="primary")
-    )
-    kb.add(InlineKeyboardButton("❓ How To Use", callback_data="shopsy_howto", style="primary"))
-    kb.add(InlineKeyboardButton("🔙 Back to Main", callback_data="back_menu", style="danger"))
-    return kb
-
 # ==================== HANDLERS ====================
 
 @bot.message_handler(commands=['start'])
 def start_cmd(message):
     user = message.from_user
-    text = main_menu_text(user.id, user.first_name)
+    user_id = user.id
+    balance, status = get_user_data(user_id)
+    text = main_menu_text(user_id, user.first_name, balance, status)
     bot.send_message(message.chat.id, text, reply_markup=main_menu_keyboard())
 
 @bot.message_handler(commands=['ping'])
 def ping_cmd(message):
     bot.reply_to(message, "🏓 Pong! Bot is alive.")
 
+# ---------- Module Navigation ----------
 @bot.callback_query_handler(func=lambda call: call.data.startswith("module_"))
 def handle_module_callback(call):
     module = call.data.split("_")[1]
+    user_id = call.from_user.id
+    balance, status = get_user_data(user_id)
+
     if module == "shopsy":
-        # Delete old message and send new one to force colors
         bot.delete_message(call.message.chat.id, call.message.message_id)
-        text = shopsy_menu_text(call.from_user.id)
+        text = shopsy_menu_text(user_id, balance, status)
         bot.send_message(call.message.chat.id, text, reply_markup=shopsy_menu_keyboard(), parse_mode="HTML")
         bot.answer_callback_query(call.id)
 
+    elif module == "firebase":
+        bot.delete_message(call.message.chat.id, call.message.message_id)
+        text = firebase_menu_text(user_id, balance, status)
+        bot.send_message(call.message.chat.id, text, reply_markup=firebase_menu_keyboard(), parse_mode="HTML")
+        bot.answer_callback_query(call.id)
+
+# ---------- Shopsy Callbacks ----------
 @bot.callback_query_handler(func=lambda call: call.data.startswith("shopsy_"))
 def handle_shopsy_callback(call):
     action = call.data.split("_")[1]
     user_id = call.from_user.id
     chat_id = call.message.chat.id
     msg_id = call.message.message_id
+    balance, status = get_user_data(user_id)
 
     if action == "start":
-        balance, status = get_user_data(user_id)
         if balance < 1:
             bot.answer_callback_query(call.id, "❌ Insufficient credits!")
             bot.edit_message_text(
@@ -119,9 +94,9 @@ def handle_shopsy_callback(call):
             return
         user_balances[user_id] = balance - 1
         bot.answer_callback_query(call.id, "✅ Task started!")
-        # Delete and send new message to show updated balance with colors
         bot.delete_message(chat_id, msg_id)
-        new_text = shopsy_menu_text(user_id)
+        new_balance, _ = get_user_data(user_id)
+        new_text = shopsy_menu_text(user_id, new_balance, status)
         bot.send_message(chat_id, new_text, reply_markup=shopsy_menu_keyboard(), parse_mode="HTML")
 
     elif action == "accounts":
@@ -148,15 +123,34 @@ def handle_shopsy_callback(call):
             parse_mode="HTML"
         )
 
+# ---------- Firebase Callbacks (Future) ----------
+@bot.callback_query_handler(func=lambda call: call.data.startswith("firebase_"))
+def handle_firebase_callback(call):
+    action = call.data.split("_")[1]
+    if action == "start":
+        bot.answer_callback_query(call.id, "⏳ Firebase scanner coming soon...")
+        bot.edit_message_text(
+            "🔥 <b>Firebase Extractor</b>\n\n"
+            "This feature is under development.\n"
+            "Stay tuned for updates!",
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            reply_markup=firebase_menu_keyboard(),
+            parse_mode="HTML"
+        )
+
+# ---------- Back to Main ----------
 @bot.callback_query_handler(func=lambda call: call.data == "back_menu")
 def back_to_menu(call):
     user = call.from_user
-    text = main_menu_text(user.id, user.first_name)
-    # Delete old message and send new main menu
+    user_id = user.id
+    balance, status = get_user_data(user_id)
+    text = main_menu_text(user_id, user.first_name, balance, status)
     bot.delete_message(call.message.chat.id, call.message.message_id)
     bot.send_message(call.message.chat.id, text, reply_markup=main_menu_keyboard(), parse_mode="HTML")
     bot.answer_callback_query(call.id)
 
+# ---------- Fallback ----------
 @bot.message_handler(func=lambda m: True)
 def fallback(message):
     bot.reply_to(message, "❓ Unknown command. Use /start to see the menu.")
