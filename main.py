@@ -23,11 +23,6 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# ==================== VERSION CHECK ====================
-print(f"🤖 pyTelegramBotAPI version: {telebot.__version__}")
-if telebot.__version__ < "4.16.0":
-    logger.warning("⚠️ Please upgrade pyTelegramBotAPI to >=4.16.0 for colored buttons.")
-
 # ==================== BOT INIT ====================
 bot = telebot.TeleBot(BOT_TOKEN, parse_mode="HTML")
 
@@ -113,20 +108,14 @@ def show_shopsy_menu(call):
     user_id = call.from_user.id
     bot.answer_callback_query(call.id)
     text = shopsy_menu_text(user_id)
-    # Try to edit, if fails (e.g., colors not supported), send new message
-    try:
-        bot.edit_message_text(
-            text,
-            chat_id=call.message.chat.id,
-            message_id=call.message.message_id,
-            reply_markup=shopsy_menu_keyboard(),
-            parse_mode="HTML"
-        )
-    except Exception as e:
-        logger.warning(f"Edit failed: {e}. Sending new message.")
-        # Delete old message and send new
-        bot.delete_message(call.message.chat.id, call.message.message_id)
-        bot.send_message(call.message.chat.id, text, reply_markup=shopsy_menu_keyboard(), parse_mode="HTML")
+    # Edit message with new keyboard
+    bot.edit_message_text(
+        text,
+        chat_id=call.message.chat.id,
+        message_id=call.message.message_id,
+        reply_markup=shopsy_menu_keyboard(),
+        parse_mode="HTML"
+    )
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("shopsy_"))
 def handle_shopsy_callback(call):
