@@ -17,7 +17,8 @@ from menu import (
     shopsy_menu_text, shopsy_menu_keyboard,
     firebase_menu_text, firebase_menu_keyboard,
     temp_menu_text, temp_menu_keyboard,
-    flipkart_menu_text, flipkart_menu_keyboard
+    flipkart_menu_text, flipkart_menu_keyboard,
+    instagram_menu_text, instagram_menu_keyboard   # 👈 ADD THIS
 )
 
 # ==================== CONFIG ====================
@@ -269,7 +270,12 @@ def handle_module_callback(call):
         text = flipkart_menu_text(user_id, balance, status)
         bot.send_message(call.message.chat.id, text, reply_markup=flipkart_menu_keyboard(), parse_mode="HTML")
         bot.answer_callback_query(call.id)
-
+    elif module == "instagram":
+        bot.delete_message(call.message.chat.id, call.message.message_id)
+        text = instagram_menu_text(user_id, balance, status)
+        bot.send_message(call.message.chat.id, text, reply_markup=instagram_menu_keyboard(), parse_mode="HTML")
+        bot.answer_callback_query(call.id)
+        
 # ---------- Shopsy Callbacks ----------
 @bot.callback_query_handler(func=lambda call: call.data.startswith("shopsy_"))
 def handle_shopsy_callback(call):
@@ -511,7 +517,58 @@ def handle_phone_number(message):
         f"Use /start to go back to menu.",
         parse_mode="HTML"
     )
+# ---------- Instagram Callbacks ----------
+@bot.callback_query_handler(func=lambda call: call.data.startswith("instagram_"))
+def handle_instagram_callback(call):
+    action = call.data.split("_")[1]
+    user_id = call.from_user.id
+    chat_id = call.message.chat.id
+    msg_id = call.message.message_id
+    balance, status = get_user_data(user_id)
 
+    if action == "single":
+        bot.answer_callback_query(call.id, "📹 Send a single Instagram video URL.")
+        bot.edit_message_text(
+            "📹 <b>Single Download</b>\n\n"
+            "Send me the Instagram video link.\n"
+            "Example: <code>https://www.instagram.com/reel/xyz123/</code>\n\n"
+            "💡 I'll download and send the video to you.\n\n"
+            "<i>Powered By Viediet Utility</i>",
+            chat_id=chat_id,
+            message_id=msg_id,
+            reply_markup=instagram_menu_keyboard(),
+            parse_mode="HTML"
+        )
+
+    elif action == "bulk":
+        bot.answer_callback_query(call.id, "📚 Send multiple Instagram video URLs (one per line).")
+        bot.edit_message_text(
+            "📚 <b>Bulk Download</b>\n\n"
+            "Send me multiple Instagram video links,\n"
+            "each on a new line.\n\n"
+            "Example:\n"
+            "<code>https://www.instagram.com/reel/abc/\n"
+            "https://www.instagram.com/reel/def/</code>\n\n"
+            "💡 I'll download all and send them as a zip (coming soon).\n\n"
+            "<i>Powered By Viediet Utility</i>",
+            chat_id=chat_id,
+            message_id=msg_id,
+            reply_markup=instagram_menu_keyboard(),
+            parse_mode="HTML"
+        )
+  # ---------- Instagram link handler (direct links) ----------
+@bot.message_handler(func=lambda message: message.text and 'instagram.com' in message.text.lower())
+def handle_instagram_link(message):
+    bot.reply_to(
+        message,
+        "📥 <b>Instagram Downloader</b>\n\n"
+        "Your request is being processed.\n"
+        "This feature is under development.\n"
+        "We'll download and send the video soon.\n\n"
+        "⚠️ For now, only placeholder response.\n\n"
+        "<i>Powered By Viediet Utility</i>",
+        parse_mode="HTML"
+    )      
 # ---------- Back to Main ----------
 @bot.callback_query_handler(func=lambda call: call.data == "back_menu")
 def back_to_menu(call):
