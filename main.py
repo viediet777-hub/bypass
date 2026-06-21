@@ -7,9 +7,17 @@ import telebot
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 # ==================== CONFIG ====================
-BOT_TOKEN = os.environ.get("7893651923:AAF2VrYFQMn3pjek06fti6eTlHFVkj7AUWI")
+BOT_TOKEN = os.environ.get("BOT_TOKEN")
+
+# Agar Railway me token set nahi hai toh fallback (only for local test)
 if not BOT_TOKEN:
-    raise ValueError("7893651923:AAF2VrYFQMn3pjek06fti6eTlHFVkj7AUWI")
+    BOT_TOKEN = "7893651923:AAF2VrYFQMn3pjek06fti6eTlHFVkj7AUWI"  # Change this to your actual token
+    logging.warning("Using hardcoded token. Please set BOT_TOKEN environment variable on Railway.")
+
+# Validate token format (basic)
+if not BOT_TOKEN or not BOT_TOKEN.startswith("789"):
+    logging.error("Invalid BOT_TOKEN. Please check your token.")
+    exit(1)
 
 # ==================== LOGGING ====================
 logging.basicConfig(
@@ -22,8 +30,8 @@ logger = logging.getLogger(__name__)
 bot = telebot.TeleBot(BOT_TOKEN, parse_mode="HTML")
 
 # ==================== DATA STORE (in-memory) ====================
-user_balances = {}  # user_id -> credits
-user_status = {}    # user_id -> "ACTIVE" or "INACTIVE"
+user_balances = {}
+user_status = {}
 
 def get_user_data(user_id):
     if user_id not in user_balances:
@@ -88,7 +96,6 @@ def start_cmd(message):
 def ping_cmd(message):
     bot.reply_to(message, "🏓 Pong! Bot is alive.")
 
-# ---------- Main Menu Callbacks ----------
 @bot.callback_query_handler(func=lambda call: call.data.startswith("module_"))
 def handle_module_callback(call):
     module = call.data.split("_")[1]
@@ -107,47 +114,39 @@ def show_shopsy_menu(call):
         parse_mode="HTML"
     )
 
-# ---------- Shopsy Sub-menu Callbacks ----------
 @bot.callback_query_handler(func=lambda call: call.data.startswith("shopsy_"))
 def handle_shopsy_callback(call):
-    action = call.data.split("_")[1]  # e.g., "start", "accounts", "howto"
+    action = call.data.split("_")[1]
     user_id = call.from_user.id
     chat_id = call.message.chat.id
     msg_id = call.message.message_id
 
     if action == "start":
-        # Start New Task – placeholder
-        bot.answer_callback_query(call.id, "⏳ Task starting...")
-        # Deduct 1 credit
         balance, status = get_user_data(user_id)
         if balance < 1:
+            bot.answer_callback_query(call.id, "❌ Insufficient credits!")
             bot.edit_message_text(
-                "❌ <b>Insufficient credits!</b>\n\n"
-                "You need at least 1 credit to run a task.\n"
-                "Earn more by referrals or wait for daily bonus.",
+                "❌ <b>Insufficient credits!</b>\n\nYou need at least 1 credit to run a task.",
                 chat_id=chat_id, message_id=msg_id,
                 reply_markup=shopsy_menu_keyboard(),
                 parse_mode="HTML"
             )
             return
         user_balances[user_id] = balance - 1
+        bot.answer_callback_query(call.id, "✅ Task started!")
         bot.edit_message_text(
-            "✅ <b>Task Started!</b>\n\n"
-            "Your Shopsy coin mining is now running.\n"
-            "You will receive a notification when completed.\n"
+            "✅ <b>Task Started!</b>\n\nYour Shopsy coin mining is now running.\n"
             f"Remaining Credits: {user_balances[user_id]}",
             chat_id=chat_id, message_id=msg_id,
             reply_markup=shopsy_menu_keyboard(),
             parse_mode="HTML"
         )
-        # In future, you can call actual Shopsy API here.
+        # 🔜 Add actual Shopsy API call here later.
 
     elif action == "accounts":
         bot.answer_callback_query(call.id)
         bot.edit_message_text(
-            "📁 <b>My Accounts</b>\n\n"
-            "You have <b>1</b> account linked:\n"
-            "• +91 9826621729 (Default)\n\n"
+            "📁 <b>My Accounts</b>\n\nYou have <b>1</b> account linked:\n• +91 9826621729 (Default)\n\n"
             "To add more accounts, contact support.",
             chat_id=chat_id, message_id=msg_id,
             reply_markup=shopsy_menu_keyboard(),
@@ -168,7 +167,6 @@ def handle_shopsy_callback(call):
             parse_mode="HTML"
         )
 
-# ---------- Back to Main ----------
 @bot.callback_query_handler(func=lambda call: call.data == "back_menu")
 def back_to_menu(call):
     user = call.from_user
@@ -182,7 +180,6 @@ def back_to_menu(call):
     )
     bot.answer_callback_query(call.id)
 
-# ==================== FALLBACK ====================
 @bot.message_handler(func=lambda m: True)
 def fallback(message):
     bot.reply_to(message, "❓ Unknown command. Use /start to see the menu.")
