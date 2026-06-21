@@ -74,23 +74,12 @@ def shopsy_menu_text(user_id: int) -> str:
 
 def shopsy_menu_keyboard():
     kb = InlineKeyboardMarkup(row_width=1)
-    
-    # Row 1: Start New Task (green) + My Accounts (blue)
     kb.row(
-        InlineKeyboardButton("▶️ Start New Task", callback_data="shopsy_start", style="success"),  # 🟢 green
-        InlineKeyboardButton("📁 My Accounts", callback_data="shopsy_accounts", style="primary")    # 🔵 blue
+        InlineKeyboardButton("▶️ Start New Task", callback_data="shopsy_start"),
+        InlineKeyboardButton("📁 My Accounts", callback_data="shopsy_accounts")
     )
-    
-    # Row 2: How To Use (blue)
-    kb.add(
-        InlineKeyboardButton("❓ How To Use", callback_data="shopsy_howto", style="primary")
-    )
-    
-    # Row 3: Back to Main (red)
-    kb.add(
-        InlineKeyboardButton("🔙 Back to Main", callback_data="back_menu", style="danger")          # 🔴 red
-    )
-    
+    kb.add(InlineKeyboardButton("❓ How To Use", callback_data="shopsy_howto"))
+    kb.add(InlineKeyboardButton("🔙 Back to Main", callback_data="back_menu"))
     return kb
 
 # ==================== HANDLERS ====================
