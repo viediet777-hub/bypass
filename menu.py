@@ -21,6 +21,7 @@ def main_menu_keyboard():
     kb.add(InlineKeyboardButton("🔥 Firebase Extractor", callback_data="module_firebase", style="success"))
     kb.add(InlineKeyboardButton("📧 Temp Generator", callback_data="module_temp", style="primary"))
     kb.add(InlineKeyboardButton("📱 Flipkart Checker", callback_data="module_flipkart", style="primary"))
+    kb.add(InlineKeyboardButton("📥 Instagram Downloader", callback_data="module_instagram", style="primary"))  # NEW
     return kb
 
 # ========== SHOPSY SUB-MENU ==========
@@ -62,7 +63,6 @@ def firebase_menu_keyboard():
 
 # ========== TEMP GENERATOR SUB-MENU ==========
 def temp_menu_text(user_id: int) -> str:
-    # Placeholder – actual email shown after generation
     return (
         f"📧 <b>TEMP MAIL</b>\n\n"
         f"Click <b>New Email</b> to create a temporary email.\n"
@@ -95,5 +95,30 @@ def flipkart_menu_text(user_id: int, balance: int = 15, status: str = "ACTIVE") 
 
 def flipkart_menu_keyboard():
     kb = InlineKeyboardMarkup(row_width=1)
+    kb.add(InlineKeyboardButton("🔙 Back to Main", callback_data="back_menu", style="danger"))
+    return kb
+
+# ========== INSTAGRAM DOWNLOADER SUB-MENU ==========
+def instagram_menu_text(user_id: int, balance: int = 15, status: str = "ACTIVE") -> str:
+    return (
+        f"📥 <b>INSTAGRAM DOWNLOADER</b>\n\n"
+        f"Status: <b>{status}</b>\n"
+        f"Balance: <b>{balance} Credits</b>\n"
+        f"Download Cost: <b>1 Credit / video</b>\n\n"
+        f"Send Instagram video links (one per line for bulk).\n"
+        f"Click <b>Single</b> to download one video, or <b>Bulk</b> for multiple.\n\n"
+        f"💡 <b>How to use:</b>\n"
+        f"1. Copy the Instagram video URL\n"
+        f"2. Click Single or Bulk below\n"
+        f"3. Paste your links\n\n"
+        f"<i>Powered By Viediet Utility</i>"
+    )
+
+def instagram_menu_keyboard():
+    kb = InlineKeyboardMarkup(row_width=2)
+    kb.row(
+        InlineKeyboardButton("📹 Single Download", callback_data="instagram_single", style="success"),
+        InlineKeyboardButton("📚 Bulk Download", callback_data="instagram_bulk", style="primary")
+    )
     kb.add(InlineKeyboardButton("🔙 Back to Main", callback_data="back_menu", style="danger"))
     return kb
