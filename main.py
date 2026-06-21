@@ -9,7 +9,7 @@ from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 # ==================== CONFIG ====================
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 if not BOT_TOKEN:
-    BOT_TOKEN = "7893651923:AAF2VrYFQMn3pjek06fti6eTlHFVkj7AUWI"  # fallback only for local test
+    BOT_TOKEN = "7893651923:AAF2VrYFQMn3pjek06fti6eTlHFVkj7AUWI"  # fallback local
     logging.warning("Using hardcoded token. Please set BOT_TOKEN environment variable on Railway.")
 
 if not BOT_TOKEN or not BOT_TOKEN.startswith("789"):
@@ -52,14 +52,11 @@ def main_menu_text(user_id: int, username: str = None) -> str:
     )
 
 def main_menu_keyboard():
-    """Main menu with colored button."""
     kb = InlineKeyboardMarkup(row_width=1)
-    # Colored button (blue) with custom emoji (optional)
     btn = InlineKeyboardButton(
         text="🎁 Shopsy Coin",
         callback_data="module_shopsy",
-        style="primary"  # blue background
-        # icon_custom_emoji_id="..."  # optional if you have premium and an emoji ID
+        style="primary"   # 🔵 blue
     )
     kb.add(btn)
     return kb
@@ -76,22 +73,24 @@ def shopsy_menu_text(user_id: int) -> str:
     )
 
 def shopsy_menu_keyboard():
-    """Shopsy sub-menu with colored buttons."""
     kb = InlineKeyboardMarkup(row_width=1)
     
-    # Row 1: Start & Accounts
+    # Row 1: Start New Task (green) + My Accounts (blue)
     kb.row(
-        InlineKeyboardButton("▶️ Start New Task", callback_data="shopsy_start", style="success"),  # green
-        InlineKeyboardButton("📁 My Accounts", callback_data="shopsy_accounts", style="primary")   # blue
+        InlineKeyboardButton("▶️ Start New Task", callback_data="shopsy_start", style="success"),  # 🟢 green
+        InlineKeyboardButton("📁 My Accounts", callback_data="shopsy_accounts", style="primary")    # 🔵 blue
     )
-    # Row 2: How To Use
+    
+    # Row 2: How To Use (blue)
     kb.add(
         InlineKeyboardButton("❓ How To Use", callback_data="shopsy_howto", style="primary")
     )
-    # Row 3: Back (danger - red)
+    
+    # Row 3: Back to Main (red)
     kb.add(
-        InlineKeyboardButton("🔙 Back to Main", callback_data="back_menu", style="danger")
+        InlineKeyboardButton("🔙 Back to Main", callback_data="back_menu", style="danger")          # 🔴 red
     )
+    
     return kb
 
 # ==================== HANDLERS ====================
@@ -106,7 +105,6 @@ def start_cmd(message):
 def ping_cmd(message):
     bot.reply_to(message, "🏓 Pong! Bot is alive.")
 
-# ---------- Main Menu Callbacks ----------
 @bot.callback_query_handler(func=lambda call: call.data.startswith("module_"))
 def handle_module_callback(call):
     module = call.data.split("_")[1]
@@ -125,7 +123,6 @@ def show_shopsy_menu(call):
         parse_mode="HTML"
     )
 
-# ---------- Shopsy Sub-menu Callbacks ----------
 @bot.callback_query_handler(func=lambda call: call.data.startswith("shopsy_"))
 def handle_shopsy_callback(call):
     action = call.data.split("_")[1]
@@ -179,7 +176,6 @@ def handle_shopsy_callback(call):
             parse_mode="HTML"
         )
 
-# ---------- Back to Main ----------
 @bot.callback_query_handler(func=lambda call: call.data == "back_menu")
 def back_to_menu(call):
     user = call.from_user
@@ -193,7 +189,6 @@ def back_to_menu(call):
     )
     bot.answer_callback_query(call.id)
 
-# ==================== FALLBACK ====================
 @bot.message_handler(func=lambda m: True)
 def fallback(message):
     bot.reply_to(message, "❓ Unknown command. Use /start to see the menu.")
