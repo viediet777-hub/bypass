@@ -820,31 +820,27 @@ def handle_module_callback(call):
 # ---------- Referral Callbacks ----------
 @bot.callback_query_handler(func=lambda call: call.data.startswith("referral_"))
 def handle_referral_callback(call):
-    action = call.data.split("_")[2] if len(call.data.split("_")) > 2 else call.data.split("_")[1]
     user_id = call.from_user.id
     chat_id = call.message.chat.id
     msg_id = call.message.message_id
 
-    if action == "get_link":
+    if call.data == "referral_get_link":
         if not check_membership(user_id):
             bot.answer_callback_query(call.id, "❌ Please join channel and group first!", show_alert=True)
             return
         link = get_referral_link(user_id)
         bot.answer_callback_query(call.id, "🔗 Link copied! Share it with friends.")
         bot.edit_message_text(
-            f"🔗 <b>Your Referral Link</b>\n\n"
-            f"<code>{link}</code>\n\n"
+            f"🔗 <b>Your Referral Link</b>\n\n<code>{link}</code>\n\n"
             f"📤 Share this link with your friends!\n"
             f"🎁 You get <b>+{REFERRAL_BONUS} Credits</b> per referral (after 24h).\n"
             f"🎁 Your friend gets <b>+{NEW_USER_BONUS} Credits</b> on joining.\n\n"
             f"⚠️ Make sure your friend joins both channel and group!",
-            chat_id=chat_id,
-            message_id=msg_id,
-            reply_markup=referral_menu_keyboard(),
-            parse_mode="HTML"
+            chat_id=chat_id, message_id=msg_id,
+            reply_markup=referral_menu_keyboard(), parse_mode="HTML"
         )
 
-    elif action == "stats":
+    elif call.data == "referral_stats":
         referral_count = get_referral_count(user_id)
         pending_count = get_pending_referral_count(user_id)
         bot.answer_callback_query(call.id, "📊 Fetching your stats...")
@@ -855,12 +851,9 @@ def handle_referral_callback(call):
             f"💰 Bonus per referral: <b>+{REFERRAL_BONUS} Credits</b>\n"
             f"🎁 New user bonus: <b>+{NEW_USER_BONUS} Credits</b>\n\n"
             f"💡 Referrals are confirmed after 24 hours of stay in our community.",
-            chat_id=chat_id,
-            message_id=msg_id,
-            reply_markup=referral_menu_keyboard(),
-            parse_mode="HTML"
+            chat_id=chat_id, message_id=msg_id,
+            reply_markup=referral_menu_keyboard(), parse_mode="HTML"
         )
-
 # ---------- Firebase Callbacks ----------
 @bot.callback_query_handler(func=lambda call: call.data.startswith("firebase_"))
 def handle_firebase_callback(call):
@@ -1295,11 +1288,10 @@ def handle_admin_callback(call):
     if call.from_user.id != ADMIN_ID:
         bot.answer_callback_query(call.id, "⛔ Admin only!")
         return
-    action = call.data.split("_")[1]
     chat_id = call.message.chat.id
     msg_id = call.message.message_id
 
-    if action == "stats":
+    if call.data == "admin_stats":
         total_users = get_total_users()
         total_coins = get_total_coins()
         total_usage = get_total_usage()
@@ -1309,14 +1301,12 @@ def handle_admin_callback(call):
             f"💰 Total Coins: <b>{total_coins}</b>\n"
             f"📈 Total Usage: <b>{total_usage}</b> operations\n"
             f"🔢 Admin ID: <code>{ADMIN_ID}</code>",
-            chat_id=chat_id,
-            message_id=msg_id,
-            reply_markup=admin_panel_keyboard(),
-            parse_mode="HTML"
+            chat_id=chat_id, message_id=msg_id,
+            reply_markup=admin_panel_keyboard(), parse_mode="HTML"
         )
         bot.answer_callback_query(call.id)
 
-    elif action == "users":
+    elif call.data == "admin_users":
         users = get_all_users()
         if not users:
             msg = "No users found."
@@ -1324,73 +1314,42 @@ def handle_admin_callback(call):
             msg = "👥 <b>User List (Top 20 by coins)</b>\n\n"
             for i, (uid, uname, bal, stat) in enumerate(users[:20], 1):
                 msg += f"{i}. <code>{uname}</code> (ID: {uid}) – {bal} coins [{stat}]\n"
-        bot.edit_message_text(
-            msg,
-            chat_id=chat_id,
-            message_id=msg_id,
-            reply_markup=admin_panel_keyboard(),
-            parse_mode="HTML"
-        )
+        bot.edit_message_text(msg, chat_id=chat_id, message_id=msg_id,
+                              reply_markup=admin_panel_keyboard(), parse_mode="HTML")
         bot.answer_callback_query(call.id)
 
-    elif action == "add_coins":
+    elif call.data == "admin_add_coins":
         bot.answer_callback_query(call.id)
         bot.edit_message_text(
-            "➕ <b>Add Coins</b>\n\n"
-            "Send message in format:\n"
-            "`/addcoins @username amount`\n"
-            "or\n"
-            "`/addcoins user_id amount`\n\n"
-            "Example: `/addcoins @Viediet 50`",
-            chat_id=chat_id,
-            message_id=msg_id,
-            reply_markup=admin_panel_keyboard(),
-            parse_mode="HTML"
+            "➕ <b>Add Coins</b>\n\nSend message in format:\n`/addcoins @username amount`\nor\n`/addcoins user_id amount`\n\nExample: `/addcoins @Viediet 50`",
+            chat_id=chat_id, message_id=msg_id,
+            reply_markup=admin_panel_keyboard(), parse_mode="HTML"
         )
 
-    elif action == "remove_coins":
+    elif call.data == "admin_remove_coins":
         bot.answer_callback_query(call.id)
         bot.edit_message_text(
-            "➖ <b>Remove Coins</b>\n\n"
-            "Send message in format:\n"
-            "`/removecoins @username amount`\n"
-            "or\n"
-            "`/removecoins user_id amount`\n\n"
-            "Example: `/removecoins @Viediet 20`",
-            chat_id=chat_id,
-            message_id=msg_id,
-            reply_markup=admin_panel_keyboard(),
-            parse_mode="HTML"
+            "➖ <b>Remove Coins</b>\n\nSend message in format:\n`/removecoins @username amount`\nor\n`/removecoins user_id amount`\n\nExample: `/removecoins @Viediet 20`",
+            chat_id=chat_id, message_id=msg_id,
+            reply_markup=admin_panel_keyboard(), parse_mode="HTML"
         )
 
-    elif action == "broadcast":
+    elif call.data == "admin_broadcast":
         bot.answer_callback_query(call.id)
         bot.edit_message_text(
-            "📢 <b>Broadcast</b>\n\n"
-            "Send a message to all users.\n"
-            "Format: `/broadcast your message here`\n\n"
-            "Example: `/broadcast Hello everyone!`",
-            chat_id=chat_id,
-            message_id=msg_id,
-            reply_markup=admin_panel_keyboard(),
-            parse_mode="HTML"
+            "📢 <b>Broadcast</b>\n\nSend a message to all users.\nFormat: `/broadcast your message here`\n\nExample: `/broadcast Hello everyone!`",
+            chat_id=chat_id, message_id=msg_id,
+            reply_markup=admin_panel_keyboard(), parse_mode="HTML"
         )
 
-    elif action == "costs":
+    elif call.data == "admin_costs":
         current_cost = get_config("firebase_cost", "2")
         bot.answer_callback_query(call.id)
         bot.edit_message_text(
-            f"⚙️ <b>Set Costs</b>\n\n"
-            f"Current Firebase cost: <code>{current_cost}</code> credits\n\n"
-            f"To change, send:\n"
-            f"`/setcost firebase 5`\n\n"
-            f"(Other modules can be added later)",
-            chat_id=chat_id,
-            message_id=msg_id,
-            reply_markup=admin_panel_keyboard(),
-            parse_mode="HTML"
+            f"⚙️ <b>Set Costs</b>\n\nCurrent Firebase cost: <code>{current_cost}</code> credits\n\nTo change, send:\n`/setcost firebase 5`\n\n(Other modules can be added later)",
+            chat_id=chat_id, message_id=msg_id,
+            reply_markup=admin_panel_keyboard(), parse_mode="HTML"
         )
-
 # ---------- Admin Commands ----------
 @bot.message_handler(commands=['addcoins'])
 def add_coins_cmd(message):
@@ -1506,7 +1465,31 @@ def setcost_cmd(message):
         bot.reply_to(message, f"✅ Cost for {module} set to {amount} credits.")
     except Exception as e:
         bot.reply_to(message, f"❌ Error: {str(e)}")
-
+        
+@bot.message_handler(commands=['giveallcoins'])
+def give_all_coins_cmd(message):
+    if message.from_user.id != ADMIN_ID:
+        bot.reply_to(message, "⛔ Admin only!")
+        return
+    try:
+        parts = message.text.split()
+        if len(parts) < 2:
+            bot.reply_to(message, "❌ Usage: /giveallcoins <amount>")
+            return
+        amount = int(parts[1])
+        conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+        c = conn.cursor()
+        c.execute('SELECT user_id FROM users')
+        users = c.fetchall()
+        conn.close()
+        if not users:
+            bot.reply_to(message, "❌ No users found.")
+            return
+        for (uid,) in users:
+            update_user_balance(uid, amount)
+        bot.reply_to(message, f"✅ Added {amount} coins to all {len(users)} users.")
+    except Exception as e:
+        bot.reply_to(message, f"❌ Error: {str(e)}")
 # ---------- Back to Main ----------
 @bot.callback_query_handler(func=lambda call: call.data == "back_menu")
 def back_to_menu(call):
