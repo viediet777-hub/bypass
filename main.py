@@ -9,7 +9,7 @@ from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 # ==================== CONFIG ====================
 BOT_TOKEN = os.environ.get("7893651923:AAF2VrYFQMn3pjek06fti6eTlHFVkj7AUWI")
 if not BOT_TOKEN:
-    raise ValueError("BOT_TOKEN environment variable is not set!")
+    raise ValueError("7893651923:AAF2VrYFQMn3pjek06fti6eTlHFVkj7AUWI")
 
 # ==================== LOGGING ====================
 logging.basicConfig(
