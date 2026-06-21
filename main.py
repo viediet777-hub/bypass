@@ -32,8 +32,8 @@ from menu import (
 # ==================== CONFIG ====================
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 if not BOT_TOKEN:
-    BOT_TOKEN = "7961583521:AAHm8M7G4bcju0ACwq1SXdoLebeUY-Lfgas"
-    logging.warning("Using hardcoded token. Please set BOT_TOKEN environment variable on Railway.")
+    logging.error("BOT_TOKEN environment variable not set. Please set it on Railway.")
+    exit(1)
 
 ADMIN_ID = int(os.environ.get("ADMIN_ID", 1364476174))
 CHANNEL_USERNAME = "viedietlooters"
