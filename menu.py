@@ -1,7 +1,5 @@
 # menu.py
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
-import random
-import string
 
 # ========== MAIN MENU ==========
 def main_menu_text(user_id: int, username: str = None, balance: int = 15, status: str = "ACTIVE") -> str:
@@ -22,7 +20,7 @@ def main_menu_keyboard():
     kb.add(InlineKeyboardButton("🎁 Shopsy Coin", callback_data="module_shopsy", style="primary"))
     kb.add(InlineKeyboardButton("🔥 Firebase Extractor", callback_data="module_firebase", style="success"))
     kb.add(InlineKeyboardButton("📧 Temp Generator", callback_data="module_temp", style="primary"))
-    kb.add(InlineKeyboardButton("📱 Flipkart Checker", callback_data="module_flipkart", style="primary"))   # NEW
+    kb.add(InlineKeyboardButton("📱 Flipkart Checker", callback_data="module_flipkart", style="primary"))
     return kb
 
 # ========== SHOPSY SUB-MENU ==========
@@ -63,26 +61,25 @@ def firebase_menu_keyboard():
     return kb
 
 # ========== TEMP GENERATOR SUB-MENU ==========
-def generate_temp_email():
-    username = ''.join(random.choices(string.ascii_lowercase + string.digits, k=8))
-    domain = random.choice(["tempmail.com", "guerrillamail.com", "10minutemail.com", "temp-mail.org"])
-    return f"{username}@{domain}"
-
-def temp_menu_text(user_id: int, balance: int = 15, status: str = "ACTIVE") -> str:
-    email = generate_temp_email()
+def temp_menu_text(user_id: int) -> str:
+    # Placeholder – actual email shown after generation
     return (
-        f"📧 <b>TEMP GENERATOR</b>\n\n"
-        f"Your temporary email address:\n"
-        f"<code>{email}</code>\n\n"
-        f"Use this email to receive verification codes.\n"
-        f"⚠️ Emails expire after 10 minutes.\n\n"
-        f"Balance: <b>{balance} Credits</b>\n"
-        f"Status: <b>{status}</b>"
+        f"📧 <b>TEMP MAIL</b>\n\n"
+        f"Click <b>New Email</b> to create a temporary email.\n"
+        f"⏱️ Expires in 10 minutes.\n\n"
+        f"<i>Powered By Viediet Utility</i>"
     )
 
 def temp_menu_keyboard():
-    kb = InlineKeyboardMarkup(row_width=1)
-    kb.add(InlineKeyboardButton("🔄 Generate New Email", callback_data="temp_generate", style="success"))
+    kb = InlineKeyboardMarkup(row_width=2)
+    kb.row(
+        InlineKeyboardButton("📧 New Email", callback_data="temp_new", style="success"),
+        InlineKeyboardButton("📥 Check Inbox", callback_data="temp_inbox", style="primary")
+    )
+    kb.row(
+        InlineKeyboardButton("🔑 Get OTP", callback_data="temp_otp", style="primary"),
+        InlineKeyboardButton("🗑️ Delete Email", callback_data="temp_delete", style="danger")
+    )
     kb.add(InlineKeyboardButton("🔙 Back to Main", callback_data="back_menu", style="danger"))
     return kb
 
