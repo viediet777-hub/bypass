@@ -1,5 +1,7 @@
 # menu.py
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
+import random
+import string
 
 # ========== MAIN MENU ==========
 def main_menu_text(user_id: int, username: str = None, balance: int = 15, status: str = "ACTIVE") -> str:
@@ -19,7 +21,8 @@ def main_menu_keyboard():
     kb = InlineKeyboardMarkup(row_width=1)
     kb.add(InlineKeyboardButton("🎁 Shopsy Coin", callback_data="module_shopsy", style="primary"))
     kb.add(InlineKeyboardButton("🔥 Firebase Extractor", callback_data="module_firebase", style="success"))
-    kb.add(InlineKeyboardButton("📧 Temp Generator", callback_data="module_temp", style="primary"))   # NEW
+    kb.add(InlineKeyboardButton("📧 Temp Generator", callback_data="module_temp", style="primary"))
+    kb.add(InlineKeyboardButton("📱 Flipkart Checker", callback_data="module_flipkart", style="primary"))   # NEW
     return kb
 
 # ========== SHOPSY SUB-MENU ==========
@@ -60,17 +63,12 @@ def firebase_menu_keyboard():
     return kb
 
 # ========== TEMP GENERATOR SUB-MENU ==========
-import random
-import string
-
 def generate_temp_email():
-    # Generate a random temporary email
     username = ''.join(random.choices(string.ascii_lowercase + string.digits, k=8))
     domain = random.choice(["tempmail.com", "guerrillamail.com", "10minutemail.com", "temp-mail.org"])
     return f"{username}@{domain}"
 
 def temp_menu_text(user_id: int, balance: int = 15, status: str = "ACTIVE") -> str:
-    # Generate a new email every time the menu is opened
     email = generate_temp_email()
     return (
         f"📧 <b>TEMP GENERATOR</b>\n\n"
@@ -85,5 +83,20 @@ def temp_menu_text(user_id: int, balance: int = 15, status: str = "ACTIVE") -> s
 def temp_menu_keyboard():
     kb = InlineKeyboardMarkup(row_width=1)
     kb.add(InlineKeyboardButton("🔄 Generate New Email", callback_data="temp_generate", style="success"))
+    kb.add(InlineKeyboardButton("🔙 Back to Main", callback_data="back_menu", style="danger"))
+    return kb
+
+# ========== FLIPKART CHECKER SUB-MENU ==========
+def flipkart_menu_text(user_id: int, balance: int = 15, status: str = "ACTIVE") -> str:
+    return (
+        f"📱 <b>FLIPKART NUMBER CHECKER</b>\n\n"
+        f"Status: <b>{status}</b>\n"
+        f"Balance: <b>{balance} Credits</b>\n"
+        f"Run Cost: <b>1 Credit / check</b>\n\n"
+        f"Send a phone number (10 digits) to check if it's registered on Flipkart/Shopsy."
+    )
+
+def flipkart_menu_keyboard():
+    kb = InlineKeyboardMarkup(row_width=1)
     kb.add(InlineKeyboardButton("🔙 Back to Main", callback_data="back_menu", style="danger"))
     return kb
