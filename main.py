@@ -32,9 +32,8 @@ from menu import (
 # ==================== CONFIG ====================
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 if not BOT_TOKEN:
-    # For testing only – remove this after confirming token works
-    BOT_TOKEN = "8964197574:AAHzdrOC-DYoMcNgieLNQXgT313j-kJ7Afg"  # paste new token temporarily
-    logging.warning("Using hardcoded token for testing.")
+    logging.error("BOT_TOKEN environment variable not set. Please set it on Railway.")
+    exit(1)
 
 if not BOT_TOKEN:
     logging.error("BOT_TOKEN environment variable not set. Please set it on Railway.")
