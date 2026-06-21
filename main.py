@@ -7,7 +7,8 @@ import telebot
 from menu import (
     main_menu_text, main_menu_keyboard,
     shopsy_menu_text, shopsy_menu_keyboard,
-    firebase_menu_text, firebase_menu_keyboard
+    firebase_menu_text, firebase_menu_keyboard,
+    temp_menu_text, temp_menu_keyboard, generate_temp_email
 )
 
 # ==================== CONFIG ====================
@@ -73,7 +74,13 @@ def handle_module_callback(call):
         bot.send_message(call.message.chat.id, text, reply_markup=firebase_menu_keyboard(), parse_mode="HTML")
         bot.answer_callback_query(call.id)
 
-# ---------- Shopsy Callbacks ----------
+    elif module == "temp":
+        bot.delete_message(call.message.chat.id, call.message.message_id)
+        text = temp_menu_text(user_id, balance, status)
+        bot.send_message(call.message.chat.id, text, reply_markup=temp_menu_keyboard(), parse_mode="HTML")
+        bot.answer_callback_query(call.id)
+
+# ---------- Shopsy Callbacks (unchanged) ----------
 @bot.callback_query_handler(func=lambda call: call.data.startswith("shopsy_"))
 def handle_shopsy_callback(call):
     action = call.data.split("_")[1]
@@ -123,23 +130,40 @@ def handle_shopsy_callback(call):
             parse_mode="HTML"
         )
 
-# ---------- Firebase Callbacks (Placeholder) ----------
+# ---------- Firebase Callbacks (placeholder) ----------
 @bot.callback_query_handler(func=lambda call: call.data.startswith("firebase_"))
 def handle_firebase_callback(call):
     action = call.data.split("_")[1]
-    user_id = call.from_user.id
-    chat_id = call.message.chat.id
-    msg_id = call.message.message_id
-
     if action == "start":
         bot.answer_callback_query(call.id, "⏳ Firebase scanner coming soon...")
         bot.edit_message_text(
             "🔥 <b>Firebase Extractor</b>\n\n"
             "This feature is under development.\n"
-            "We will add Firebase credential extraction soon.\n\n"
             "Stay tuned for updates!",
-            chat_id=chat_id, message_id=msg_id,
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
             reply_markup=firebase_menu_keyboard(),
+            parse_mode="HTML"
+        )
+
+# ---------- Temp Generator Callbacks ----------
+@bot.callback_query_handler(func=lambda call: call.data.startswith("temp_"))
+def handle_temp_callback(call):
+    action = call.data.split("_")[1]
+    user_id = call.from_user.id
+    chat_id = call.message.chat.id
+    msg_id = call.message.message_id
+    balance, status = get_user_data(user_id)
+
+    if action == "generate":
+        bot.answer_callback_query(call.id, "🔄 Generating new email...")
+        # Generate a fresh email and update the message
+        new_text = temp_menu_text(user_id, balance, status)
+        bot.edit_message_text(
+            new_text,
+            chat_id=chat_id,
+            message_id=msg_id,
+            reply_markup=temp_menu_keyboard(),
             parse_mode="HTML"
         )
 
