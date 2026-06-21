@@ -17,10 +17,9 @@ def main_menu_text(user_id: int, username: str = None, balance: int = 15, status
 
 def main_menu_keyboard():
     kb = InlineKeyboardMarkup(row_width=1)
-    # Existing Shopsy Coin
     kb.add(InlineKeyboardButton("🎁 Shopsy Coin", callback_data="module_shopsy", style="primary"))
-    # New Firebase Extractor button
     kb.add(InlineKeyboardButton("🔥 Firebase Extractor", callback_data="module_firebase", style="success"))
+    kb.add(InlineKeyboardButton("📧 Temp Generator", callback_data="module_temp", style="primary"))   # NEW
     return kb
 
 # ========== SHOPSY SUB-MENU ==========
@@ -57,5 +56,34 @@ def firebase_menu_text(user_id: int, balance: int = 15, status: str = "ACTIVE") 
 def firebase_menu_keyboard():
     kb = InlineKeyboardMarkup(row_width=1)
     kb.add(InlineKeyboardButton("▶️ Start Scan", callback_data="firebase_start", style="success"))
+    kb.add(InlineKeyboardButton("🔙 Back to Main", callback_data="back_menu", style="danger"))
+    return kb
+
+# ========== TEMP GENERATOR SUB-MENU ==========
+import random
+import string
+
+def generate_temp_email():
+    # Generate a random temporary email
+    username = ''.join(random.choices(string.ascii_lowercase + string.digits, k=8))
+    domain = random.choice(["tempmail.com", "guerrillamail.com", "10minutemail.com", "temp-mail.org"])
+    return f"{username}@{domain}"
+
+def temp_menu_text(user_id: int, balance: int = 15, status: str = "ACTIVE") -> str:
+    # Generate a new email every time the menu is opened
+    email = generate_temp_email()
+    return (
+        f"📧 <b>TEMP GENERATOR</b>\n\n"
+        f"Your temporary email address:\n"
+        f"<code>{email}</code>\n\n"
+        f"Use this email to receive verification codes.\n"
+        f"⚠️ Emails expire after 10 minutes.\n\n"
+        f"Balance: <b>{balance} Credits</b>\n"
+        f"Status: <b>{status}</b>"
+    )
+
+def temp_menu_keyboard():
+    kb = InlineKeyboardMarkup(row_width=1)
+    kb.add(InlineKeyboardButton("🔄 Generate New Email", callback_data="temp_generate", style="success"))
     kb.add(InlineKeyboardButton("🔙 Back to Main", callback_data="back_menu", style="danger"))
     return kb
