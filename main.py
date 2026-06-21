@@ -9,7 +9,7 @@ from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 # ==================== CONFIG ====================
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 if not BOT_TOKEN:
-    BOT_TOKEN = "7893651923:AAF2VrYFQMn3pjek06fti6eTlHFVkj7AUWI"  # fallback local
+    BOT_TOKEN = "7893651923:AAF2VrYFQMn3pjek06fti6eTlHFVkj7AUWI"
     logging.warning("Using hardcoded token. Please set BOT_TOKEN environment variable on Railway.")
 
 if not BOT_TOKEN or not BOT_TOKEN.startswith("789"):
@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 # ==================== BOT INIT ====================
 bot = telebot.TeleBot(BOT_TOKEN, parse_mode="HTML")
 
-# ==================== DATA STORE (in-memory) ====================
+# ==================== DATA STORE ====================
 user_balances = {}
 user_status = {}
 
@@ -53,12 +53,7 @@ def main_menu_text(user_id: int, username: str = None) -> str:
 
 def main_menu_keyboard():
     kb = InlineKeyboardMarkup(row_width=1)
-    btn = InlineKeyboardButton(
-        text="🎁 Shopsy Coin",
-        callback_data="module_shopsy",
-        style="primary"   # 🔵 blue
-    )
-    kb.add(btn)
+    kb.add(InlineKeyboardButton("🎁 Shopsy Coin", callback_data="module_shopsy", style="primary"))
     return kb
 
 # ==================== SHOPSY SUB-MENU ====================
@@ -75,15 +70,11 @@ def shopsy_menu_text(user_id: int) -> str:
 def shopsy_menu_keyboard():
     kb = InlineKeyboardMarkup(row_width=1)
     kb.row(
-        InlineKeyboardButton("▶️ Start New Task", callback_data="shopsy_start", style="success"),  # 🟢 green
-        InlineKeyboardButton("📁 My Accounts", callback_data="shopsy_accounts", style="primary")    # 🔵 blue
+        InlineKeyboardButton("▶️ Start New Task", callback_data="shopsy_start", style="success"),
+        InlineKeyboardButton("📁 My Accounts", callback_data="shopsy_accounts", style="primary")
     )
-    kb.add(
-        InlineKeyboardButton("❓ How To Use", callback_data="shopsy_howto", style="primary")
-    )
-    kb.add(
-        InlineKeyboardButton("🔙 Back to Main", callback_data="back_menu", style="danger")          # 🔴 red
-    )
+    kb.add(InlineKeyboardButton("❓ How To Use", callback_data="shopsy_howto", style="primary"))
+    kb.add(InlineKeyboardButton("🔙 Back to Main", callback_data="back_menu", style="danger"))
     return kb
 
 # ==================== HANDLERS ====================
@@ -102,20 +93,11 @@ def ping_cmd(message):
 def handle_module_callback(call):
     module = call.data.split("_")[1]
     if module == "shopsy":
-        show_shopsy_menu(call)
-
-def show_shopsy_menu(call):
-    user_id = call.from_user.id
-    bot.answer_callback_query(call.id)
-    text = shopsy_menu_text(user_id)
-    # Edit message with new keyboard
-    bot.edit_message_text(
-        text,
-        chat_id=call.message.chat.id,
-        message_id=call.message.message_id,
-        reply_markup=shopsy_menu_keyboard(),
-        parse_mode="HTML"
-    )
+        # Delete old message and send new one to force colors
+        bot.delete_message(call.message.chat.id, call.message.message_id)
+        text = shopsy_menu_text(call.from_user.id)
+        bot.send_message(call.message.chat.id, text, reply_markup=shopsy_menu_keyboard(), parse_mode="HTML")
+        bot.answer_callback_query(call.id)
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("shopsy_"))
 def handle_shopsy_callback(call):
@@ -137,14 +119,10 @@ def handle_shopsy_callback(call):
             return
         user_balances[user_id] = balance - 1
         bot.answer_callback_query(call.id, "✅ Task started!")
-        bot.edit_message_text(
-            "✅ <b>Task Started!</b>\n\nYour Shopsy coin mining is now running.\n"
-            f"Remaining Credits: {user_balances[user_id]}",
-            chat_id=chat_id, message_id=msg_id,
-            reply_markup=shopsy_menu_keyboard(),
-            parse_mode="HTML"
-        )
-        # 🔜 Add actual Shopsy API call here later.
+        # Delete and send new message to show updated balance with colors
+        bot.delete_message(chat_id, msg_id)
+        new_text = shopsy_menu_text(user_id)
+        bot.send_message(chat_id, new_text, reply_markup=shopsy_menu_keyboard(), parse_mode="HTML")
 
     elif action == "accounts":
         bot.answer_callback_query(call.id)
@@ -174,13 +152,9 @@ def handle_shopsy_callback(call):
 def back_to_menu(call):
     user = call.from_user
     text = main_menu_text(user.id, user.first_name)
-    bot.edit_message_text(
-        text,
-        chat_id=call.message.chat.id,
-        message_id=call.message.message_id,
-        reply_markup=main_menu_keyboard(),
-        parse_mode="HTML"
-    )
+    # Delete old message and send new main menu
+    bot.delete_message(call.message.chat.id, call.message.message_id)
+    bot.send_message(call.message.chat.id, text, reply_markup=main_menu_keyboard(), parse_mode="HTML")
     bot.answer_callback_query(call.id)
 
 @bot.message_handler(func=lambda m: True)
