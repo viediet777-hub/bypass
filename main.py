@@ -32,7 +32,7 @@ from menu import (
 # ==================== CONFIG ====================
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 if not BOT_TOKEN:
-    BOT_TOKEN = "7961583521:AAGhT0YAaNEPCAjnfsA9U5HaMXjoH_gOm1k"
+    BOT_TOKEN = "8987534730:AAHEeHPtyPHhqdD56rnQCNTTS98IPFZaPBI"
     logging.warning("Using hardcoded token. Please set BOT_TOKEN environment variable on Railway.")
 
 ADMIN_ID = int(os.environ.get("ADMIN_ID", 1364476174))
