@@ -23,6 +23,11 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# ==================== VERSION CHECK ====================
+print(f"🤖 pyTelegramBotAPI version: {telebot.__version__}")
+if telebot.__version__ < "4.16.0":
+    logger.warning("⚠️ Please upgrade pyTelegramBotAPI to >=4.16.0 for colored buttons.")
+
 # ==================== BOT INIT ====================
 bot = telebot.TeleBot(BOT_TOKEN, parse_mode="HTML")
 
@@ -75,11 +80,15 @@ def shopsy_menu_text(user_id: int) -> str:
 def shopsy_menu_keyboard():
     kb = InlineKeyboardMarkup(row_width=1)
     kb.row(
-        InlineKeyboardButton("▶️ Start New Task", callback_data="shopsy_start"),
-        InlineKeyboardButton("📁 My Accounts", callback_data="shopsy_accounts")
+        InlineKeyboardButton("▶️ Start New Task", callback_data="shopsy_start", style="success"),  # 🟢 green
+        InlineKeyboardButton("📁 My Accounts", callback_data="shopsy_accounts", style="primary")    # 🔵 blue
     )
-    kb.add(InlineKeyboardButton("❓ How To Use", callback_data="shopsy_howto"))
-    kb.add(InlineKeyboardButton("🔙 Back to Main", callback_data="back_menu"))
+    kb.add(
+        InlineKeyboardButton("❓ How To Use", callback_data="shopsy_howto", style="primary")
+    )
+    kb.add(
+        InlineKeyboardButton("🔙 Back to Main", callback_data="back_menu", style="danger")          # 🔴 red
+    )
     return kb
 
 # ==================== HANDLERS ====================
@@ -104,13 +113,20 @@ def show_shopsy_menu(call):
     user_id = call.from_user.id
     bot.answer_callback_query(call.id)
     text = shopsy_menu_text(user_id)
-    bot.edit_message_text(
-        text,
-        chat_id=call.message.chat.id,
-        message_id=call.message.message_id,
-        reply_markup=shopsy_menu_keyboard(),
-        parse_mode="HTML"
-    )
+    # Try to edit, if fails (e.g., colors not supported), send new message
+    try:
+        bot.edit_message_text(
+            text,
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            reply_markup=shopsy_menu_keyboard(),
+            parse_mode="HTML"
+        )
+    except Exception as e:
+        logger.warning(f"Edit failed: {e}. Sending new message.")
+        # Delete old message and send new
+        bot.delete_message(call.message.chat.id, call.message.message_id)
+        bot.send_message(call.message.chat.id, text, reply_markup=shopsy_menu_keyboard(), parse_mode="HTML")
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("shopsy_"))
 def handle_shopsy_callback(call):
