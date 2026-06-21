@@ -1540,7 +1540,12 @@ if __name__ == "__main__":
     task_thread = threading.Thread(target=run_scheduled_tasks, daemon=True)
     task_thread.start()
     logger.info("🤖 Bot is starting with referral system...")
-    try:
-        bot.infinity_polling(timeout=30, long_polling_timeout=30)
-    except Exception as e:
-        logger.error(f"Polling error: {e}")
+    # Remove any existing webhook
+    bot.remove_webhook()
+    # Poll with retry
+    while True:
+        try:
+            bot.polling(non_stop=True, interval=0, timeout=20)
+        except Exception as e:
+            logger.error(f"Polling error: {e}")
+            time.sleep(5)
