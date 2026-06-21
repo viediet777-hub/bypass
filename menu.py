@@ -21,7 +21,7 @@ def main_menu_keyboard():
     kb.add(InlineKeyboardButton("🔥 Firebase Extractor", callback_data="module_firebase", style="success"))
     kb.add(InlineKeyboardButton("📧 Temp Generator", callback_data="module_temp", style="primary"))
     kb.add(InlineKeyboardButton("📱 Flipkart Checker", callback_data="module_flipkart", style="primary"))
-    kb.add(InlineKeyboardButton("📥 Instagram Downloader", callback_data="module_instagram", style="primary"))  # NEW
+    kb.add(InlineKeyboardButton("📥 Instagram Downloader", callback_data="module_instagram", style="primary"))
     return kb
 
 # ========== SHOPSY SUB-MENU ==========
@@ -51,13 +51,21 @@ def firebase_menu_text(user_id: int, balance: int = 15, status: str = "ACTIVE") 
         f"Status: <b>{status}</b>\n"
         f"Balance: <b>{balance} Credits</b>\n"
         f"Run Cost: <b>2 Credits / scan</b>\n\n"
-        f"Extract Firebase credentials from APK files.\n"
-        f"Feature coming soon – placeholder for now."
+        f"Click <b>Send APK</b> to upload an APK file.\n"
+        f"I'll extract:\n"
+        f"• Firebase URLs\n"
+        f"• API Keys\n"
+        f"• Secrets & Tokens\n"
+        f"• JSON Endpoints\n\n"
+        f"⚠️ Analysis may take 30-60 seconds."
     )
 
 def firebase_menu_keyboard():
     kb = InlineKeyboardMarkup(row_width=1)
-    kb.add(InlineKeyboardButton("▶️ Start Scan", callback_data="firebase_start", style="success"))
+    kb.row(
+        InlineKeyboardButton("📤 Send APK", callback_data="firebase_send", style="primary"),
+        InlineKeyboardButton("🗑️ Remove APK", callback_data="firebase_remove", style="danger")
+    )
     kb.add(InlineKeyboardButton("🔙 Back to Main", callback_data="back_menu", style="danger"))
     return kb
 
@@ -105,13 +113,8 @@ def instagram_menu_text(user_id: int, balance: int = 15, status: str = "ACTIVE")
         f"Status: <b>{status}</b>\n"
         f"Balance: <b>{balance} Credits</b>\n"
         f"Download Cost: <b>1 Credit / video</b>\n\n"
-        f"Send Instagram video links (one per line for bulk).\n"
-        f"Click <b>Single</b> to download one video, or <b>Bulk</b> for multiple.\n\n"
-        f"💡 <b>How to use:</b>\n"
-        f"1. Copy the Instagram video URL\n"
-        f"2. Click Single or Bulk below\n"
-        f"3. Paste your links\n\n"
-        f"<i>Powered By Viediet Utility</i>"
+        f"Click <b>Single Download</b> for one reel, or <b>Bulk Download</b> for multiple.\n"
+        f"Then send the Instagram video link(s)."
     )
 
 def instagram_menu_keyboard():
