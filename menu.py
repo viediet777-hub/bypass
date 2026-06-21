@@ -15,16 +15,19 @@ def main_menu_text(user_id: int, username: str = None, balance: int = 15, status
         f"👇 Choose a module to get started."
     )
 
-def main_menu_keyboard():
+def main_menu_keyboard(is_admin: bool = False):
     kb = InlineKeyboardMarkup(row_width=1)
     kb.add(InlineKeyboardButton("🎁 Shopsy Coin", callback_data="module_shopsy", style="primary"))
     kb.add(InlineKeyboardButton("🔥 Firebase Extractor", callback_data="module_firebase", style="success"))
     kb.add(InlineKeyboardButton("📧 Temp Generator", callback_data="module_temp", style="primary"))
     kb.add(InlineKeyboardButton("📱 Flipkart Checker", callback_data="module_flipkart", style="primary"))
     kb.add(InlineKeyboardButton("📥 Instagram Downloader", callback_data="module_instagram", style="primary"))
+    if is_admin:
+        kb.add(InlineKeyboardButton("👑 Admin Panel", callback_data="admin_panel", style="danger"))
     return kb
 
 # ========== SHOPSY SUB-MENU ==========
+# ... (keep existing) ...
 def shopsy_menu_text(user_id: int, balance: int = 15, status: str = "ACTIVE") -> str:
     return (
         f"🎯 <b>SHOPSY AUTO-MINE</b>\n\n"
@@ -122,6 +125,31 @@ def instagram_menu_keyboard():
     kb.row(
         InlineKeyboardButton("📹 Single Download", callback_data="instagram_single", style="success"),
         InlineKeyboardButton("📚 Bulk Download", callback_data="instagram_bulk", style="primary")
+    )
+    kb.add(InlineKeyboardButton("🔙 Back to Main", callback_data="back_menu", style="danger"))
+    return kb
+
+# ========== ADMIN PANEL SUB-MENU ==========
+def admin_panel_text() -> str:
+    return (
+        f"👑 <b>ADMIN PANEL</b>\n\n"
+        f"Welcome, Admin!\n\n"
+        f"Select an option below to manage the bot."
+    )
+
+def admin_panel_keyboard():
+    kb = InlineKeyboardMarkup(row_width=2)
+    kb.row(
+        InlineKeyboardButton("📊 Stats", callback_data="admin_stats", style="primary"),
+        InlineKeyboardButton("👥 Users", callback_data="admin_users", style="primary")
+    )
+    kb.row(
+        InlineKeyboardButton("➕ Add Coins", callback_data="admin_add_coins", style="success"),
+        InlineKeyboardButton("➖ Remove Coins", callback_data="admin_remove_coins", style="danger")
+    )
+    kb.row(
+        InlineKeyboardButton("📢 Broadcast", callback_data="admin_broadcast", style="primary"),
+        InlineKeyboardButton("⚙️ Set Costs", callback_data="admin_costs", style="primary")
     )
     kb.add(InlineKeyboardButton("🔙 Back to Main", callback_data="back_menu", style="danger"))
     return kb
