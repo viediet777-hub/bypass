@@ -1,6 +1,4 @@
 # menu.py
-# All menu texts and keyboard layouts are defined here.
-
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 # ========== MAIN MENU ==========
@@ -19,9 +17,10 @@ def main_menu_text(user_id: int, username: str = None, balance: int = 15, status
 
 def main_menu_keyboard():
     kb = InlineKeyboardMarkup(row_width=1)
+    # Existing Shopsy Coin
     kb.add(InlineKeyboardButton("🎁 Shopsy Coin", callback_data="module_shopsy", style="primary"))
-    # Future buttons:
-    # kb.add(InlineKeyboardButton("🔥 Firebase Extractor", callback_data="module_firebase", style="success"))
+    # New Firebase Extractor button
+    kb.add(InlineKeyboardButton("🔥 Firebase Extractor", callback_data="module_firebase", style="success"))
     return kb
 
 # ========== SHOPSY SUB-MENU ==========
@@ -44,14 +43,15 @@ def shopsy_menu_keyboard():
     kb.add(InlineKeyboardButton("🔙 Back to Main", callback_data="back_menu", style="danger"))
     return kb
 
-# ========== FIREBASE EXTRACTOR (Future) ==========
+# ========== FIREBASE EXTRACTOR SUB-MENU ==========
 def firebase_menu_text(user_id: int, balance: int = 15, status: str = "ACTIVE") -> str:
     return (
         f"🔥 <b>FIREBASE EXTRACTOR</b>\n\n"
         f"Status: <b>{status}</b>\n"
         f"Balance: <b>{balance} Credits</b>\n"
         f"Run Cost: <b>2 Credits / scan</b>\n\n"
-        f"Send APK to extract Firebase credentials."
+        f"Extract Firebase credentials from APK files.\n"
+        f"Feature coming soon – placeholder for now."
     )
 
 def firebase_menu_keyboard():
