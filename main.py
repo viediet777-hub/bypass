@@ -63,7 +63,6 @@ DB_PATH = "viediet_bot.db"
 def init_db():
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
     c = conn.cursor()
-    # Users table with new fields
     c.execute('''
         CREATE TABLE IF NOT EXISTS users (
             user_id INTEGER PRIMARY KEY,
@@ -81,7 +80,6 @@ def init_db():
             last_check TEXT DEFAULT NULL
         )
     ''')
-    # Referrals table
     c.execute('''
         CREATE TABLE IF NOT EXISTS referrals (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -90,23 +88,17 @@ def init_db():
             join_timestamp TEXT,
             leave_timestamp TEXT DEFAULT NULL,
             points_awarded INTEGER DEFAULT 0,
-            is_valid INTEGER DEFAULT 0,
-            FOREIGN KEY (referrer_id) REFERENCES users(user_id),
-            FOREIGN KEY (referred_id) REFERENCES users(user_id)
+            is_valid INTEGER DEFAULT 0
         )
     ''')
-    # Pending referrals (24-hour holding)
     c.execute('''
         CREATE TABLE IF NOT EXISTS pending_referrals (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             referrer_id INTEGER,
             referred_id INTEGER UNIQUE,
-            join_timestamp TEXT,
-            FOREIGN KEY (referrer_id) REFERENCES users(user_id),
-            FOREIGN KEY (referred_id) REFERENCES users(user_id)
+            join_timestamp TEXT
         )
     ''')
-    # Usage logs
     c.execute('''
         CREATE TABLE IF NOT EXISTS usage_logs (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -116,7 +108,6 @@ def init_db():
             timestamp TEXT
         )
     ''')
-    # Config
     c.execute('''
         CREATE TABLE IF NOT EXISTS config (
             key TEXT PRIMARY KEY,
@@ -148,7 +139,6 @@ def create_user(user_id, username, first_name, referred_by=None, ip_address=None
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
     c = conn.cursor()
     now = datetime.now().isoformat()
-    # Generate unique referral code
     ref_code = f"REF{user_id}{random.randint(1000, 9999)}"
     c.execute('''
         INSERT OR IGNORE INTO users 
@@ -157,7 +147,6 @@ def create_user(user_id, username, first_name, referred_by=None, ip_address=None
     ''', (user_id, username, first_name, NEW_USER_BONUS, now, now, referred_by, ref_code, ip_address))
     conn.commit()
     conn.close()
-    # If referred, add to pending referrals
     if referred_by:
         add_pending_referral(referred_by, user_id)
     return NEW_USER_BONUS
@@ -200,11 +189,10 @@ def add_pending_referral(referrer_id, referred_id):
         ''', (referrer_id, referred_id, now))
         conn.commit()
     except sqlite3.IntegrityError:
-        pass  # Already exists
+        pass
     conn.close()
 
 def check_and_award_referrals():
-    """Check pending referrals and award points if 24 hours passed and user is still in channel/group"""
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
     c = conn.cursor()
     now = datetime.now()
@@ -213,15 +201,12 @@ def check_and_award_referrals():
     for pid, referrer_id, referred_id, join_ts in pending:
         join_time = datetime.fromisoformat(join_ts)
         if (now - join_time) >= timedelta(hours=REFERRAL_STAY_HOURS):
-            # Check if referred user is still in channel/group
             try:
                 channel_member = bot.get_chat_member(f"@{CHANNEL_USERNAME}", referred_id)
                 group_member = bot.get_chat_member(f"@{GROUP_USERNAME}", referred_id)
                 if channel_member.status in ['member', 'administrator', 'creator'] and \
                    group_member.status in ['member', 'administrator', 'creator']:
-                    # Award points
                     update_user_balance(referrer_id, REFERRAL_BONUS)
-                    # Move to confirmed referrals
                     c.execute('''
                         INSERT INTO referrals (referrer_id, referred_id, join_timestamp, points_awarded, is_valid)
                         VALUES (?, ?, ?, ?, 1)
@@ -314,22 +299,212 @@ def is_group_member(user_id):
 def check_membership(user_id):
     return is_channel_member(user_id) and is_group_member(user_id)
 
-def deduct_credit(user_id, cost=1):
-    balance = get_user_balance(user_id)
-    if balance < cost:
-        return False
-    update_user_balance(user_id, -cost)
-    return True
+# ==================== GLOBAL STATES ====================
+user_temp_sessions = {}
+user_instagram_state = {}
+user_firebase_state = {}   # <-- FIXED: added this
 
 # ==================== TEMP MAIL CLASS ====================
 class TempMailBot:
-    # ... (keep as before) ...
-    pass
+    def __init__(self):
+        self.base_url = "https://api.mail.tm"
+        self.email = None
+        self.password = None
+        self.token = None
+        self.account_id = None
+        self.messages = []
+        self.is_waiting = False
+        self.expiry_time = None
+
+    def generate_email(self):
+        try:
+            domains_res = requests.get(f"{self.base_url}/domains", timeout=10)
+            domains = domains_res.json().get('hydra:member', [])
+            if not domains:
+                return {'success': False, 'error': 'No domains available'}
+            domain = domains[0]['domain']
+            username = 'user_' + ''.join(random.choices(string.ascii_lowercase + string.digits, k=8))
+            address = f"{username}@{domain}"
+            password = ''.join(random.choices(string.ascii_letters + string.digits, k=12))
+            account_res = requests.post(
+                f"{self.base_url}/accounts",
+                json={'address': address, 'password': password},
+                headers={'Content-Type': 'application/json'}
+            )
+            if account_res.status_code != 201:
+                return {'success': False, 'error': 'Account creation failed'}
+            account = account_res.json()
+            token_res = requests.post(
+                f"{self.base_url}/token",
+                json={'address': address, 'password': password},
+                headers={'Content-Type': 'application/json'}
+            )
+            token_data = token_res.json()
+            self.email = address
+            self.password = password
+            self.token = token_data.get('token')
+            self.account_id = account.get('id')
+            self.messages = []
+            self.expiry_time = datetime.now() + timedelta(minutes=10)
+            return {'success': True, 'email': address, 'expires': '10 minutes'}
+        except Exception as e:
+            return {'success': False, 'error': str(e)}
+
+    def check_inbox(self):
+        if not self.token:
+            return []
+        try:
+            response = requests.get(
+                f"{self.base_url}/messages",
+                headers={'Authorization': f'Bearer {self.token}'}
+            )
+            if response.status_code == 200:
+                data = response.json()
+                messages = data.get('hydra:member', [])
+                for msg in messages:
+                    if msg not in self.messages:
+                        self.messages.append(msg)
+                return messages
+            return []
+        except:
+            return []
+
+    def get_message_content(self, message_id):
+        try:
+            response = requests.get(
+                f"{self.base_url}/messages/{message_id}",
+                headers={'Authorization': f'Bearer {self.token}'}
+            )
+            if response.status_code == 200:
+                return response.json()
+            return None
+        except:
+            return None
+
+    def get_otp_from_messages(self):
+        self.check_inbox()
+        for msg in self.messages:
+            if 'body' not in msg:
+                full_msg = self.get_message_content(msg['id'])
+                if full_msg:
+                    msg['body'] = full_msg.get('text', '')
+                    msg['html'] = full_msg.get('html', '')
+            body = msg.get('body', '') + msg.get('html', '')
+            subject = msg.get('subject', '')
+            combined = body + " " + subject
+            patterns = [
+                r'\b\d{4,6}\b',
+                r'OTP[:\s]*(\d{4,6})',
+                r'code[:\s]*(\d{4,6})',
+                r'verification[:\s]*(\d{4,6})',
+                r'pin[:\s]*(\d{4,6})',
+                r'(\d{4,6})\s*is your'
+            ]
+            for pattern in patterns:
+                matches = re.findall(pattern, combined, re.IGNORECASE)
+                if matches:
+                    otp = matches[0] if isinstance(matches[0], str) else matches[0]
+                    from_addr = msg.get('from', {}).get('address', 'Unknown')
+                    from_name = msg.get('from', {}).get('name', '')
+                    return {
+                        'otp': otp,
+                        'from': from_addr,
+                        'from_name': from_name,
+                        'subject': subject,
+                        'body': body[:500],
+                        'time': datetime.now().strftime('%H:%M:%S')
+                    }
+        return None
+
+    def wait_for_otp(self, callback, timeout=120):
+        self.is_waiting = True
+        start_time = time.time()
+        checked_ids = set()
+        initial = self.check_inbox()
+        for msg in initial:
+            checked_ids.add(msg['id'])
+        while self.is_waiting and (time.time() - start_time) < timeout:
+            try:
+                messages = self.check_inbox()
+                for msg in messages:
+                    if msg['id'] not in checked_ids:
+                        checked_ids.add(msg['id'])
+                        full_msg = self.get_message_content(msg['id'])
+                        if full_msg:
+                            body = full_msg.get('text', '') + full_msg.get('html', '')
+                            subject = full_msg.get('subject', '')
+                            combined = body + " " + subject
+                            patterns = [
+                                r'\b\d{4,6}\b',
+                                r'OTP[:\s]*(\d{4,6})',
+                                r'code[:\s]*(\d{4,6})',
+                                r'verification[:\s]*(\d{4,6})',
+                                r'pin[:\s]*(\d{4,6})',
+                                r'(\d{4,6})\s*is your'
+                            ]
+                            for pattern in patterns:
+                                matches = re.findall(pattern, combined, re.IGNORECASE)
+                                if matches:
+                                    otp = matches[0] if isinstance(matches[0], str) else matches[0]
+                                    self.is_waiting = False
+                                    from_addr = full_msg.get('from', {}).get('address', 'Unknown')
+                                    from_name = full_msg.get('from', {}).get('name', '')
+                                    callback({
+                                        'otp': otp,
+                                        'from': from_addr,
+                                        'from_name': from_name,
+                                        'subject': subject,
+                                        'body': body[:500],
+                                        'time': datetime.now().strftime('%H:%M:%S')
+                                    })
+                                    return
+            except:
+                pass
+            time.sleep(2)
+        self.is_waiting = False
+        callback(None)
 
 # ==================== FLIPKART CHECKER ====================
 def check_flipkart(num):
-    # ... (keep as before) ...
-    pass
+    try:
+        num_with_code = "+91" + num 
+        burp0_url = "https://1.rome.api.flipkart.com/api/6/user/signup/status"
+        burp0_headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/117.0", 
+            "Accept": "*/*", 
+            "Accept-Language": "en-US,en;q=0.5", 
+            "Accept-Encoding": "gzip, deflate", 
+            "Content-Type": "application/json", 
+            "Referer": "https://www.flipkart.com/", 
+            "X-User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/117.0 FKUA/website/42/website/Desktop", 
+            "Origin": "https://www.flipkart.com", 
+            "Sec-Fetch-Dest": "empty", 
+            "Sec-Fetch-Mode": "cors", 
+            "Sec-Fetch-Site": "same-site", 
+            "Te": "trailers", 
+            "Connection": "close"
+        }
+        burp0_json = {"loginId": [num_with_code], "supportAllStates": True}
+        response = requests.post(burp0_url, headers=burp0_headers, json=burp0_json, timeout=10)
+        if response.status_code != 200:
+            return f"⚠️ Flipkart : API Blocked (HTTP {response.status_code})"
+        try:
+            jsonData = response.json()
+        except ValueError:
+            return "⚠️ Flipkart : Did not return JSON. IP might be temporarily blocked."
+        response_block = jsonData.get('RESPONSE', {})
+        user_details = response_block.get('userDetails', {})
+        status = user_details.get(num_with_code)
+        if status == "GUEST":
+            return "❌ Not Registered (GUEST)"
+        elif status == "VERIFIED":
+            return "✅ Registered (VERIFIED)"
+        elif status is None:
+            return f"⚠️ Number not found in response."
+        else:
+            return f"ℹ️ Unknown Status ({status})"
+    except Exception as e:
+        return f"⚠️ Error: {type(e).__name__}: {str(e)}"
 
 # ==================== INSTAGRAM DOWNLOADER ====================
 L = instaloader.Instaloader(
@@ -339,15 +514,192 @@ L = instaloader.Instaloader(
 )
 
 def download_reel(url):
-    # ... (keep as before) ...
-    pass
+    try:
+        shortcode = re.search(r"/reel/(.*?)/", url).group(1)
+        post = instaloader.Post.from_shortcode(L.context, shortcode)
+        L.download_post(post, target=shortcode)
+        for file in os.listdir(shortcode):
+            if file.endswith(".mp4"):
+                return os.path.join(shortcode, file)
+        return None
+    except Exception as e:
+        logger.error(f"Insta download error: {e}")
+        return None
 
 def download_bulk(urls):
-    # ... (keep as before) ...
-    pass
+    results = []
+    for url in urls:
+        path = download_reel(url)
+        if path:
+            results.append(path)
+        time.sleep(1)
+    return results
 
 # ==================== APK ANALYSIS ====================
-# ... (keep all APK analysis functions as before) ...
+def get_md5(file_path):
+    hash_md5 = hashlib.md5()
+    with open(file_path, "rb") as f:
+        for chunk in iter(lambda: f.read(4096), b""):
+            hash_md5.update(chunk)
+    return hash_md5.hexdigest()
+
+def extract_strings_from_dex_files(apk_path):
+    all_strings = []
+    try:
+        with zipfile.ZipFile(apk_path, 'r') as apk_zip:
+            for file_name in apk_zip.namelist():
+                if file_name.endswith('.dex'):
+                    dex_data = apk_zip.read(file_name)
+                    current_string = ""
+                    for byte in dex_data:
+                        if 32 <= byte <= 126:
+                            current_string += chr(byte)
+                        else:
+                            if len(current_string) >= 6:
+                                all_strings.append(current_string)
+                            current_string = ""
+                    if len(current_string) >= 6:
+                        all_strings.append(current_string)
+    except Exception as e:
+        logger.error(f"DEX extraction failed: {e}")
+    return all_strings
+
+def extract_from_manifest(apk_path):
+    strings = []
+    try:
+        with zipfile.ZipFile(apk_path, 'r') as z:
+            if 'AndroidManifest.xml' in z.namelist():
+                manifest_data = z.read('AndroidManifest.xml')
+                current_string = ""
+                for byte in manifest_data:
+                    if 32 <= byte <= 126:
+                        current_string += chr(byte)
+                    else:
+                        if len(current_string) >= 4:
+                            strings.append(current_string)
+                        current_string = ""
+                if len(current_string) >= 4:
+                    strings.append(current_string)
+    except Exception as e:
+        logger.error(f"Manifest extraction failed: {e}")
+    return strings
+
+def get_package_info(apk_path):
+    package_name = "Unknown"
+    version_name = "Unknown"
+    version_code = "Unknown"
+    try:
+        with zipfile.ZipFile(apk_path, 'r') as z:
+            if 'AndroidManifest.xml' in z.namelist():
+                manifest_data = z.read('AndroidManifest.xml')
+                manifest_str = str(manifest_data)
+                pkg_match = re.search(r'package=[\'"]([^\'"]+)[\'"]', manifest_str)
+                if pkg_match:
+                    package_name = pkg_match.group(1)
+                version_match = re.search(r'versionName=[\'"]([^\'"]+)[\'"]', manifest_str)
+                if version_match:
+                    version_name = version_match.group(1)
+                version_code_match = re.search(r'versionCode=[\'"]([^\'"]+)[\'"]', manifest_str)
+                if version_code_match:
+                    version_code = version_code_match.group(1)
+    except Exception as e:
+        logger.error(f"Package info extraction failed: {e}")
+    return package_name, version_name, version_code
+
+def search_in_strings(strings_list):
+    found = {
+        "firebase_urls": set(),
+        "storage_urls": set(),
+        "api_keys": set(),
+        "secrets": set(),
+        "json_endpoints": set()
+    }
+    firebase_pattern = r'(https?://[a-zA-Z0-9\-_]+\.(firebaseio\.com|firebasestorage\.app|firebaseapp\.com))'
+    storage_pattern = r'([a-zA-Z0-9\-_]+\.(appspot\.com|googleapis\.com))'
+    api_key_pattern = r'AIza[0-9A-Za-z\-_]{35}'
+    secret_pattern = r'(?i)(secret|password|api_key|apikey|token|key|auth|authorization)\s*[=:]\s*["\']?([A-Za-z0-9+\/=]{20,})["\']?'
+    json_pattern = r'(https?://[^\s<>"\'{}|\\^`\[\]]+\.json)'
+    for s in strings_list:
+        s_decoded = s if isinstance(s, str) else str(s)
+        for match in re.findall(firebase_pattern, s_decoded, re.IGNORECASE):
+            found["firebase_urls"].add(match[0])
+        for match in re.findall(storage_pattern, s_decoded, re.IGNORECASE):
+            found["storage_urls"].add(match)
+        for match in re.findall(api_key_pattern, s_decoded):
+            found["api_keys"].add(match)
+        for match in re.findall(secret_pattern, s_decoded):
+            if len(match[1]) > 16:
+                found["secrets"].add(match[1])
+        for match in re.findall(json_pattern, s_decoded, re.IGNORECASE):
+            found["json_endpoints"].add(match)
+    return found
+
+def analyze_apk(apk_path):
+    package_name, version_name, version_code = get_package_info(apk_path)
+    manifest_strings = extract_from_manifest(apk_path)
+    dex_strings = extract_strings_from_dex_files(apk_path)
+    all_strings = manifest_strings + dex_strings
+    creds = search_in_strings(all_strings)
+    return {
+        "package_name": package_name,
+        "version_name": version_name,
+        "version_code": version_code,
+        "firebase_urls": list(creds["firebase_urls"]),
+        "storage_urls": list(creds["storage_urls"]),
+        "api_keys": list(creds["api_keys"]),
+        "secrets": list(creds["secrets"]),
+        "json_endpoints": list(creds["json_endpoints"])
+    }, len(dex_strings)
+
+def format_results(results, apk_path, file_size, num_dex_strings):
+    md5_hash = get_md5(apk_path)
+    file_size_mb = round(file_size / (1024 * 1024), 2)
+    total = len(results["firebase_urls"]) + len(results["storage_urls"]) + len(results["api_keys"]) + len(results["secrets"]) + len(results["json_endpoints"])
+    out = []
+    out.append("╔══════════════════════════════════╗")
+    out.append("║     🔓 EXTRACTED CREDENTIALS     ║")
+    out.append("╚══════════════════════════════════╝")
+    out.append("")
+    out.append(f"📦 <code>{os.path.basename(apk_path)}</code>")
+    out.append(f"📏 {file_size_mb} MB  🔒 {md5_hash[:16]}...")
+    out.append("")
+    if results["firebase_urls"]:
+        out.append("🔥 <b>FIREBASE DATABASE:</b>")
+        for url in results["firebase_urls"][:5]:
+            out.append(f"   🌐 <code>{url}</code>")
+            out.append(f"   📁 <code>{url}/.json</code>")
+        out.append("")
+    if results["storage_urls"]:
+        out.append("📦 <b>STORAGE BUCKET:</b>")
+        for storage in results["storage_urls"][:5]:
+            out.append(f"   📦 <code>{storage}</code>")
+        out.append("")
+    if results["api_keys"]:
+        out.append("🔑 <b>API KEYS:</b>")
+        for key in results["api_keys"][:5]:
+            out.append(f"   🔑 <code>{key}</code>")
+        out.append("")
+    if results["secrets"]:
+        out.append("🔐 <b>SECRETS/TOKENS:</b>")
+        for secret in results["secrets"][:5]:
+            secret_display = secret[:40] + "..." if len(secret) > 40 else secret
+            out.append(f"   🔐 <code>{secret_display}</code>")
+        out.append("")
+    if results["json_endpoints"]:
+        out.append("📄 <b>JSON ENDPOINTS:</b>")
+        for endpoint in results["json_endpoints"][:5]:
+            out.append(f"   📄 <code>{endpoint}</code>")
+        out.append("")
+    if total == 0:
+        out.append("⚠️ <i>No credentials found</i>")
+        out.append(f"📊 Scanned {num_dex_strings} strings")
+        out.append("💡 APK may be obfuscated")
+    out.append("")
+    out.append("📦 <b>Package:</b> <code>" + results["package_name"] + "</code>")
+    out.append(f"🔢 <b>Version:</b> {results['version_name']} ({results['version_code']})")
+    out.append("")
+    out.append("⚠️ <i>DO NOT test without owner permission</i>")
+    return "\n".join(out)
 
 # ==================== HANDLERS ====================
 
@@ -358,7 +710,6 @@ def start_cmd(message):
     username = user.username or "NoUsername"
     first_name = user.first_name or "User"
     
-    # Check for referral parameter
     args = message.text.split()
     referred_by = None
     if len(args) > 1 and args[1].startswith('ref_'):
@@ -367,22 +718,11 @@ def start_cmd(message):
         except:
             pass
     
-    # Check if user already exists
     existing = get_user(user_id)
     if not existing:
-        # Create new user with referral
         create_user(user_id, username, first_name, referred_by)
-        # If referred, give bonus to referrer immediately (points will be awarded after 24h check)
-        if referred_by:
-            # The points will be awarded after 24h check
-            pass
-    else:
-        # If user exists but was referred, we don't create again
-        pass
     
-    # Check membership
     if not check_membership(user_id):
-        # Show force join message
         text = (
             f"🔐 <b>Access Denied</b> 😞!\n\n"
             f"You must join our communities to use this bot.\n\n"
@@ -400,7 +740,6 @@ def start_cmd(message):
         bot.send_message(message.chat.id, text, reply_markup=keyboard, parse_mode="HTML", disable_web_page_preview=True)
         return
     
-    # Show main menu
     balance = get_user_balance(user_id)
     is_admin = (user_id == ADMIN_ID)
     text = main_menu_text(user_id, first_name, balance, "ACTIVE")
@@ -411,7 +750,6 @@ def verify_membership_callback(call):
     user_id = call.from_user.id
     if check_membership(user_id):
         bot.answer_callback_query(call.id, "✅ Verified! You can now use the bot.")
-        # Show main menu
         user = call.from_user
         balance = get_user_balance(user_id)
         is_admin = (user_id == ADMIN_ID)
@@ -419,8 +757,6 @@ def verify_membership_callback(call):
         bot.edit_message_text(text, call.message.chat.id, call.message.message_id, reply_markup=main_menu_keyboard(is_admin), parse_mode="HTML")
     else:
         bot.answer_callback_query(call.id, "❌ Please join both channel and group first!", show_alert=True)
-        # Keep the same message
-        pass
 
 # ---------- Module Navigation ----------
 @bot.callback_query_handler(func=lambda call: call.data.startswith("module_"))
@@ -428,27 +764,19 @@ def handle_module_callback(call):
     module = call.data.split("_")[1]
     user_id = call.from_user.id
     balance = get_user_balance(user_id)
-    
-    # Check membership for all modules except referral and admin
+
     if module not in ["referral", "admin"]:
         if not check_membership(user_id):
             bot.answer_callback_query(call.id, "❌ Please join channel and group first!", show_alert=True)
             return
-    
+
     if module == "shopsy":
-        # Check membership
-        if not check_membership(user_id):
-            bot.answer_callback_query(call.id, "❌ Please join channel and group first!", show_alert=True)
-            return
         bot.delete_message(call.message.chat.id, call.message.message_id)
         text = shopsy_menu_text(user_id, balance, "ACTIVE")
         bot.send_message(call.message.chat.id, text, reply_markup=shopsy_menu_keyboard(), parse_mode="HTML")
         bot.answer_callback_query(call.id)
 
     elif module == "firebase":
-        if not check_membership(user_id):
-            bot.answer_callback_query(call.id, "❌ Please join channel and group first!", show_alert=True)
-            return
         user_firebase_state[user_id] = False
         bot.delete_message(call.message.chat.id, call.message.message_id)
         text = firebase_menu_text(user_id, balance, "ACTIVE")
@@ -456,27 +784,18 @@ def handle_module_callback(call):
         bot.answer_callback_query(call.id)
 
     elif module == "temp":
-        if not check_membership(user_id):
-            bot.answer_callback_query(call.id, "❌ Please join channel and group first!", show_alert=True)
-            return
         bot.delete_message(call.message.chat.id, call.message.message_id)
         text = temp_menu_text(user_id)
         bot.send_message(call.message.chat.id, text, reply_markup=temp_menu_keyboard(), parse_mode="HTML")
         bot.answer_callback_query(call.id)
 
     elif module == "flipkart":
-        if not check_membership(user_id):
-            bot.answer_callback_query(call.id, "❌ Please join channel and group first!", show_alert=True)
-            return
         bot.delete_message(call.message.chat.id, call.message.message_id)
         text = flipkart_menu_text(user_id, balance, "ACTIVE")
         bot.send_message(call.message.chat.id, text, reply_markup=flipkart_menu_keyboard(), parse_mode="HTML")
         bot.answer_callback_query(call.id)
 
     elif module == "instagram":
-        if not check_membership(user_id):
-            bot.answer_callback_query(call.id, "❌ Please join channel and group first!", show_alert=True)
-            return
         bot.delete_message(call.message.chat.id, call.message.message_id)
         text = instagram_menu_text(user_id, balance, "ACTIVE")
         bot.send_message(call.message.chat.id, text, reply_markup=instagram_menu_keyboard(), parse_mode="HTML")
@@ -507,7 +826,6 @@ def handle_referral_callback(call):
     msg_id = call.message.message_id
 
     if action == "get_link":
-        # Check membership
         if not check_membership(user_id):
             bot.answer_callback_query(call.id, "❌ Please join channel and group first!", show_alert=True)
             return
@@ -543,8 +861,433 @@ def handle_referral_callback(call):
             parse_mode="HTML"
         )
 
-# ---------- All other module handlers (Shopsy, Firebase, Temp, Flipkart, Instagram) ----------
-# ... (keep all existing handlers as before, but add membership check at start of each) ...
+# ---------- Firebase Callbacks ----------
+@bot.callback_query_handler(func=lambda call: call.data.startswith("firebase_"))
+def handle_firebase_callback(call):
+    action = call.data.split("_")[1]
+    user_id = call.from_user.id
+    chat_id = call.message.chat.id
+    msg_id = call.message.message_id
+    balance = get_user_balance(user_id)
+
+    if action == "send":
+        user_firebase_state[user_id] = True
+        bot.answer_callback_query(call.id, "📤 Ready! Send your APK file.")
+        bot.edit_message_text(
+            "📤 <b>Send APK</b>\n\n"
+            "Please upload your APK file.\n"
+            "I will analyze it for Firebase credentials and other sensitive data.\n\n"
+            "⏱️ Analysis may take 30-60 seconds.\n"
+            "💰 Cost: 2 Credits.\n"
+            "Click <b>Remove APK</b> to cancel.",
+            chat_id=chat_id,
+            message_id=msg_id,
+            reply_markup=firebase_menu_keyboard(),
+            parse_mode="HTML"
+        )
+
+    elif action == "remove":
+        user_firebase_state[user_id] = False
+        bot.answer_callback_query(call.id, "🗑️ Firebase session cleared.")
+        bot.edit_message_text(
+            "🗑️ <b>APK Removed</b>\n\n"
+            "Any pending APK upload has been cleared.\n"
+            "You can send a new APK anytime.",
+            chat_id=chat_id,
+            message_id=msg_id,
+            reply_markup=firebase_menu_keyboard(),
+            parse_mode="HTML"
+        )
+
+# ---------- APK Handler ----------
+@bot.message_handler(content_types=['document'])
+def handle_apk(message):
+    user_id = message.from_user.id
+    if not user_firebase_state.get(user_id, False):
+        bot.reply_to(message, "❌ Please click <b>Send APK</b> in the Firebase Extractor module first.", parse_mode="HTML")
+        return
+
+    doc = message.document
+    if not doc.file_name or not doc.file_name.lower().endswith(".apk"):
+        bot.reply_to(message, "❌ Please send an <code>.apk</code> file.", parse_mode="HTML")
+        return
+
+    if doc.file_size > 50 * 1024 * 1024:
+        bot.reply_to(message, "❌ Max file size: 50 MB.")
+        return
+
+    balance = get_user_balance(user_id)
+    if balance < 2:
+        bot.reply_to(message, f"❌ Insufficient credits! You need 2 credits. Your balance: {balance}")
+        return
+
+    update_user_balance(user_id, -2)
+    processing_msg = bot.reply_to(message, "⏳ Analyzing APK... (may take 30-60 seconds)")
+
+    tmp_path = None
+    try:
+        file_info = bot.get_file(doc.file_id)
+        tmp_path = f"/tmp/{doc.file_name}"
+        downloaded_file = bot.download_file(file_info.file_path)
+        with open(tmp_path, "wb") as f:
+            f.write(downloaded_file)
+        file_size = doc.file_size
+
+        results, num_dex_strings = analyze_apk(tmp_path)
+        reply = format_results(results, tmp_path, file_size, num_dex_strings)
+        if len(reply) > 4096:
+            reply = reply[:4000] + "\n\n...(truncated)"
+        bot.edit_message_text(reply, chat_id=message.chat.id, message_id=processing_msg.message_id, parse_mode="HTML")
+        log_usage(user_id, "Firebase Extractor", f"APK: {doc.file_name}")
+    except Exception as e:
+        logger.error(f"APK analysis error: {e}")
+        update_user_balance(user_id, 2)
+        bot.edit_message_text(
+            f"❌ Analysis failed!\n\nError: {str(e)[:200]}",
+            chat_id=message.chat.id,
+            message_id=processing_msg.message_id,
+            parse_mode="HTML"
+        )
+    finally:
+        if tmp_path and os.path.exists(tmp_path):
+            try:
+                os.unlink(tmp_path)
+            except:
+                pass
+
+# ---------- Shopsy Callbacks ----------
+@bot.callback_query_handler(func=lambda call: call.data.startswith("shopsy_"))
+def handle_shopsy_callback(call):
+    action = call.data.split("_")[1]
+    user_id = call.from_user.id
+    chat_id = call.message.chat.id
+    msg_id = call.message.message_id
+    balance, status = get_user_balance(user_id), "ACTIVE"
+
+    if action == "start":
+        if balance < 1:
+            bot.answer_callback_query(call.id, "❌ Insufficient credits!")
+            bot.edit_message_text(
+                "❌ <b>Insufficient credits!</b>\n\nYou need at least 1 credit to run a task.",
+                chat_id=chat_id, message_id=msg_id,
+                reply_markup=shopsy_menu_keyboard(),
+                parse_mode="HTML"
+            )
+            return
+        update_user_balance(user_id, -1)
+        bot.answer_callback_query(call.id, "✅ Task started!")
+        bot.delete_message(chat_id, msg_id)
+        new_balance = get_user_balance(user_id)
+        new_text = shopsy_menu_text(user_id, new_balance, status)
+        bot.send_message(chat_id, new_text, reply_markup=shopsy_menu_keyboard(), parse_mode="HTML")
+
+    elif action == "accounts":
+        bot.answer_callback_query(call.id)
+        bot.edit_message_text(
+            "📁 <b>My Accounts</b>\n\nYou have <b>1</b> account linked:\n• +91 9826621729 (Default)\n\n"
+            "To add more accounts, contact support.",
+            chat_id=chat_id, message_id=msg_id,
+            reply_markup=shopsy_menu_keyboard(),
+            parse_mode="HTML"
+        )
+
+    elif action == "howto":
+        bot.answer_callback_query(call.id)
+        bot.edit_message_text(
+            "❓ <b>How To Use Shopsy Auto-Mine</b>\n\n"
+            "1️⃣ Click <b>Start New Task</b> – bot will mine 30 Shopsy coins.\n"
+            "2️⃣ Each run costs <b>1 Credit</b>.\n"
+            "3️⃣ You need a valid Shopsy account (phone+OTP).\n"
+            "4️⃣ Credits can be earned via referrals or tasks.\n\n"
+            "⚠️ Make sure you have sufficient balance before starting.",
+            chat_id=chat_id, message_id=msg_id,
+            reply_markup=shopsy_menu_keyboard(),
+            parse_mode="HTML"
+        )
+
+# ---------- Temp Callbacks ----------
+@bot.callback_query_handler(func=lambda call: call.data.startswith("temp_"))
+def handle_temp_callback(call):
+    action = call.data.split("_")[1]
+    user_id = call.from_user.id
+    chat_id = call.message.chat.id
+    msg_id = call.message.message_id
+
+    if action == "new":
+        if user_id in user_temp_sessions:
+            user_temp_sessions[user_id] = None
+        temp = TempMailBot()
+        result = temp.generate_email()
+        if result['success']:
+            user_temp_sessions[user_id] = temp
+            bot.answer_callback_query(call.id, "✅ New email created!")
+            bot.edit_message_text(
+                f"📧 <b>New Email Created!</b>\n\n"
+                f"📧 <b>Email:</b> <code>{result['email']}</code>\n"
+                f"⏱️ <b>Expires:</b> 10 minutes\n\n"
+                f"💡 Use <b>Check Inbox</b> to see messages\n"
+                f"🔑 Use <b>Get OTP</b> to auto-detect OTP\n\n"
+                f"<i>Powered By Viediet Utility</i>",
+                chat_id=chat_id,
+                message_id=msg_id,
+                reply_markup=temp_menu_keyboard(),
+                parse_mode="HTML"
+            )
+        else:
+            bot.answer_callback_query(call.id, "❌ Failed to create email!", show_alert=True)
+            bot.edit_message_text(
+                f"❌ <b>Failed!</b>\n\nError: {result.get('error', 'Unknown')}",
+                chat_id=chat_id,
+                message_id=msg_id,
+                reply_markup=temp_menu_keyboard(),
+                parse_mode="HTML"
+            )
+
+    elif action == "inbox":
+        if user_id not in user_temp_sessions:
+            bot.answer_callback_query(call.id, "❌ No email! Create one first.", show_alert=True)
+            return
+        temp = user_temp_sessions[user_id]
+        if temp.expiry_time and datetime.now() > temp.expiry_time:
+            bot.answer_callback_query(call.id, "❌ Email expired! Create new one.", show_alert=True)
+            del user_temp_sessions[user_id]
+            return
+        bot.answer_callback_query(call.id, "📥 Checking inbox...")
+        messages = temp.check_inbox()
+        if not messages:
+            bot.edit_message_text(
+                "📥 <b>Inbox</b>\n\n📭 No messages yet!\n\n💡 Try getting OTP.",
+                chat_id=chat_id,
+                message_id=msg_id,
+                reply_markup=temp_menu_keyboard(),
+                parse_mode="HTML"
+            )
+            return
+        inbox_text = f"📥 <b>Inbox</b>\n\n"
+        for i, msg in enumerate(messages[-5:], 1):
+            from_addr = msg.get('from', {}).get('address', 'Unknown')
+            subject = msg.get('subject', 'No Subject')
+            inbox_text += f"━━━━━━━━━━━━━━━━━━━━\n"
+            inbox_text += f"{i}. 📧 <b>From:</b> {from_addr}\n"
+            inbox_text += f"   📝 <b>Subject:</b> {subject}\n"
+            body = msg.get('body', '')
+            if not body:
+                full = temp.get_message_content(msg['id'])
+                if full:
+                    body = full.get('text', '')
+            combined = body + " " + subject
+            otp_match = re.search(r'\b\d{4,6}\b', combined)
+            if otp_match:
+                inbox_text += f"   🔑 <b>OTP:</b> <code>{otp_match.group()}</code>\n"
+            inbox_text += f"\n"
+        inbox_text += f"━━━━━━━━━━━━━━━━━━━━\n"
+        inbox_text += f"📊 <b>Total:</b> {len(messages)} messages\n\n"
+        inbox_text += f"<i>Powered By Viediet Utility</i>"
+        bot.edit_message_text(
+            inbox_text,
+            chat_id=chat_id,
+            message_id=msg_id,
+            reply_markup=temp_menu_keyboard(),
+            parse_mode="HTML"
+        )
+
+    elif action == "otp":
+        if user_id not in user_temp_sessions:
+            bot.answer_callback_query(call.id, "❌ No email! Create one first.", show_alert=True)
+            return
+        temp = user_temp_sessions[user_id]
+        if temp.expiry_time and datetime.now() > temp.expiry_time:
+            bot.answer_callback_query(call.id, "❌ Email expired! Create new one.", show_alert=True)
+            del user_temp_sessions[user_id]
+            return
+        bot.answer_callback_query(call.id, "🔑 Monitoring for OTP...")
+        waiting_msg = bot.send_message(
+            chat_id,
+            "🔑 <b>Waiting for OTP...</b>\n\n"
+            "⏳ Monitoring inbox...\n"
+            "📩 OTP will appear here instantly\n"
+            "⏱️ Timeout: 2 minutes\n\n"
+            "<i>Powered By Viediet Utility</i>",
+            parse_mode='HTML'
+        )
+        def otp_callback(result):
+            if result:
+                from_display = result['from_name'] if result['from_name'] else result['from']
+                bot.edit_message_text(
+                    f"🔑 <b>✅ OTP Received!</b>\n\n"
+                    f"━━━━━━━━━━━━━━━━━━━━\n"
+                    f"🔑 <b>OTP Code:</b> <code>{result['otp']}</code>\n"
+                    f"━━━━━━━━━━━━━━━━━━━━\n"
+                    f"📧 <b>From:</b> {from_display}\n"
+                    f"📧 <b>Email:</b> {result['from']}\n"
+                    f"📝 <b>Subject:</b> {result['subject']}\n"
+                    f"⏱️ <b>Time:</b> {result['time']}\n"
+                    f"━━━━━━━━━━━━━━━━━━━━\n\n"
+                    f"<i>Powered By Viediet Utility</i>",
+                    chat_id=chat_id,
+                    message_id=waiting_msg.message_id,
+                    parse_mode='HTML'
+                )
+            else:
+                bot.edit_message_text(
+                    "❌ <b>No OTP Found!</b>\n\n"
+                    "⏱️ No OTP received in 2 minutes.\n\n"
+                    "💡 <b>Try:</b>\n"
+                    "• Send OTP again\n"
+                    "• Check inbox manually\n"
+                    "• Create new email\n\n"
+                    "<i>Powered By Viediet Utility</i>",
+                    chat_id=chat_id,
+                    message_id=waiting_msg.message_id,
+                    parse_mode='HTML'
+                )
+        thread = threading.Thread(target=temp.wait_for_otp, args=(otp_callback, 120))
+        thread.daemon = True
+        thread.start()
+
+    elif action == "delete":
+        if user_id in user_temp_sessions:
+            user_temp_sessions[user_id] = None
+            del user_temp_sessions[user_id]
+        bot.answer_callback_query(call.id, "✅ Email deleted!")
+        bot.edit_message_text(
+            "🗑️ <b>Email Deleted</b>\n\n"
+            "Your temporary email has been deleted.\n\n"
+            "<i>Powered By Viediet Utility</i>",
+            chat_id=chat_id,
+            message_id=msg_id,
+            reply_markup=temp_menu_keyboard(),
+            parse_mode="HTML"
+        )
+
+# ---------- Flipkart Callbacks ----------
+@bot.callback_query_handler(func=lambda call: call.data.startswith("flipkart_"))
+def handle_flipkart_callback(call):
+    bot.answer_callback_query(call.id, "📱 Send a 10-digit number to check.")
+
+@bot.message_handler(func=lambda message: message.text and message.text.isdigit() and len(message.text) == 10)
+def handle_phone_number(message):
+    user_id = message.from_user.id
+    balance = get_user_balance(user_id)
+    if balance < 1:
+        bot.reply_to(message, "❌ Insufficient credits! You need 1 credit to check a number.")
+        return
+    update_user_balance(user_id, -1)
+    processing = bot.reply_to(message, f"🔍 Checking <code>{message.text}</code> on Flipkart...", parse_mode="HTML")
+    def check_thread():
+        result = check_flipkart(message.text)
+        new_balance = get_user_balance(user_id)
+        bot.edit_message_text(
+            f"📱 <b>Result for {message.text}</b>\n\n{result}\n\n💰 Remaining Credits: {new_balance}",
+            chat_id=message.chat.id,
+            message_id=processing.message_id,
+            parse_mode="HTML"
+        )
+        log_usage(user_id, "Flipkart Checker", f"Number: {message.text}")
+    threading.Thread(target=check_thread).start()
+
+# ---------- Instagram Callbacks ----------
+@bot.callback_query_handler(func=lambda call: call.data.startswith("instagram_"))
+def handle_instagram_callback(call):
+    action = call.data.split("_")[1]
+    user_id = call.from_user.id
+
+    if action == "single":
+        user_instagram_state[user_id] = "single"
+        bot.answer_callback_query(call.id, "📹 Send a single Instagram video URL.")
+        bot.edit_message_text(
+            "📹 <b>Single Download</b>\n\n"
+            "Send me the Instagram video link.\n"
+            "Example: <code>https://www.instagram.com/reel/xyz123/</code>\n\n"
+            "💡 Costs 1 Credit.\n\n"
+            "<i>Powered By Viediet Utility</i>",
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            reply_markup=instagram_menu_keyboard(),
+            parse_mode="HTML"
+        )
+
+    elif action == "bulk":
+        user_instagram_state[user_id] = "bulk"
+        bot.answer_callback_query(call.id, "📚 Send multiple Instagram video URLs (one per line).")
+        bot.edit_message_text(
+            "📚 <b>Bulk Download</b>\n\n"
+            "Send me multiple Instagram video links,\n"
+            "each on a new line.\n\n"
+            "Example:\n"
+            "<code>https://www.instagram.com/reel/abc/\n"
+            "https://www.instagram.com/reel/def/</code>\n\n"
+            "💡 Costs 1 Credit per video.\n\n"
+            "<i>Powered By Viediet Utility</i>",
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            reply_markup=instagram_menu_keyboard(),
+            parse_mode="HTML"
+        )
+
+@bot.message_handler(func=lambda message: message.text and 'instagram.com' in message.text.lower())
+def handle_instagram_link(message):
+    user_id = message.from_user.id
+    balance = get_user_balance(user_id)
+    state = user_instagram_state.get(user_id)
+
+    if not state:
+        bot.reply_to(message, "📥 Please use the Instagram Downloader module from the main menu to send links.")
+        return
+
+    lines = message.text.strip().splitlines()
+    urls = [line.strip() for line in lines if 'instagram.com' in line]
+
+    if not urls:
+        bot.reply_to(message, "❌ No valid Instagram URLs found.")
+        return
+
+    if state == "single":
+        if balance < 1:
+            bot.reply_to(message, "❌ Insufficient credits! You need 1 credit to download.")
+            return
+        update_user_balance(user_id, -1)
+        processing = bot.reply_to(message, "⏳ Downloading reel...")
+        def download_single():
+            file_path = download_reel(urls[0])
+            if file_path:
+                try:
+                    with open(file_path, "rb") as vid:
+                        bot.send_video(message.chat.id, vid, caption="✅ Downloaded successfully!")
+                    os.remove(file_path)
+                    shutil.rmtree(os.path.dirname(file_path), ignore_errors=True)
+                except Exception as e:
+                    bot.send_message(message.chat.id, f"❌ Upload failed: {e}")
+            else:
+                bot.send_message(message.chat.id, "❌ Failed to download reel. Check URL or try again.")
+            bot.delete_message(message.chat.id, processing.message_id)
+        threading.Thread(target=download_single).start()
+
+    elif state == "bulk":
+        total_cost = len(urls)
+        if balance < total_cost:
+            bot.reply_to(message, f"❌ Insufficient credits! Need {total_cost} credits for {len(urls)} videos.")
+            return
+        update_user_balance(user_id, -total_cost)
+        processing = bot.reply_to(message, f"⏳ Downloading {len(urls)} reels...")
+        def download_bulk_thread():
+            paths = download_bulk(urls)
+            if paths:
+                for path in paths:
+                    try:
+                        with open(path, "rb") as vid:
+                            bot.send_video(message.chat.id, vid)
+                        os.remove(path)
+                        shutil.rmtree(os.path.dirname(path), ignore_errors=True)
+                    except Exception as e:
+                        bot.send_message(message.chat.id, f"❌ Upload failed for one video: {e}")
+                bot.send_message(message.chat.id, f"✅ All {len(paths)} videos sent successfully!")
+            else:
+                bot.send_message(message.chat.id, "❌ Failed to download any reel.")
+            bot.delete_message(message.chat.id, processing.message_id)
+        threading.Thread(target=download_bulk_thread).start()
+
+    user_instagram_state[user_id] = None
 
 # ---------- Admin Panel Callbacks ----------
 @bot.callback_query_handler(func=lambda call: call.data.startswith("admin_"))
@@ -552,8 +1295,217 @@ def handle_admin_callback(call):
     if call.from_user.id != ADMIN_ID:
         bot.answer_callback_query(call.id, "⛔ Admin only!")
         return
-    # ... (keep existing admin handlers) ...
-    pass
+    action = call.data.split("_")[1]
+    chat_id = call.message.chat.id
+    msg_id = call.message.message_id
+
+    if action == "stats":
+        total_users = get_total_users()
+        total_coins = get_total_coins()
+        total_usage = get_total_usage()
+        bot.edit_message_text(
+            f"📊 <b>Bot Statistics</b>\n\n"
+            f"👥 Total Users: <b>{total_users}</b>\n"
+            f"💰 Total Coins: <b>{total_coins}</b>\n"
+            f"📈 Total Usage: <b>{total_usage}</b> operations\n"
+            f"🔢 Admin ID: <code>{ADMIN_ID}</code>",
+            chat_id=chat_id,
+            message_id=msg_id,
+            reply_markup=admin_panel_keyboard(),
+            parse_mode="HTML"
+        )
+        bot.answer_callback_query(call.id)
+
+    elif action == "users":
+        users = get_all_users()
+        if not users:
+            msg = "No users found."
+        else:
+            msg = "👥 <b>User List (Top 20 by coins)</b>\n\n"
+            for i, (uid, uname, bal, stat) in enumerate(users[:20], 1):
+                msg += f"{i}. <code>{uname}</code> (ID: {uid}) – {bal} coins [{stat}]\n"
+        bot.edit_message_text(
+            msg,
+            chat_id=chat_id,
+            message_id=msg_id,
+            reply_markup=admin_panel_keyboard(),
+            parse_mode="HTML"
+        )
+        bot.answer_callback_query(call.id)
+
+    elif action == "add_coins":
+        bot.answer_callback_query(call.id)
+        bot.edit_message_text(
+            "➕ <b>Add Coins</b>\n\n"
+            "Send message in format:\n"
+            "`/addcoins @username amount`\n"
+            "or\n"
+            "`/addcoins user_id amount`\n\n"
+            "Example: `/addcoins @Viediet 50`",
+            chat_id=chat_id,
+            message_id=msg_id,
+            reply_markup=admin_panel_keyboard(),
+            parse_mode="HTML"
+        )
+
+    elif action == "remove_coins":
+        bot.answer_callback_query(call.id)
+        bot.edit_message_text(
+            "➖ <b>Remove Coins</b>\n\n"
+            "Send message in format:\n"
+            "`/removecoins @username amount`\n"
+            "or\n"
+            "`/removecoins user_id amount`\n\n"
+            "Example: `/removecoins @Viediet 20`",
+            chat_id=chat_id,
+            message_id=msg_id,
+            reply_markup=admin_panel_keyboard(),
+            parse_mode="HTML"
+        )
+
+    elif action == "broadcast":
+        bot.answer_callback_query(call.id)
+        bot.edit_message_text(
+            "📢 <b>Broadcast</b>\n\n"
+            "Send a message to all users.\n"
+            "Format: `/broadcast your message here`\n\n"
+            "Example: `/broadcast Hello everyone!`",
+            chat_id=chat_id,
+            message_id=msg_id,
+            reply_markup=admin_panel_keyboard(),
+            parse_mode="HTML"
+        )
+
+    elif action == "costs":
+        current_cost = get_config("firebase_cost", "2")
+        bot.answer_callback_query(call.id)
+        bot.edit_message_text(
+            f"⚙️ <b>Set Costs</b>\n\n"
+            f"Current Firebase cost: <code>{current_cost}</code> credits\n\n"
+            f"To change, send:\n"
+            f"`/setcost firebase 5`\n\n"
+            f"(Other modules can be added later)",
+            chat_id=chat_id,
+            message_id=msg_id,
+            reply_markup=admin_panel_keyboard(),
+            parse_mode="HTML"
+        )
+
+# ---------- Admin Commands ----------
+@bot.message_handler(commands=['addcoins'])
+def add_coins_cmd(message):
+    if message.from_user.id != ADMIN_ID:
+        bot.reply_to(message, "⛔ Admin only!")
+        return
+    try:
+        parts = message.text.split()
+        if len(parts) < 3:
+            bot.reply_to(message, "❌ Usage: /addcoins @username amount")
+            return
+        identifier = parts[1].lstrip('@')
+        amount = int(parts[2])
+        conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+        c = conn.cursor()
+        if identifier.isdigit():
+            c.execute('SELECT user_id, username, balance FROM users WHERE user_id = ?', (int(identifier),))
+        else:
+            c.execute('SELECT user_id, username, balance FROM users WHERE username = ?', (identifier,))
+        row = c.fetchone()
+        conn.close()
+        if not row:
+            bot.reply_to(message, f"❌ User not found: {identifier}")
+            return
+        uid, uname, bal = row
+        update_user_balance(uid, amount)
+        new_bal = bal + amount
+        bot.reply_to(message, f"✅ Added {amount} coins to @{uname} (ID: {uid})\n💰 New balance: {new_bal}")
+        try:
+            bot.send_message(uid, f"🎁 Admin added <b>+{amount}</b> coins to your account!\n💰 New balance: {new_bal}", parse_mode="HTML")
+        except:
+            pass
+    except Exception as e:
+        bot.reply_to(message, f"❌ Error: {str(e)}")
+
+@bot.message_handler(commands=['removecoins'])
+def remove_coins_cmd(message):
+    if message.from_user.id != ADMIN_ID:
+        bot.reply_to(message, "⛔ Admin only!")
+        return
+    try:
+        parts = message.text.split()
+        if len(parts) < 3:
+            bot.reply_to(message, "❌ Usage: /removecoins @username amount")
+            return
+        identifier = parts[1].lstrip('@')
+        amount = int(parts[2])
+        conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+        c = conn.cursor()
+        if identifier.isdigit():
+            c.execute('SELECT user_id, username, balance FROM users WHERE user_id = ?', (int(identifier),))
+        else:
+            c.execute('SELECT user_id, username, balance FROM users WHERE username = ?', (identifier,))
+        row = c.fetchone()
+        conn.close()
+        if not row:
+            bot.reply_to(message, f"❌ User not found: {identifier}")
+            return
+        uid, uname, bal = row
+        if bal - amount < 0:
+            bot.reply_to(message, f"❌ User has only {bal} coins. Cannot remove {amount}.")
+            return
+        update_user_balance(uid, -amount)
+        new_bal = bal - amount
+        bot.reply_to(message, f"✅ Removed {amount} coins from @{uname} (ID: {uid})\n💰 New balance: {new_bal}")
+        try:
+            bot.send_message(uid, f"💸 Admin removed <b>-{amount}</b> coins from your account.\n💰 New balance: {new_bal}", parse_mode="HTML")
+        except:
+            pass
+    except Exception as e:
+        bot.reply_to(message, f"❌ Error: {str(e)}")
+
+@bot.message_handler(commands=['broadcast'])
+def broadcast_cmd(message):
+    if message.from_user.id != ADMIN_ID:
+        bot.reply_to(message, "⛔ Admin only!")
+        return
+    msg = message.text.replace('/broadcast', '', 1).strip()
+    if not msg:
+        bot.reply_to(message, "❌ Please provide a message to broadcast.")
+        return
+    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+    c = conn.cursor()
+    c.execute('SELECT user_id FROM users')
+    users = c.fetchall()
+    conn.close()
+    if not users:
+        bot.reply_to(message, "❌ No users to broadcast.")
+        return
+    sent = 0
+    for (uid,) in users:
+        try:
+            bot.send_message(uid, f"📢 <b>Broadcast</b>\n\n{msg}", parse_mode="HTML")
+            sent += 1
+            time.sleep(0.1)
+        except:
+            pass
+    bot.reply_to(message, f"✅ Broadcast sent to {sent}/{len(users)} users.")
+
+@bot.message_handler(commands=['setcost'])
+def setcost_cmd(message):
+    if message.from_user.id != ADMIN_ID:
+        bot.reply_to(message, "⛔ Admin only!")
+        return
+    try:
+        parts = message.text.split()
+        if len(parts) < 3:
+            bot.reply_to(message, "❌ Usage: /setcost module amount")
+            return
+        module = parts[1].lower()
+        amount = int(parts[2])
+        set_config(f"{module}_cost", str(amount))
+        bot.reply_to(message, f"✅ Cost for {module} set to {amount} credits.")
+    except Exception as e:
+        bot.reply_to(message, f"❌ Error: {str(e)}")
 
 # ---------- Back to Main ----------
 @bot.callback_query_handler(func=lambda call: call.data == "back_menu")
@@ -574,14 +1526,10 @@ def fallback(message):
 
 # ==================== SCHEDULED TASKS ====================
 def run_scheduled_tasks():
-    """Run background tasks: check pending referrals, update account ages, etc."""
     while True:
         try:
-            # Check and award pending referrals
             check_and_award_referrals()
-            # Update account ages for all users
-            # (implement if needed)
-            time.sleep(3600)  # Run every hour
+            time.sleep(3600)
         except Exception as e:
             logger.error(f"Scheduled task error: {e}")
             time.sleep(60)
@@ -589,7 +1537,6 @@ def run_scheduled_tasks():
 # ==================== MAIN ====================
 if __name__ == "__main__":
     init_db()
-    # Start background task for referral checking
     task_thread = threading.Thread(target=run_scheduled_tasks, daemon=True)
     task_thread.start()
     logger.info("🤖 Bot is starting with referral system...")
