@@ -32,7 +32,12 @@ from menu import (
 # ==================== CONFIG ====================
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 if not BOT_TOKEN:
-    logging.error("BOT_TOKEN environment variable not set. Please set it on Railway.")
+    # For testing only – remove this after confirming token works
+    BOT_TOKEN = "8964197574:AAHzdrOC-DYoMcNgieLNQXgT313j-kJ7Afg"  # paste new token temporarily
+    logging.warning("Using hardcoded token for testing.")
+
+if not BOT_TOKEN or not BOT_TOKEN.startswith("789"):
+    logging.error("Invalid BOT_TOKEN. Please check your token.")
     exit(1)
 
 ADMIN_ID = int(os.environ.get("ADMIN_ID", 1364476174))
