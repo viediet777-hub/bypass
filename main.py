@@ -123,18 +123,22 @@ def handle_shopsy_callback(call):
             parse_mode="HTML"
         )
 
-# ---------- Firebase Callbacks (Future) ----------
+# ---------- Firebase Callbacks (Placeholder) ----------
 @bot.callback_query_handler(func=lambda call: call.data.startswith("firebase_"))
 def handle_firebase_callback(call):
     action = call.data.split("_")[1]
+    user_id = call.from_user.id
+    chat_id = call.message.chat.id
+    msg_id = call.message.message_id
+
     if action == "start":
         bot.answer_callback_query(call.id, "⏳ Firebase scanner coming soon...")
         bot.edit_message_text(
             "🔥 <b>Firebase Extractor</b>\n\n"
             "This feature is under development.\n"
+            "We will add Firebase credential extraction soon.\n\n"
             "Stay tuned for updates!",
-            chat_id=call.message.chat.id,
-            message_id=call.message.message_id,
+            chat_id=chat_id, message_id=msg_id,
             reply_markup=firebase_menu_keyboard(),
             parse_mode="HTML"
         )
