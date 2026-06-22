@@ -17,6 +17,7 @@ import tempfile
 import hashlib
 import zipfile
 import sqlite3
+import asyncio
 from datetime import datetime, timedelta
 from menu import (
     main_menu_text, main_menu_keyboard,
@@ -28,8 +29,10 @@ from menu import (
     referral_menu_text, referral_menu_keyboard,
     admin_panel_text, admin_panel_keyboard
 )
-# ✅ यह 1 लाइन add करें:
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
+
+# ---- Import Shopsy module ----
+import shopsy
 
 # ==================== CONFIG ====================
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
@@ -71,7 +74,8 @@ def init_db():
         account_age_days INTEGER DEFAULT 0,
         is_valid INTEGER DEFAULT 1,
         ip_address TEXT DEFAULT NULL,
-        last_check TEXT DEFAULT NULL
+        last_check TEXT DEFAULT NULL,
+        shopsy_balance INTEGER DEFAULT 0
     )''')
     c.execute('''CREATE TABLE IF NOT EXISTS referrals (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -118,7 +122,8 @@ def get_user(user_id):
             'balance': row[3], 'status': row[4], 'registered_at': row[5],
             'last_used': row[6], 'referred_by': row[7], 'referral_code': row[8],
             'account_age_days': row[9], 'is_valid': row[10], 'ip_address': row[11],
-            'last_check': row[12]
+            'last_check': row[12],
+            'shopsy_balance': row[13] if len(row) > 13 else 0
         }
     return None
 
@@ -128,8 +133,8 @@ def create_user(user_id, username, first_name, referred_by=None, ip_address=None
     now = datetime.now().isoformat()
     ref_code = f"REF{user_id}{random.randint(1000, 9999)}"
     c.execute('''INSERT OR IGNORE INTO users 
-        (user_id, username, first_name, balance, status, registered_at, last_used, referred_by, referral_code, ip_address)
-        VALUES (?, ?, ?, ?, 'ACTIVE', ?, ?, ?, ?, ?)''',
+        (user_id, username, first_name, balance, status, registered_at, last_used, referred_by, referral_code, ip_address, shopsy_balance)
+        VALUES (?, ?, ?, ?, 'ACTIVE', ?, ?, ?, ?, ?, 0)''',
         (user_id, username, first_name, NEW_USER_BONUS, now, now, referred_by, ref_code, ip_address))
     conn.commit()
     conn.close()
@@ -147,6 +152,17 @@ def update_user_balance(user_id, delta):
 def get_user_balance(user_id):
     user = get_user(user_id)
     return user['balance'] if user else 15
+
+def update_shopsy_balance(user_id, delta):
+    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+    c = conn.cursor()
+    c.execute('UPDATE users SET shopsy_balance = shopsy_balance + ? WHERE user_id = ?', (delta, user_id))
+    conn.commit()
+    conn.close()
+
+def get_shopsy_balance(user_id):
+    user = get_user(user_id)
+    return user['shopsy_balance'] if user else 0
 
 def get_referral_count(user_id):
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
@@ -287,7 +303,9 @@ user_instagram_state = {}
 user_firebase_state = {}
 pending_purchases = {}
 user_buy_state = {}
-user_music_state = {}   # <-- NEW STATE for music search
+user_music_state = {}
+user_shopsy_state = {}   # user_id -> "waiting_phone" / "waiting_otp" / None
+shopsy_temp_data = {}    # user_id -> { 'phone': ..., 'session_data': ..., 'mining_thread': ... }
 
 # ==================== MUSIC API FUNCTIONS ====================
 MUSIC_API_BASE = "https://jiosavanapiryden.vercel.app/api"
@@ -812,7 +830,7 @@ def handle_module_callback(call):
     user_id = call.from_user.id
     balance = get_user_balance(user_id)
 
-    if module not in ["referral", "admin", "buy"]:
+    if module not in ["referral", "admin", "buy", "music"]:
         if not check_membership(user_id):
             bot.answer_callback_query(call.id, "❌ Please join channel and group first!", show_alert=True)
             return
@@ -867,7 +885,7 @@ def handle_module_callback(call):
         bot.send_message(call.message.chat.id, text, parse_mode="HTML")
         bot.answer_callback_query(call.id)
 
-    elif module == "music":   # <-- NEW MODULE
+    elif module == "music":
         bot.delete_message(call.message.chat.id, call.message.message_id)
         user_music_state[user_id] = "waiting_for_search"
         text = (
@@ -1028,27 +1046,25 @@ def handle_shopsy_callback(call):
     balance, status = get_user_balance(user_id), "ACTIVE"
 
     if action == "start":
-        if balance < 1:
-            bot.answer_callback_query(call.id, "❌ Insufficient credits!")
-            bot.edit_message_text(
-                "❌ <b>Insufficient credits!</b>\n\nYou need at least 1 credit to run a task.",
-                chat_id=chat_id, message_id=msg_id,
-                reply_markup=shopsy_menu_keyboard(),
-                parse_mode="HTML"
-            )
+        if get_user_balance(user_id) < 1:
+            bot.answer_callback_query(call.id, "❌ Insufficient credits! Need 1 credit.", show_alert=True)
             return
-        update_user_balance(user_id, -1)
-        bot.answer_callback_query(call.id, "✅ Task started!")
+        if user_id in shopsy_temp_data and shopsy_temp_data[user_id].get('mining_thread') and shopsy_temp_data[user_id]['mining_thread'].is_alive():
+            bot.answer_callback_query(call.id, "⏳ Mining already in progress!", show_alert=True)
+            return
+        user_shopsy_state[user_id] = "waiting_phone"
         bot.delete_message(chat_id, msg_id)
-        new_balance = get_user_balance(user_id)
-        new_text = shopsy_menu_text(user_id, new_balance, status)
-        bot.send_message(chat_id, new_text, reply_markup=shopsy_menu_keyboard(), parse_mode="HTML")
+        bot.send_message(chat_id, "📱 Please enter your Shopsy registered phone number (10 digits):")
+        bot.answer_callback_query(call.id)
 
     elif action == "accounts":
+        shopsy_bal = get_shopsy_balance(user_id)
         bot.answer_callback_query(call.id)
         bot.edit_message_text(
-            "📁 <b>My Accounts</b>\n\nYou have <b>1</b> account linked:\n• +91 9826621729 (Default)\n\n"
-            "To add more accounts, contact support.",
+            f"📁 <b>My Shopsy Accounts</b>\n\n"
+            f"💰 Shopsy Balance: <b>{shopsy_bal} SC</b>\n\n"
+            f"💡 You can mine Shopsy coins using your registered phone.\n"
+            f"Each mining run costs 1 Credit and gives 30-50 SC on average.",
             chat_id=chat_id, message_id=msg_id,
             reply_markup=shopsy_menu_keyboard(),
             parse_mode="HTML"
@@ -1058,15 +1074,123 @@ def handle_shopsy_callback(call):
         bot.answer_callback_query(call.id)
         bot.edit_message_text(
             "❓ <b>How To Use Shopsy Auto-Mine</b>\n\n"
-            "1️⃣ Click <b>Start New Task</b> – bot will mine 30 Shopsy coins.\n"
-            "2️⃣ Each run costs <b>1 Credit</b>.\n"
-            "3️⃣ You need a valid Shopsy account (phone+OTP).\n"
-            "4️⃣ Credits can be earned via referrals or tasks.\n\n"
+            "1️⃣ Click <b>Start New Task</b> – bot will ask for your Shopsy phone number.\n"
+            "2️⃣ Enter your 10-digit mobile number.\n"
+            "3️⃣ If session exists, mining starts directly.\n"
+            "4️⃣ If not, OTP sent – enter OTP to login.\n"
+            "5️⃣ Bot will automatically play games and mine coins.\n"
+            "6️⃣ Each run costs <b>1 Credit</b>.\n"
+            "7️⃣ Earned Shopsy coins (SC) are added to your account.\n\n"
             "⚠️ Make sure you have sufficient balance before starting.",
             chat_id=chat_id, message_id=msg_id,
             reply_markup=shopsy_menu_keyboard(),
             parse_mode="HTML"
         )
+
+# ---------- Shopsy Phone & OTP Handlers ----------
+@bot.message_handler(func=lambda message: user_shopsy_state.get(message.from_user.id) == "waiting_phone")
+def handle_shopsy_phone(message):
+    user_id = message.from_user.id
+    phone = message.text.strip()
+    if not phone.isdigit() or len(phone) != 10:
+        bot.reply_to(message, "❌ Invalid phone number. Please enter 10 digits.")
+        return
+    existing = shopsy.load_session(phone)
+    if existing and existing.get("isLoggedIn"):
+        user_shopsy_state[user_id] = None
+        shopsy_temp_data[user_id] = {'phone': phone, 'session_data': existing}
+        bot.reply_to(message, "✅ Session found! Starting mining...")
+        start_shopsy_mining(user_id, message.chat.id)
+        return
+    user_shopsy_state[user_id] = "waiting_otp"
+    shopsy_temp_data[user_id] = {'phone': phone, 'session_data': None}
+    def request_otp_thread():
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        session_data, req_id = loop.run_until_complete(shopsy.request_otp(phone))
+        if session_data and req_id:
+            shopsy_temp_data[user_id]['session_data'] = session_data
+            shopsy_temp_data[user_id]['req_id'] = req_id
+            bot.send_message(user_id, "📲 OTP sent to your phone. Please enter the OTP:")
+        else:
+            bot.send_message(user_id, "❌ Failed to send OTP. Please try again later.")
+            user_shopsy_state[user_id] = None
+    threading.Thread(target=request_otp_thread).start()
+    bot.reply_to(message, "⏳ Requesting OTP...")
+
+@bot.message_handler(func=lambda message: user_shopsy_state.get(message.from_user.id) == "waiting_otp")
+def handle_shopsy_otp(message):
+    user_id = message.from_user.id
+    otp = message.text.strip()
+    if not otp.isdigit():
+        bot.reply_to(message, "❌ Invalid OTP. Please enter numeric code.")
+        return
+    data = shopsy_temp_data.get(user_id, {})
+    session_data = data.get('session_data')
+    if not session_data:
+        bot.reply_to(message, "❌ Session expired. Please start again.")
+        user_shopsy_state[user_id] = None
+        return
+    def verify_otp_thread():
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        verified = loop.run_until_complete(shopsy.verify_otp(session_data, otp))
+        if verified:
+            shopsy_temp_data[user_id]['session_data'] = verified
+            bot.send_message(user_id, "✅ Login successful! Starting mining...")
+            user_shopsy_state[user_id] = None
+            start_shopsy_mining(user_id, message.chat.id)
+        else:
+            bot.send_message(user_id, "❌ Invalid OTP. Please try again.")
+    threading.Thread(target=verify_otp_thread).start()
+    bot.reply_to(message, "⏳ Verifying OTP...")
+
+def start_shopsy_mining(user_id, chat_id):
+    update_user_balance(user_id, -1)
+    data = shopsy_temp_data.get(user_id, {})
+    session_data = data.get('session_data')
+    phone = data.get('phone')
+    if not session_data or not phone:
+        bot.send_message(chat_id, "❌ Mining data missing. Please start again.")
+        return
+    msg = bot.send_message(chat_id, "⏳ Mining started...\n\nInitializing...")
+    progress_messages = []
+    def progress_callback(progress_text):
+        nonlocal msg
+        progress_messages.append(progress_text)
+        if len(progress_messages) > 5:
+            progress_messages.pop(0)
+        display = "\n".join(progress_messages)
+        try:
+            bot.edit_message_text(f"⏳ Mining in progress...\n\n{display}", chat_id, msg.message_id)
+        except:
+            pass
+    def mining_thread():
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        result = loop.run_until_complete(shopsy.mine_account(session_data, progress_callback))
+        if result and result.get('status') == 'success':
+            earned = result.get('earned', 0)
+            final_coins = result.get('final_coins', 0)
+            played = result.get('played', 0)
+            total = result.get('total', 0)
+            update_shopsy_balance(user_id, earned)
+            final_text = f"✅ <b>Mining Complete!</b>\n\n" \
+                         f"🎯 Earned: <b>{earned} SC</b>\n" \
+                         f"💰 Total Shopsy Coins: <b>{final_coins} SC</b>\n" \
+                         f"🎮 Games Played: {played}/{total}\n" \
+                         f"📱 Phone: +91{phone}\n\n" \
+                         f"💎 Your Shopsy Balance: {get_shopsy_balance(user_id)} SC"
+            bot.edit_message_text(final_text, chat_id, msg.message_id, parse_mode="HTML")
+        else:
+            err = result.get('msg', 'Unknown error') if result else 'Failed to mine.'
+            bot.edit_message_text(f"❌ Mining failed!\n\n{err}", chat_id, msg.message_id)
+        shopsy_temp_data.pop(user_id, None)
+        user_shopsy_state.pop(user_id, None)
+    thread = threading.Thread(target=mining_thread)
+    thread.daemon = True
+    shopsy_temp_data[user_id]['mining_thread'] = thread
+    thread.start()
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("temp_"))
 def handle_temp_callback(call):
@@ -1598,7 +1722,7 @@ def handle_music_song_callback(call):
 📊 Quality: 320kbps MP3
 
 ━━━━━━━━━━━━━━━━
-👨‍💻 Developer: @viedietextraa
+👨‍💻 Developer: @vishalcodeverse
 🎧 Keep vibing!"""
         
         with open(temp_filename, 'rb') as audio:
@@ -1799,7 +1923,7 @@ if __name__ == "__main__":
     init_db()
     task_thread = threading.Thread(target=run_scheduled_tasks, daemon=True)
     task_thread.start()
-    logger.info("🤖 Bot is starting with referral system...")
+    logger.info("🤖 Bot is starting with Shopsy mining integrated...")
     try:
         bot.remove_webhook()
         time.sleep(5)
