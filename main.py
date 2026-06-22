@@ -43,73 +43,60 @@ NEW_USER_BONUS = 5
 MIN_ACCOUNT_AGE_DAYS = 7
 REFERRAL_STAY_HOURS = 24
 
-# ==================== LOGGING ====================
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
 
-# ==================== BOT INIT ====================
 bot = telebot.TeleBot(BOT_TOKEN, parse_mode="HTML")
 
-# ==================== DATABASE ====================
 DB_PATH = "viediet_bot.db"
 
 def init_db():
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
     c = conn.cursor()
-    c.execute('''
-        CREATE TABLE IF NOT EXISTS users (
-            user_id INTEGER PRIMARY KEY,
-            username TEXT,
-            first_name TEXT,
-            balance INTEGER DEFAULT 15,
-            status TEXT DEFAULT 'ACTIVE',
-            registered_at TEXT,
-            last_used TEXT,
-            referred_by INTEGER DEFAULT NULL,
-            referral_code TEXT UNIQUE,
-            account_age_days INTEGER DEFAULT 0,
-            is_valid INTEGER DEFAULT 1,
-            ip_address TEXT DEFAULT NULL,
-            last_check TEXT DEFAULT NULL
-        )
-    ''')
-    c.execute('''
-        CREATE TABLE IF NOT EXISTS referrals (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            referrer_id INTEGER,
-            referred_id INTEGER UNIQUE,
-            join_timestamp TEXT,
-            leave_timestamp TEXT DEFAULT NULL,
-            points_awarded INTEGER DEFAULT 0,
-            is_valid INTEGER DEFAULT 0
-        )
-    ''')
-    c.execute('''
-        CREATE TABLE IF NOT EXISTS pending_referrals (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            referrer_id INTEGER,
-            referred_id INTEGER UNIQUE,
-            join_timestamp TEXT
-        )
-    ''')
-    c.execute('''
-        CREATE TABLE IF NOT EXISTS usage_logs (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER,
-            module TEXT,
-            details TEXT,
-            timestamp TEXT
-        )
-    ''')
-    c.execute('''
-        CREATE TABLE IF NOT EXISTS config (
-            key TEXT PRIMARY KEY,
-            value TEXT
-        )
-    ''')
+    c.execute('''CREATE TABLE IF NOT EXISTS users (
+        user_id INTEGER PRIMARY KEY,
+        username TEXT,
+        first_name TEXT,
+        balance INTEGER DEFAULT 15,
+        status TEXT DEFAULT 'ACTIVE',
+        registered_at TEXT,
+        last_used TEXT,
+        referred_by INTEGER DEFAULT NULL,
+        referral_code TEXT UNIQUE,
+        account_age_days INTEGER DEFAULT 0,
+        is_valid INTEGER DEFAULT 1,
+        ip_address TEXT DEFAULT NULL,
+        last_check TEXT DEFAULT NULL
+    )''')
+    c.execute('''CREATE TABLE IF NOT EXISTS referrals (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        referrer_id INTEGER,
+        referred_id INTEGER UNIQUE,
+        join_timestamp TEXT,
+        leave_timestamp TEXT DEFAULT NULL,
+        points_awarded INTEGER DEFAULT 0,
+        is_valid INTEGER DEFAULT 0
+    )''')
+    c.execute('''CREATE TABLE IF NOT EXISTS pending_referrals (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        referrer_id INTEGER,
+        referred_id INTEGER UNIQUE,
+        join_timestamp TEXT
+    )''')
+    c.execute('''CREATE TABLE IF NOT EXISTS usage_logs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER,
+        module TEXT,
+        details TEXT,
+        timestamp TEXT
+    )''')
+    c.execute('''CREATE TABLE IF NOT EXISTS config (
+        key TEXT PRIMARY KEY,
+        value TEXT
+    )''')
     conn.commit()
     conn.close()
     logger.info("Database initialized.")
@@ -138,11 +125,10 @@ def create_user(user_id, username, first_name, referred_by=None, ip_address=None
     c = conn.cursor()
     now = datetime.now().isoformat()
     ref_code = f"REF{user_id}{random.randint(1000, 9999)}"
-    c.execute('''
-        INSERT OR IGNORE INTO users 
+    c.execute('''INSERT OR IGNORE INTO users 
         (user_id, username, first_name, balance, status, registered_at, last_used, referred_by, referral_code, ip_address)
-        VALUES (?, ?, ?, ?, 'ACTIVE', ?, ?, ?, ?, ?)
-    ''', (user_id, username, first_name, NEW_USER_BONUS, now, now, referred_by, ref_code, ip_address))
+        VALUES (?, ?, ?, ?, 'ACTIVE', ?, ?, ?, ?, ?)''',
+        (user_id, username, first_name, NEW_USER_BONUS, now, now, referred_by, ref_code, ip_address))
     conn.commit()
     conn.close()
     if referred_by:
@@ -181,10 +167,8 @@ def add_pending_referral(referrer_id, referred_id):
     c = conn.cursor()
     now = datetime.now().isoformat()
     try:
-        c.execute('''
-            INSERT INTO pending_referrals (referrer_id, referred_id, join_timestamp)
-            VALUES (?, ?, ?)
-        ''', (referrer_id, referred_id, now))
+        c.execute('INSERT INTO pending_referrals (referrer_id, referred_id, join_timestamp) VALUES (?, ?, ?)',
+                  (referrer_id, referred_id, now))
         conn.commit()
     except sqlite3.IntegrityError:
         pass
@@ -205,10 +189,8 @@ def check_and_award_referrals():
                 if channel_member.status in ['member', 'administrator', 'creator'] and \
                    group_member.status in ['member', 'administrator', 'creator']:
                     update_user_balance(referrer_id, REFERRAL_BONUS)
-                    c.execute('''
-                        INSERT INTO referrals (referrer_id, referred_id, join_timestamp, points_awarded, is_valid)
-                        VALUES (?, ?, ?, ?, 1)
-                    ''', (referrer_id, referred_id, join_ts, REFERRAL_BONUS))
+                    c.execute('INSERT INTO referrals (referrer_id, referred_id, join_timestamp, points_awarded, is_valid) VALUES (?, ?, ?, ?, 1)',
+                              (referrer_id, referred_id, join_ts, REFERRAL_BONUS))
                     c.execute('DELETE FROM pending_referrals WHERE id = ?', (pid,))
                     conn.commit()
                     try:
@@ -301,8 +283,8 @@ def check_membership(user_id):
 user_temp_sessions = {}
 user_instagram_state = {}
 user_firebase_state = {}
-pending_purchases = {}   # user_id -> {'order_id': ..., 'amount': ...}
-user_buy_state = {}      # user_id -> "waiting_amount"
+pending_purchases = {}
+user_buy_state = {}
 
 # ==================== TEMP MAIL CLASS ====================
 class TempMailBot:
@@ -1193,7 +1175,7 @@ def handle_buy_amount(message):
     qr_url = f"https://quickchart.io/qr?text={requests.utils.quote(upi)}"
     caption = (
         f"╔════════════════════╗\n"
-        f"     💳 *Buy Coin*\n"
+        f"     💳 *VC PAYMENT GATEWAY*\n"
         f"╚════════════════════╝\n\n"
         f"💰 *Amount:* ₹{amount}\n"
         f"🆔 *Order ID:* {order_id}\n\n"
@@ -1354,7 +1336,8 @@ def handle_admin_callback(call):
             f"📈 Total Usage: <b>{total_usage}</b> operations\n"
             f"🔢 Admin ID: <code>{ADMIN_ID}</code>",
             chat_id=chat_id, message_id=msg_id,
-            reply_markup=admin_panel_keyboard(), parse_mode="HTML"
+            reply_markup=admin_panel_keyboard(),
+            parse_mode="HTML"
         )
         bot.answer_callback_query(call.id)
 
@@ -1622,13 +1605,11 @@ if __name__ == "__main__":
     task_thread = threading.Thread(target=run_scheduled_tasks, daemon=True)
     task_thread.start()
     logger.info("🤖 Bot is starting with referral system...")
-    # Force delete webhook with longer wait
     try:
         bot.remove_webhook()
         time.sleep(5)
     except:
         pass
-    # Poll with increased timeout
     while True:
         try:
             bot.polling(non_stop=True, interval=0, timeout=60)
