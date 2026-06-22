@@ -303,6 +303,8 @@ def check_membership(user_id):
 user_temp_sessions = {}
 user_instagram_state = {}
 user_firebase_state = {}   # <-- FIXED: added this
+pending_purchases = {}   # user_id -> {'order_id': ..., 'amount': ...}
+user_buy_state = {}      # user_id -> "waiting_amount"
 
 # ==================== TEMP MAIL CLASS ====================
 class TempMailBot:
@@ -807,7 +809,19 @@ def handle_module_callback(call):
         text = referral_menu_text(user_id, balance, referral_count)
         bot.send_message(call.message.chat.id, text, reply_markup=referral_menu_keyboard(), parse_mode="HTML")
         bot.answer_callback_query(call.id)
-
+        
+    elif module == "buy":
+        bot.delete_message(call.message.chat.id, call.message.message_id)
+        user_buy_state[user_id] = "waiting_amount"
+        text = (
+            "💰 <b>Buy Coins</b>\n\n"
+            "Enter the amount in INR (minimum ₹1, maximum ₹10000).\n"
+            "You will receive the same number of coins.\n\n"
+            "Example: <code>50</code>"
+        )
+        bot.send_message(call.message.chat.id, text, parse_mode="HTML")
+        bot.answer_callback_query(call.id)
+        
     elif module == "admin":
         if call.from_user.id != ADMIN_ID:
             bot.answer_callback_query(call.id, "⛔ Admin only!")
@@ -1178,7 +1192,41 @@ def handle_phone_number(message):
         )
         log_usage(user_id, "Flipkart Checker", f"Number: {message.text}")
     threading.Thread(target=check_thread).start()
-
+    
+# ---------- Buy Coins - Amount Input ----------
+@bot.message_handler(func=lambda message: user_buy_state.get(message.from_user.id) == "waiting_amount")
+def handle_buy_amount(message):
+    user_id = message.from_user.id
+    try:
+        amount = int(message.text.strip())
+        if amount < 1 or amount > 10000:
+            bot.reply_to(message, "❌ Amount must be between ₹1 and ₹10,000.")
+            return
+    except ValueError:
+        bot.reply_to(message, "❌ Please send a valid number.")
+        return
+    # Generate unique order ID
+    order_id = f"ORD{int(time.time())}{random.randint(1000,9999)}"
+    # Store in pending
+    pending_purchases[user_id] = {'order_id': order_id, 'amount': amount}
+    # Build UPI string and QR
+    upi = f"upi://pay?pa=paytm.s1dw5n0@pty&pn=VC Payment Gateway&tid={order_id}&tr={order_id}&tn=VC Payment&am={amount}&cu=INR"
+    qr_url = f"https://quickchart.io/qr?text={requests.utils.quote(upi)}"
+    caption = (
+        f"╔════════════════════╗\n"
+        f"     💳 *VC PAYMENT GATEWAY*\n"
+        f"╚════════════════════╝\n\n"
+        f"💰 *Amount:* ₹{amount}\n"
+        f"🆔 *Order ID:* {order_id}\n\n"
+        f"━━━━━━━━━━━━━━━━━━\n"
+        f"⚠️ Complete the payment using the QR code above.\n"
+        f"After successful payment, tap the button below.\n"
+        f"━━━━━━━━━━━━━━━━━━"
+    )
+    keyboard = InlineKeyboardMarkup()
+    keyboard.add(InlineKeyboardButton("✅ Check Payment", callback_data="buy_check"))
+    bot.send_photo(message.chat.id, qr_url, caption=caption, reply_markup=keyboard, parse_mode="Markdown")
+    user_buy_state[user_id] = None  # clear state
 # ---------- Instagram Callbacks ----------
 @bot.callback_query_handler(func=lambda call: call.data.startswith("instagram_"))
 def handle_instagram_callback(call):
@@ -1350,6 +1398,54 @@ def handle_admin_callback(call):
             chat_id=chat_id, message_id=msg_id,
             reply_markup=admin_panel_keyboard(), parse_mode="HTML"
         )
+# ---------- Buy Coins Check Payment ----------
+@bot.callback_query_handler(func=lambda call: call.data == "buy_check")
+def handle_buy_check(call):
+    user_id = call.from_user.id
+    chat_id = call.message.chat.id
+    msg_id = call.message.message_id
+    if user_id not in pending_purchases:
+        bot.answer_callback_query(call.id, "❌ No pending purchase found.")
+        return
+    purchase = pending_purchases[user_id]
+    order_id = purchase['order_id']
+    amount = purchase['amount']
+    API_KEY = os.environ.get("VC_API_KEY")
+    if not API_KEY:
+        bot.answer_callback_query(call.id, "❌ Payment gateway not configured.")
+        return
+    url = f"https://vcapi.vcstore.site/payment_api.php?api_key={API_KEY}&order_id={order_id}&amount={amount}"
+    try:
+        response = requests.get(url, timeout=10)
+        if response.status_code == 200:
+            data = response.json()
+            # Assume success if API returns "status":"success" or "success":true
+            if data.get('status') == 'success' or data.get('success') == True:
+                coins = amount  # 1 INR = 1 coin
+                update_user_balance(user_id, coins)
+                del pending_purchases[user_id]
+                bot.edit_message_text(
+                    f"✅ <b>Payment Verified!</b>\n\n"
+                    f"💰 Added {coins} coins to your account.\n"
+                    f"💳 Order ID: {order_id}\n"
+                    f"📊 New Balance: {get_user_balance(user_id)}",
+                    chat_id=chat_id, message_id=msg_id,
+                    parse_mode="HTML"
+                )
+                bot.answer_callback_query(call.id, "✅ Payment successful!")
+                log_usage(user_id, "Buy Coins", f"Amount: {amount}, Order: {order_id}")
+            else:
+                bot.edit_message_text(
+                    "❌ <b>Payment Not Verified</b>\n\n"
+                    "We could not confirm your payment. Please check your UPI transaction or try again later.",
+                    chat_id=chat_id, message_id=msg_id,
+                    parse_mode="HTML"
+                )
+                bot.answer_callback_query(call.id, "❌ Payment not found.")
+        else:
+            bot.answer_callback_query(call.id, f"❌ API error: {response.status_code}")
+    except Exception as e:
+        bot.answer_callback_query(call.id, f"❌ Error: {str(e)[:50]}")        
 # ---------- Admin Commands ----------
 @bot.message_handler(commands=['addcoins'])
 def add_coins_cmd(message):
