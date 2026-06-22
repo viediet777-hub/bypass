@@ -287,6 +287,55 @@ user_instagram_state = {}
 user_firebase_state = {}
 pending_purchases = {}
 user_buy_state = {}
+user_music_state = {}   # <-- NEW STATE for music search
+
+# ==================== MUSIC API FUNCTIONS ====================
+MUSIC_API_BASE = "https://jiosavanapiryden.vercel.app/api"
+
+def search_songs(query, page=0, limit=15):
+    try:
+        url = f"{MUSIC_API_BASE}/search/songs"
+        params = {"query": query, "page": page, "limit": limit}
+        response = requests.get(url, params=params, timeout=10)
+        if response.status_code == 200:
+            return response.json()
+        return None
+    except Exception as e:
+        logger.error(f"Music search error: {e}")
+        return None
+
+def get_song_details(song_id):
+    try:
+        url = f"{MUSIC_API_BASE}/songs/{song_id}"
+        response = requests.get(url, timeout=10)
+        if response.status_code == 200:
+            data = response.json()
+            if data.get("success") and data.get("data"):
+                song_info = data["data"][0]
+                download_links = song_info.get("downloadUrl", [])
+                if download_links:
+                    best = download_links[-1]
+                    dur = song_info.get("duration", 0)
+                    minutes = dur // 60
+                    seconds = dur % 60
+                    return {
+                        "url": best.get("url"),
+                        "title": song_info.get("name", "Unknown"),
+                        "artist": ", ".join([a.get("name", "") for a in song_info.get("artists", {}).get("primary", [])]),
+                        "duration": dur,
+                        "duration_formatted": f"{minutes}:{seconds:02d}",
+                        "album": song_info.get("album", {}).get("name", ""),
+                        "year": song_info.get("year", "N/A")
+                    }
+        return None
+    except Exception as e:
+        logger.error(f"Song details error: {e}")
+        return None
+
+def format_duration(seconds):
+    minutes = seconds // 60
+    remaining_seconds = seconds % 60
+    return f"{minutes}:{remaining_seconds:02d}"
 
 # ==================== TEMP MAIL CLASS ====================
 class TempMailBot:
@@ -814,6 +863,20 @@ def handle_module_callback(call):
             "Enter the amount in INR (minimum ₹1, maximum ₹10000).\n"
             "You will receive the same number of coins.\n\n"
             "Example: <code>50</code>"
+        )
+        bot.send_message(call.message.chat.id, text, parse_mode="HTML")
+        bot.answer_callback_query(call.id)
+
+    elif module == "music":   # <-- NEW MODULE
+        bot.delete_message(call.message.chat.id, call.message.message_id)
+        user_music_state[user_id] = "waiting_for_search"
+        text = (
+            "🎵 <b>MUSIC DOWNLOADER</b>\n\n"
+            "Send me a song name or artist name.\n"
+            "I'll search and provide high-quality audio (320kbps).\n\n"
+            "💡 Cost: <b>1 Credit</b> per song\n"
+            "📝 Example: <i>Believer</i> or <i>Arijit Singh</i>\n\n"
+            "Send <code>/cancel</code> to cancel."
         )
         bot.send_message(call.message.chat.id, text, parse_mode="HTML")
         bot.answer_callback_query(call.id)
@@ -1434,6 +1497,136 @@ def handle_buy_check(call):
             bot.answer_callback_query(call.id, f"❌ API error: {response.status_code}")
     except Exception as e:
         bot.answer_callback_query(call.id, f"❌ Error: {str(e)[:50]}")
+
+# ---------- Music Handlers ----------
+@bot.message_handler(func=lambda message: user_music_state.get(message.from_user.id) == "waiting_for_search")
+def handle_music_search(message):
+    user_id = message.from_user.id
+    query = message.text.strip()
+    
+    if query.lower() == '/cancel':
+        user_music_state[user_id] = None
+        bot.reply_to(message, "❌ Search cancelled.", reply_markup=main_menu_keyboard(is_admin=(user_id==ADMIN_ID)))
+        return
+    
+    if len(query) < 2:
+        bot.reply_to(message, "❌ Please enter at least 2 characters.")
+        return
+    
+    searching_msg = bot.reply_to(message, f"🎵 Searching for <b>{query}</b>...\n\n⏳ Please wait.")
+    
+    results = search_songs(query, page=0, limit=15)
+    if not results or not results.get("success"):
+        bot.edit_message_text("❌ No results found. Try different spelling.", chat_id=message.chat.id, message_id=searching_msg.message_id)
+        return
+    
+    songs = results.get("data", {}).get("results", [])
+    if not songs:
+        bot.edit_message_text("❌ No songs found for that query.", chat_id=message.chat.id, message_id=searching_msg.message_id)
+        return
+    
+    keyboard = InlineKeyboardMarkup(row_width=1)
+    for idx, song in enumerate(songs[:15], 1):
+        title = song.get("name", "Unknown")
+        artists = song.get("artists", {}).get("primary", [])
+        artist_names = ", ".join([a.get("name", "") for a in artists[:2]])
+        duration = song.get("duration", 0)
+        dur_str = format_duration(duration)
+        button_text = f"{idx}. {title[:30]} - {artist_names[:20]} [{dur_str}]"
+        keyboard.add(InlineKeyboardButton(button_text, callback_data=f"music_song_{song.get('id')}"))
+    
+    bot.edit_message_text(f"🎵 <b>Search Results for</b>: {query}\n\nSelect a song to download (1 Credit):",
+                          chat_id=message.chat.id, message_id=searching_msg.message_id,
+                          reply_markup=keyboard, parse_mode="HTML")
+    
+    log_usage(user_id, "Music Search", query)
+    user_music_state[user_id] = None
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith("music_song_"))
+def handle_music_song_callback(call):
+    user_id = call.from_user.id
+    song_id = call.data.replace("music_song_", "")
+    bot.answer_callback_query(call.id, "🔄 Fetching song...")
+    
+    balance = get_user_balance(user_id)
+    if balance < 1:
+        bot.edit_message_text("❌ Insufficient credits! You need 1 credit to download a song.",
+                              chat_id=call.message.chat.id, message_id=call.message.message_id)
+        return
+    
+    update_user_balance(user_id, -1)
+    processing_msg = bot.send_message(call.message.chat.id, "⏳ Downloading high-quality audio...")
+    
+    try:
+        song_details = get_song_details(song_id)
+        if not song_details or not song_details.get("url"):
+            update_user_balance(user_id, 1)
+            bot.edit_message_text("❌ Failed to get download link. Please try again.",
+                                  chat_id=call.message.chat.id, message_id=processing_msg.message_id)
+            return
+        
+        download_url = song_details["url"]
+        title = song_details["title"]
+        artist = song_details["artist"] or "Unknown Artist"
+        duration = song_details["duration"]
+        duration_formatted = song_details.get("duration_formatted", format_duration(duration))
+        album = song_details.get("album", "Single")
+        year = song_details.get("year", "N/A")
+        
+        audio_resp = requests.get(download_url, timeout=45)
+        if audio_resp.status_code != 200:
+            update_user_balance(user_id, 1)
+            bot.edit_message_text("❌ Download failed. Server error.",
+                                  chat_id=call.message.chat.id, message_id=processing_msg.message_id)
+            return
+        
+        import hashlib
+        temp_filename = f"temp_{song_id}_{hashlib.md5(title.encode()).hexdigest()[:8]}.mp3"
+        with open(temp_filename, 'wb') as f:
+            f.write(audio_resp.content)
+        
+        caption = f"""🎵 {title} 🎵
+
+━━━━━━━━━━━━━━━━
+✨ TRACK DETAILS ✨
+━━━━━━━━━━━━━━━━
+
+🎤 Artist: {artist}
+⏱️ Duration: {duration_formatted}
+💿 Album: {album}
+📅 Year: {year}
+📊 Quality: 320kbps MP3
+
+━━━━━━━━━━━━━━━━
+👨‍💻 Developer: @vishalcodeverse
+🎧 Keep vibing!"""
+        
+        with open(temp_filename, 'rb') as audio:
+            bot.send_audio(call.message.chat.id, audio, title=title[:60], performer=artist[:60], duration=duration, caption=caption)
+        
+        try:
+            os.remove(temp_filename)
+            bot.delete_message(call.message.chat.id, processing_msg.message_id)
+        except:
+            pass
+        
+        log_usage(user_id, "Music Download", f"{title} - {artist}")
+        
+        markup = InlineKeyboardMarkup()
+        markup.add(InlineKeyboardButton("🎵 New Search", callback_data="music_new_search"))
+        bot.send_message(call.message.chat.id, "✅ Song sent! Want more? Tap below 👇", reply_markup=markup)
+        
+    except Exception as e:
+        logger.error(f"Music download error: {e}")
+        update_user_balance(user_id, 1)
+        bot.edit_message_text(f"❌ Error: {str(e)[:200]}", chat_id=call.message.chat.id, message_id=processing_msg.message_id)
+
+@bot.callback_query_handler(func=lambda call: call.data == "music_new_search")
+def music_new_search_callback(call):
+    user_id = call.from_user.id
+    user_music_state[user_id] = "waiting_for_search"
+    bot.answer_callback_query(call.id, "🔍 Ready to search!")
+    bot.send_message(call.message.chat.id, "🎵 Enter song or artist name:")
 
 # ---------- Admin Commands ----------
 @bot.message_handler(commands=['addcoins'])
