@@ -43,10 +43,6 @@ NEW_USER_BONUS = 5
 MIN_ACCOUNT_AGE_DAYS = 7
 REFERRAL_STAY_HOURS = 24
 
-if not BOT_TOKEN:
-    logging.error("BOT_TOKEN environment variable not set. Please set it on Railway.")
-    exit(1)
-
 # ==================== LOGGING ====================
 logging.basicConfig(
     level=logging.INFO,
@@ -302,7 +298,7 @@ def check_membership(user_id):
 # ==================== GLOBAL STATES ====================
 user_temp_sessions = {}
 user_instagram_state = {}
-user_firebase_state = {}   # <-- FIXED: added this
+user_firebase_state = {}
 pending_purchases = {}   # user_id -> {'order_id': ..., 'amount': ...}
 user_buy_state = {}      # user_id -> "waiting_amount"
 
@@ -747,6 +743,22 @@ def start_cmd(message):
     text = main_menu_text(user_id, first_name, balance, "ACTIVE")
     bot.send_message(message.chat.id, text, reply_markup=main_menu_keyboard(is_admin), parse_mode="HTML")
 
+# ---------- Buy Command (new) ----------
+@bot.message_handler(commands=['buy'])
+def buy_cmd(message):
+    user_id = message.from_user.id
+    if not check_membership(user_id):
+        bot.reply_to(message, "❌ Please join channel and group first!")
+        return
+    user_buy_state[user_id] = "waiting_amount"
+    text = (
+        "💰 <b>Buy Coins</b>\n\n"
+        "Enter the amount in INR (minimum ₹1, maximum ₹10000).\n"
+        "You will receive the same number of coins.\n\n"
+        "Example: <code>50</code>"
+    )
+    bot.reply_to(message, text, parse_mode="HTML")
+
 @bot.callback_query_handler(func=lambda call: call.data == "verify_membership")
 def verify_membership_callback(call):
     user_id = call.from_user.id
@@ -767,7 +779,7 @@ def handle_module_callback(call):
     user_id = call.from_user.id
     balance = get_user_balance(user_id)
 
-    if module not in ["referral", "admin"]:
+    if module not in ["referral", "admin", "buy"]:
         if not check_membership(user_id):
             bot.answer_callback_query(call.id, "❌ Please join channel and group first!", show_alert=True)
             return
@@ -809,7 +821,7 @@ def handle_module_callback(call):
         text = referral_menu_text(user_id, balance, referral_count)
         bot.send_message(call.message.chat.id, text, reply_markup=referral_menu_keyboard(), parse_mode="HTML")
         bot.answer_callback_query(call.id)
-        
+
     elif module == "buy":
         bot.delete_message(call.message.chat.id, call.message.message_id)
         user_buy_state[user_id] = "waiting_amount"
@@ -821,7 +833,7 @@ def handle_module_callback(call):
         )
         bot.send_message(call.message.chat.id, text, parse_mode="HTML")
         bot.answer_callback_query(call.id)
-        
+
     elif module == "admin":
         if call.from_user.id != ADMIN_ID:
             bot.answer_callback_query(call.id, "⛔ Admin only!")
@@ -868,6 +880,7 @@ def handle_referral_callback(call):
             chat_id=chat_id, message_id=msg_id,
             reply_markup=referral_menu_keyboard(), parse_mode="HTML"
         )
+
 # ---------- Firebase Callbacks ----------
 @bot.callback_query_handler(func=lambda call: call.data.startswith("firebase_"))
 def handle_firebase_callback(call):
@@ -1167,6 +1180,43 @@ def handle_temp_callback(call):
             parse_mode="HTML"
         )
 
+# ---------- Buy Coins - Amount Input (must be BEFORE phone number handler) ----------
+@bot.message_handler(func=lambda message: user_buy_state.get(message.from_user.id) == "waiting_amount")
+def handle_buy_amount(message):
+    user_id = message.from_user.id
+    logger.info(f"Buy amount handler triggered for user {user_id} with text: {message.text}")
+    try:
+        amount = int(message.text.strip())
+        if amount < 1 or amount > 10000:
+            bot.reply_to(message, "❌ Amount must be between ₹1 and ₹10,000.")
+            return
+    except ValueError:
+        bot.reply_to(message, "❌ Please send a valid number.")
+        return
+    # Generate unique order ID
+    order_id = f"ORD{int(time.time())}{random.randint(1000,9999)}"
+    # Store in pending
+    pending_purchases[user_id] = {'order_id': order_id, 'amount': amount}
+    # Build UPI string and QR
+    upi = f"upi://pay?pa=paytm.s1dw5n0@pty&pn=VC Payment Gateway&tid={order_id}&tr={order_id}&tn=VC Payment&am={amount}&cu=INR"
+    qr_url = f"https://quickchart.io/qr?text={requests.utils.quote(upi)}"
+    caption = (
+        f"╔════════════════════╗\n"
+        f"     💳 *Buy Coin*\n"
+        f"╚════════════════════╝\n\n"
+        f"💰 *Amount:* ₹{amount}\n"
+        f"🆔 *Order ID:* {order_id}\n\n"
+        f"━━━━━━━━━━━━━━━━━━\n"
+        f"⚠️ Complete the payment using the QR code above.\n"
+        f"After successful payment, tap the button below.\n"
+        f"━━━━━━━━━━━━━━━━━━"
+    )
+    keyboard = InlineKeyboardMarkup()
+    keyboard.add(InlineKeyboardButton("✅ Check Payment", callback_data="buy_check"))
+    bot.send_photo(message.chat.id, qr_url, caption=caption, reply_markup=keyboard, parse_mode="Markdown")
+    user_buy_state[user_id] = None  # clear state
+    logger.info(f"QR sent for order {order_id} to user {user_id}")
+
 # ---------- Flipkart Callbacks ----------
 @bot.callback_query_handler(func=lambda call: call.data.startswith("flipkart_"))
 def handle_flipkart_callback(call):
@@ -1192,41 +1242,7 @@ def handle_phone_number(message):
         )
         log_usage(user_id, "Flipkart Checker", f"Number: {message.text}")
     threading.Thread(target=check_thread).start()
-    
-# ---------- Buy Coins - Amount Input ----------
-@bot.message_handler(func=lambda message: user_buy_state.get(message.from_user.id) == "waiting_amount")
-def handle_buy_amount(message):
-    user_id = message.from_user.id
-    try:
-        amount = int(message.text.strip())
-        if amount < 1 or amount > 10000:
-            bot.reply_to(message, "❌ Amount must be between ₹1 and ₹10,000.")
-            return
-    except ValueError:
-        bot.reply_to(message, "❌ Please send a valid number.")
-        return
-    # Generate unique order ID
-    order_id = f"ORD{int(time.time())}{random.randint(1000,9999)}"
-    # Store in pending
-    pending_purchases[user_id] = {'order_id': order_id, 'amount': amount}
-    # Build UPI string and QR
-    upi = f"upi://pay?pa=paytm.s1dw5n0@pty&pn=VC Payment Gateway&tid={order_id}&tr={order_id}&tn=VC Payment&am={amount}&cu=INR"
-    qr_url = f"https://quickchart.io/qr?text={requests.utils.quote(upi)}"
-    caption = (
-        f"╔════════════════════╗\n"
-        f"     💳 *VC PAYMENT GATEWAY*\n"
-        f"╚════════════════════╝\n\n"
-        f"💰 *Amount:* ₹{amount}\n"
-        f"🆔 *Order ID:* {order_id}\n\n"
-        f"━━━━━━━━━━━━━━━━━━\n"
-        f"⚠️ Complete the payment using the QR code above.\n"
-        f"After successful payment, tap the button below.\n"
-        f"━━━━━━━━━━━━━━━━━━"
-    )
-    keyboard = InlineKeyboardMarkup()
-    keyboard.add(InlineKeyboardButton("✅ Check Payment", callback_data="buy_check"))
-    bot.send_photo(message.chat.id, qr_url, caption=caption, reply_markup=keyboard, parse_mode="Markdown")
-    user_buy_state[user_id] = None  # clear state
+
 # ---------- Instagram Callbacks ----------
 @bot.callback_query_handler(func=lambda call: call.data.startswith("instagram_"))
 def handle_instagram_callback(call):
@@ -1398,6 +1414,7 @@ def handle_admin_callback(call):
             chat_id=chat_id, message_id=msg_id,
             reply_markup=admin_panel_keyboard(), parse_mode="HTML"
         )
+
 # ---------- Buy Coins Check Payment ----------
 @bot.callback_query_handler(func=lambda call: call.data == "buy_check")
 def handle_buy_check(call):
@@ -1445,7 +1462,8 @@ def handle_buy_check(call):
         else:
             bot.answer_callback_query(call.id, f"❌ API error: {response.status_code}")
     except Exception as e:
-        bot.answer_callback_query(call.id, f"❌ Error: {str(e)[:50]}")        
+        bot.answer_callback_query(call.id, f"❌ Error: {str(e)[:50]}")
+
 # ---------- Admin Commands ----------
 @bot.message_handler(commands=['addcoins'])
 def add_coins_cmd(message):
@@ -1561,7 +1579,7 @@ def setcost_cmd(message):
         bot.reply_to(message, f"✅ Cost for {module} set to {amount} credits.")
     except Exception as e:
         bot.reply_to(message, f"❌ Error: {str(e)}")
-        
+
 @bot.message_handler(commands=['giveallcoins'])
 def give_all_coins_cmd(message):
     if message.from_user.id != ADMIN_ID:
@@ -1586,6 +1604,7 @@ def give_all_coins_cmd(message):
         bot.reply_to(message, f"✅ Added {amount} coins to all {len(users)} users.")
     except Exception as e:
         bot.reply_to(message, f"❌ Error: {str(e)}")
+
 # ---------- Back to Main ----------
 @bot.callback_query_handler(func=lambda call: call.data == "back_menu")
 def back_to_menu(call):
@@ -1601,6 +1620,8 @@ def back_to_menu(call):
 # ---------- Fallback ----------
 @bot.message_handler(func=lambda m: True)
 def fallback(message):
+    # If the message is a number and we are waiting for buy amount, but handler didn't catch, this shouldn't happen now.
+    # But we still keep fallback to catch unknown commands.
     bot.reply_to(message, "❓ Unknown command. Use /start to see the menu.")
 
 # ==================== SCHEDULED TASKS ====================
