@@ -17,7 +17,6 @@ import tempfile
 import hashlib
 import zipfile
 import sqlite3
-from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 from datetime import datetime, timedelta
 from menu import (
     main_menu_text, main_menu_keyboard,
@@ -29,6 +28,8 @@ from menu import (
     referral_menu_text, referral_menu_keyboard,
     admin_panel_text, admin_panel_keyboard
 )
+# ✅ यह 1 लाइन add करें:
+from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 # ==================== CONFIG ====================
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
