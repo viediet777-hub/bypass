@@ -23,6 +23,7 @@ def main_menu_keyboard(is_admin: bool = False):
     kb.add(InlineKeyboardButton("📱 Flipkart Checker", callback_data="module_flipkart", style="primary"))
     kb.add(InlineKeyboardButton("📥 Instagram Downloader", callback_data="module_instagram", style="primary"))
     kb.add(InlineKeyboardButton("🔗 Referral", callback_data="module_referral", style="primary"))
+    kb.add(InlineKeyboardButton("💰 Buy Coins", callback_data="module_buy", style="success"))
     if is_admin:
         kb.add(InlineKeyboardButton("👑 Admin Panel", callback_data="module_admin", style="danger"))
     return kb
