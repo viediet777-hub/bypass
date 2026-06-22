@@ -1598,7 +1598,7 @@ def handle_music_song_callback(call):
 📊 Quality: 320kbps MP3
 
 ━━━━━━━━━━━━━━━━
-👨‍💻 Developer: @vishalcodeverse
+👨‍💻 Developer: @viedietextraa
 🎧 Keep vibing!"""
         
         with open(temp_filename, 'rb') as audio:
