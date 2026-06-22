@@ -17,6 +17,7 @@ import tempfile
 import hashlib
 import zipfile
 import sqlite3
+from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 from datetime import datetime, timedelta
 from menu import (
     main_menu_text, main_menu_keyboard,
