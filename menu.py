@@ -17,7 +17,6 @@ def main_menu_text(user_id: int, username: str = None, balance: int = 15, status
 
 def main_menu_keyboard(is_admin: bool = False):
     kb = InlineKeyboardMarkup(row_width=1)
-    kb.add(InlineKeyboardButton("🎁 Shopsy Coin", callback_data="module_shopsy", style="primary"))
     kb.add(InlineKeyboardButton("🔥 Firebase Extractor", callback_data="module_firebase", style="success"))
     kb.add(InlineKeyboardButton("📧 Temp Generator", callback_data="module_temp", style="primary"))
     kb.add(InlineKeyboardButton("📱 Flipkart Checker", callback_data="module_flipkart", style="primary"))
