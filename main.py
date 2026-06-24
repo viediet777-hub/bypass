@@ -43,10 +43,10 @@ if not BOT_TOKEN:
 ADMIN_ID = int(os.environ.get("ADMIN_ID", 1364476174))
 CHANNEL_USERNAME = "viedietlooters"
 GROUP_USERNAME = "viedietlooterschat"
-REFERRAL_BONUS = 2
-NEW_USER_BONUS = 5
+REFERRAL_BONUS = 1
+NEW_USER_BONUS = 2
 MIN_ACCOUNT_AGE_DAYS = 7
-REFERRAL_STAY_HOURS = 24
+REFERRAL_STAY_HOURS = 0
 
 logging.basicConfig(
     level=logging.INFO,
