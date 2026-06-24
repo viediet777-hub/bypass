@@ -1145,16 +1145,21 @@ def handle_shopsy_otp(message):
     threading.Thread(target=verify_otp_thread).start()
     bot.reply_to(message, "⏳ Verifying OTP...")
 
+# ==================== In main.py ====================
+
+# ... (other code remains the same)
+
 def start_shopsy_mining(user_id, chat_id):
-    update_user_balance(user_id, -1)
     data = shopsy_temp_data.get(user_id, {})
     session_data = data.get('session_data')
     phone = data.get('phone')
     if not session_data or not phone:
         bot.send_message(chat_id, "❌ Mining data missing. Please start again.")
         return
+
     msg = bot.send_message(chat_id, "⏳ Mining started...\n\nInitializing...")
     progress_messages = []
+
     def progress_callback(progress_text):
         nonlocal msg
         progress_messages.append(progress_text)
@@ -1165,28 +1170,45 @@ def start_shopsy_mining(user_id, chat_id):
             bot.edit_message_text(f"⏳ Mining in progress...\n\n{display}", chat_id, msg.message_id)
         except:
             pass
+
     def mining_thread():
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
-        result = loop.run_until_complete(shopsy.mine_account(session_data, progress_callback))
+        try:
+            result = loop.run_until_complete(shopsy.mine_account_parallel(session_data, progress_callback, parallel_count=4))
+        except Exception as e:
+            result = {"status": "fail", "earned": 0, "msg": f"⚠️ Unexpected error: {str(e)[:100]}"}
+        finally:
+            loop.close()
+
         if result and result.get('status') == 'success':
             earned = result.get('earned', 0)
             final_coins = result.get('final_coins', 0)
             played = result.get('played', 0)
             total = result.get('total', 0)
+
+            # ✅ Deduct credit ONLY on success
+            update_user_balance(user_id, -1)
+
             update_shopsy_balance(user_id, earned)
-            final_text = f"✅ <b>Mining Complete!</b>\n\n" \
-                         f"🎯 Earned: <b>{earned} SC</b>\n" \
-                         f"💰 Total Shopsy Coins: <b>{final_coins} SC</b>\n" \
-                         f"🎮 Games Played: {played}/{total}\n" \
-                         f"📱 Phone: +91{phone}\n\n" \
-                         f"💎 Your Shopsy Balance: {get_shopsy_balance(user_id)} SC"
+            final_text = (
+                f"✅ <b>Mining Complete!</b>\n\n"
+                f"🎯 Earned: <b>{earned} SC</b>\n"
+                f"💰 Total Shopsy Coins: <b>{final_coins} SC</b>\n"
+                f"🎮 Games Played: {played}/{total}\n"
+                f"📱 Phone: +91{phone}\n\n"
+                f"💎 Your Shopsy Balance: {get_shopsy_balance(user_id)} SC"
+            )
             bot.edit_message_text(final_text, chat_id, msg.message_id, parse_mode="HTML")
         else:
+            # ❌ Mining failed – no credit deducted
             err = result.get('msg', 'Unknown error') if result else 'Failed to mine.'
             bot.edit_message_text(f"❌ Mining failed!\n\n{err}", chat_id, msg.message_id)
+
+        # Cleanup
         shopsy_temp_data.pop(user_id, None)
         user_shopsy_state.pop(user_id, None)
+
     thread = threading.Thread(target=mining_thread)
     thread.daemon = True
     shopsy_temp_data[user_id]['mining_thread'] = thread
