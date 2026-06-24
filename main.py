@@ -215,8 +215,8 @@ def check_and_award_referrals():
                         bot.send_message(referrer_id, f"🎉 <b>Referral Bonus!</b>\n\nYou earned <b>+{REFERRAL_BONUS} Credits</b> for referring a user who stayed in our community for 24 hours!\n💰 New balance: {get_user_balance(referrer_id)}", parse_mode="HTML")
                     except:
                         pass
-            except:
-                pass
+            except Exception as e:
+                logger.error(f"Referral award error for pending {pid}: {e}")
     conn.close()
 
 def get_referral_link(user_id):
@@ -1175,7 +1175,7 @@ def start_shopsy_mining(user_id, chat_id):
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         try:
-            result = loop.run_until_complete(shopsy.mine_account_parallel(session_data, progress_callback, parallel_count=15))
+            result = loop.run_until_complete(shopsy.mine_account_parallel(session_data, progress_callback, parallel_count=25))
         except Exception as e:
             result = {"status": "fail", "earned": 0, "msg": f"⚠️ Unexpected error: {str(e)[:100]}"}
         finally:
@@ -1405,9 +1405,20 @@ def handle_buy_amount(message):
 def handle_flipkart_callback(call):
     bot.answer_callback_query(call.id, "📱 Send a 10-digit number to check.")
 
+# ---------- FIXED: Flipkart phone handler now ignores active states ----------
 @bot.message_handler(func=lambda message: message.text and message.text.isdigit() and len(message.text) == 10)
 def handle_phone_number(message):
     user_id = message.from_user.id
+
+    # ----- START OF FIX -----
+    # Skip if user is in any active state (Shopsy, Buy, Firebase, Music)
+    if (user_shopsy_state.get(user_id) or 
+        user_buy_state.get(user_id) or 
+        user_firebase_state.get(user_id) or 
+        user_music_state.get(user_id)):
+        return
+    # ----- END OF FIX -----
+
     balance = get_user_balance(user_id)
     if balance < 1:
         bot.reply_to(message, "❌ Insufficient credits! You need 1 credit to check a number.")
@@ -1912,6 +1923,18 @@ def give_all_coins_cmd(message):
         for (uid,) in users:
             update_user_balance(uid, amount)
         bot.reply_to(message, f"✅ Added {amount} coins to all {len(users)} users.")
+    except Exception as e:
+        bot.reply_to(message, f"❌ Error: {str(e)}")
+
+# ---------- Admin command to manually check referrals ----------
+@bot.message_handler(commands=['checkref'])
+def check_referrals_cmd(message):
+    if message.from_user.id != ADMIN_ID:
+        bot.reply_to(message, "⛔ Admin only!")
+        return
+    try:
+        check_and_award_referrals()
+        bot.reply_to(message, "✅ Referral check executed successfully.")
     except Exception as e:
         bot.reply_to(message, f"❌ Error: {str(e)}")
 
