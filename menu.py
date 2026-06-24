@@ -21,7 +21,8 @@ def main_menu_keyboard(is_admin: bool = False):
     kb.add(InlineKeyboardButton("📧 Temp Generator", callback_data="module_temp", style="primary"))
     kb.add(InlineKeyboardButton("📱 Flipkart Checker", callback_data="module_flipkart", style="primary"))
     kb.add(InlineKeyboardButton("📥 Instagram Downloader", callback_data="module_instagram", style="primary"))
-    kb.add(InlineKeyboardButton("🎵 Music", callback_data="module_music", style="primary"))   # <-- NEW LINE
+    kb.add(InlineKeyboardButton("🎯 Shopsy Miner", callback_data="module_shopsy", style="primary"))   # <-- NEW
+    kb.add(InlineKeyboardButton("🎵 Music", callback_data="module_music", style="primary"))
     kb.add(InlineKeyboardButton("🔗 Referral", callback_data="module_referral", style="primary"))
     if is_admin:
         kb.add(InlineKeyboardButton("👑 Admin Panel", callback_data="module_admin", style="danger"))
@@ -46,6 +47,8 @@ def shopsy_menu_keyboard():
     kb.add(InlineKeyboardButton("❓ How To Use", callback_data="shopsy_howto", style="primary"))
     kb.add(InlineKeyboardButton("🔙 Back to Main", callback_data="back_menu", style="danger"))
     return kb
+
+# ... (rest of menu functions remain unchanged)
 
 # ========== FIREBASE EXTRACTOR SUB-MENU ==========
 def firebase_menu_text(user_id: int, balance: int = 15, status: str = "ACTIVE") -> str:
