@@ -1175,7 +1175,7 @@ def start_shopsy_mining(user_id, chat_id):
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         try:
-            result = loop.run_until_complete(shopsy.mine_account_parallel(session_data, progress_callback, parallel_count=4))
+            result = loop.run_until_complete(shopsy.mine_account_parallel(session_data, progress_callback, parallel_count=15))
         except Exception as e:
             result = {"status": "fail", "earned": 0, "msg": f"⚠️ Unexpected error: {str(e)[:100]}"}
         finally:
