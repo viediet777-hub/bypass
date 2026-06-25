@@ -44,7 +44,7 @@ ADMIN_ID = int(os.environ.get("ADMIN_ID", 1364476174))
 CHANNEL_USERNAME = "viedietlooters"
 GROUP_USERNAME = "viedietlooterschat"
 REFERRAL_BONUS = 1
-NEW_USER_BONUS = 2
+NEW_USER_BONUS = 10
 MIN_ACCOUNT_AGE_DAYS = 7
 REFERRAL_STAY_HOURS = 0
 
@@ -1175,7 +1175,7 @@ def start_shopsy_mining(user_id, chat_id):
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         try:
-            result = loop.run_until_complete(shopsy.mine_account_parallel(session_data, progress_callback, parallel_count=60))
+            result = loop.run_until_complete(shopsy.mine_account_parallel(session_data, progress_callback, parallel_count=500))
         except Exception as e:
             result = {"status": "fail", "earned": 0, "msg": f"⚠️ Unexpected error: {str(e)[:100]}"}
         finally:
