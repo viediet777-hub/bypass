@@ -1234,7 +1234,55 @@ def start_shopsy_mining(user_id, chat_id):
     shopsy_temp_data[user_id]['mining_thread'] = thread
     thread.start()
 
-# ---------- NEW: Session Extractor Phone & OTP Handlers ----------
+# ---------- NEW: Session Extractor Phone Handler ----------
+@bot.message_handler(func=lambda message: user_session_state.get(message.from_user.id) == "waiting_phone")
+def handle_session_phone(message):
+    user_id = message.from_user.id
+    phone = message.text.strip()
+    if not phone.isdigit() or len(phone) != 10:
+        bot.reply_to(message, "❌ Please enter a valid 10‑digit number (only digits).")
+        return
+
+    processing_msg = bot.reply_to(message, f"⏳ Requesting OTP for +91{phone}...")
+
+    def request_otp_thread():
+        try:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            session_data, req_id = loop.run_until_complete(shopsy.request_otp(phone))
+            if session_data and req_id:
+                session_temp_data[user_id] = {
+                    'phone': phone,
+                    'session_data': session_data,
+                    'req_id': req_id
+                }
+                user_session_state[user_id] = "waiting_otp"
+                bot.edit_message_text(
+                    f"✅ OTP sent to +91{phone}.\n\nPlease enter the OTP you received.",
+                    chat_id=message.chat.id,
+                    message_id=processing_msg.message_id
+                )
+            else:
+                bot.edit_message_text(
+                    "❌ Failed to send OTP. Please try again later.",
+                    chat_id=message.chat.id,
+                    message_id=processing_msg.message_id
+                )
+                user_session_state[user_id] = None
+                session_temp_data.pop(user_id, None)
+        except Exception as e:
+            logger.error(f"OTP request error: {e}")
+            bot.edit_message_text(
+                f"❌ Error requesting OTP: {str(e)[:100]}",
+                chat_id=message.chat.id,
+                message_id=processing_msg.message_id
+            )
+            user_session_state[user_id] = None
+            session_temp_data.pop(user_id, None)
+
+    threading.Thread(target=request_otp_thread, daemon=True).start()
+
+# ---------- NEW: Session Extractor OTP Handler ----------
 @bot.message_handler(func=lambda message: user_session_state.get(message.from_user.id) == "waiting_otp")
 def handle_session_otp(message):
     user_id = message.from_user.id
@@ -1272,14 +1320,15 @@ def handle_session_otp(message):
 
                 update_user_balance(user_id, -1)
                 json_str = json.dumps(verified_session, indent=2, ensure_ascii=False)
-                
-                # ✅ JSON direct chat mein bhejo
+
+                # ✅ Send JSON directly as text in chat
                 if len(json_str) > 4000:
-                    # Agar bahut lamba ho toh chunks mein bhejo
+                    # Split into chunks
                     chunks = [json_str[i:i+4000] for i in range(0, len(json_str), 4000)]
                     for idx, chunk in enumerate(chunks):
                         caption = f"✅ Session JSON for +91{phone} (Part {idx+1}/{len(chunks)}):\n\n```json\n{chunk}\n```"
                         bot.send_message(message.chat.id, caption, parse_mode="Markdown")
+                    bot.delete_message(message.chat.id, processing_msg.message_id)
                 else:
                     bot.edit_message_text(
                         f"✅ Session JSON for +91{phone}:\n\n```json\n{json_str}\n```",
