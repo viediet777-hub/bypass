@@ -17,15 +17,15 @@ def main_menu_text(user_id: int, username: str = None, balance: int = 15, status
 
 def main_menu_keyboard(is_admin: bool = False):
     kb = InlineKeyboardMarkup(row_width=1)
-    kb.add(InlineKeyboardButton("🔥 Firebase Extractor", callback_data="module_firebase"))
-    kb.add(InlineKeyboardButton("📧 Temp Generator", callback_data="module_temp"))
-    kb.add(InlineKeyboardButton("📱 Flipkart Checker", callback_data="module_flipkart"))
-    kb.add(InlineKeyboardButton("📥 Instagram Downloader", callback_data="module_instagram"))
-    kb.add(InlineKeyboardButton("🔐 Session Extractors", callback_data="module_session"))   # NEW
-    kb.add(InlineKeyboardButton("🎵 Music", callback_data="module_music"))
-    kb.add(InlineKeyboardButton("🔗 Referral", callback_data="module_referral"))
+    kb.add(InlineKeyboardButton("🔥 Firebase Extractor", callback_data="module_firebase", style="success"))
+    kb.add(InlineKeyboardButton("📧 Temp Generator", callback_data="module_temp", style="primary"))
+    kb.add(InlineKeyboardButton("📱 Flipkart Checker", callback_data="module_flipkart", style="primary"))
+    kb.add(InlineKeyboardButton("📥 Instagram Downloader", callback_data="module_instagram", style="primary"))
+    kb.add(InlineKeyboardButton("🔐 Session Extractors", callback_data="module_session", style="primary"))
+    kb.add(InlineKeyboardButton("🎵 Music", callback_data="module_music", style="primary"))
+    kb.add(InlineKeyboardButton("🔗 Referral", callback_data="module_referral", style="primary"))
     if is_admin:
-        kb.add(InlineKeyboardButton("👑 Admin Panel", callback_data="module_admin"))
+        kb.add(InlineKeyboardButton("👑 Admin Panel", callback_data="module_admin", style="danger"))
     return kb
 
 # ========== FIREBASE EXTRACTOR SUB-MENU ==========
@@ -47,10 +47,10 @@ def firebase_menu_text(user_id: int, balance: int = 15, status: str = "ACTIVE") 
 def firebase_menu_keyboard():
     kb = InlineKeyboardMarkup(row_width=1)
     kb.row(
-        InlineKeyboardButton("📤 Send APK", callback_data="firebase_send"),
-        InlineKeyboardButton("🗑️ Remove APK", callback_data="firebase_remove")
+        InlineKeyboardButton("📤 Send APK", callback_data="firebase_send", style="primary"),
+        InlineKeyboardButton("🗑️ Remove APK", callback_data="firebase_remove", style="danger")
     )
-    kb.add(InlineKeyboardButton("🔙 Back to Main", callback_data="back_menu"))
+    kb.add(InlineKeyboardButton("🔙 Back to Main", callback_data="back_menu", style="danger"))
     return kb
 
 # ========== TEMP GENERATOR SUB-MENU ==========
@@ -65,14 +65,14 @@ def temp_menu_text(user_id: int) -> str:
 def temp_menu_keyboard():
     kb = InlineKeyboardMarkup(row_width=2)
     kb.row(
-        InlineKeyboardButton("📧 New Email", callback_data="temp_new"),
-        InlineKeyboardButton("📥 Check Inbox", callback_data="temp_inbox")
+        InlineKeyboardButton("📧 New Email", callback_data="temp_new", style="success"),
+        InlineKeyboardButton("📥 Check Inbox", callback_data="temp_inbox", style="primary")
     )
     kb.row(
-        InlineKeyboardButton("🔑 Get OTP", callback_data="temp_otp"),
-        InlineKeyboardButton("🗑️ Delete Email", callback_data="temp_delete")
+        InlineKeyboardButton("🔑 Get OTP", callback_data="temp_otp", style="primary"),
+        InlineKeyboardButton("🗑️ Delete Email", callback_data="temp_delete", style="danger")
     )
-    kb.add(InlineKeyboardButton("🔙 Back to Main", callback_data="back_menu"))
+    kb.add(InlineKeyboardButton("🔙 Back to Main", callback_data="back_menu", style="danger"))
     return kb
 
 # ========== FLIPKART CHECKER SUB-MENU ==========
@@ -87,7 +87,7 @@ def flipkart_menu_text(user_id: int, balance: int = 15, status: str = "ACTIVE") 
 
 def flipkart_menu_keyboard():
     kb = InlineKeyboardMarkup(row_width=1)
-    kb.add(InlineKeyboardButton("🔙 Back to Main", callback_data="back_menu"))
+    kb.add(InlineKeyboardButton("🔙 Back to Main", callback_data="back_menu", style="danger"))
     return kb
 
 # ========== INSTAGRAM DOWNLOADER SUB-MENU ==========
@@ -104,10 +104,10 @@ def instagram_menu_text(user_id: int, balance: int = 15, status: str = "ACTIVE")
 def instagram_menu_keyboard():
     kb = InlineKeyboardMarkup(row_width=2)
     kb.row(
-        InlineKeyboardButton("📹 Single Download", callback_data="instagram_single"),
-        InlineKeyboardButton("📚 Bulk Download", callback_data="instagram_bulk")
+        InlineKeyboardButton("📹 Single Download", callback_data="instagram_single", style="success"),
+        InlineKeyboardButton("📚 Bulk Download", callback_data="instagram_bulk", style="primary")
     )
-    kb.add(InlineKeyboardButton("🔙 Back to Main", callback_data="back_menu"))
+    kb.add(InlineKeyboardButton("🔙 Back to Main", callback_data="back_menu", style="danger"))
     return kb
 
 # ========== REFERRAL SUB-MENU ==========
@@ -131,9 +131,9 @@ def referral_menu_text(user_id: int, balance: int = 15, referral_count: int = 0)
 
 def referral_menu_keyboard():
     kb = InlineKeyboardMarkup(row_width=1)
-    kb.add(InlineKeyboardButton("🔗 Get Referral Link", callback_data="referral_get_link"))
-    kb.add(InlineKeyboardButton("📊 My Referrals", callback_data="referral_stats"))
-    kb.add(InlineKeyboardButton("🔙 Back to Main", callback_data="back_menu"))
+    kb.add(InlineKeyboardButton("🔗 Get Referral Link", callback_data="referral_get_link", style="success"))
+    kb.add(InlineKeyboardButton("📊 My Referrals", callback_data="referral_stats", style="primary"))
+    kb.add(InlineKeyboardButton("🔙 Back to Main", callback_data="back_menu", style="danger"))
     return kb
 
 # ========== ADMIN PANEL SUB-MENU ==========
@@ -147,18 +147,18 @@ def admin_panel_text() -> str:
 def admin_panel_keyboard():
     kb = InlineKeyboardMarkup(row_width=2)
     kb.row(
-        InlineKeyboardButton("📊 Stats", callback_data="admin_stats"),
-        InlineKeyboardButton("👥 Users", callback_data="admin_users")
+        InlineKeyboardButton("📊 Stats", callback_data="admin_stats", style="primary"),
+        InlineKeyboardButton("👥 Users", callback_data="admin_users", style="primary")
     )
     kb.row(
-        InlineKeyboardButton("➕ Add Coins", callback_data="admin_add_coins"),
-        InlineKeyboardButton("➖ Remove Coins", callback_data="admin_remove_coins")
+        InlineKeyboardButton("➕ Add Coins", callback_data="admin_add_coins", style="success"),
+        InlineKeyboardButton("➖ Remove Coins", callback_data="admin_remove_coins", style="danger")
     )
     kb.row(
-        InlineKeyboardButton("📢 Broadcast", callback_data="admin_broadcast"),
-        InlineKeyboardButton("⚙️ Set Costs", callback_data="admin_costs")
+        InlineKeyboardButton("📢 Broadcast", callback_data="admin_broadcast", style="primary"),
+        InlineKeyboardButton("⚙️ Set Costs", callback_data="admin_costs", style="primary")
     )
-    kb.add(InlineKeyboardButton("🔙 Back to Main", callback_data="back_menu"))
+    kb.add(InlineKeyboardButton("🔙 Back to Main", callback_data="back_menu", style="danger"))
     return kb
 
 # ========== SESSION EXTRACTOR SUB-MENU ==========
@@ -177,11 +177,11 @@ def session_menu_text(user_id: int, balance: int = 15, status: str = "ACTIVE") -
 def session_menu_keyboard():
     kb = InlineKeyboardMarkup(row_width=2)
     kb.row(
-        InlineKeyboardButton("📱 Flipkart/Shopsy", callback_data="session_flipkart"),
-        InlineKeyboardButton("🛵 Swiggy", callback_data="session_swiggy")
+        InlineKeyboardButton("📱 Flipkart/Shopsy", callback_data="session_flipkart", style="primary"),
+        InlineKeyboardButton("🛵 Swiggy", callback_data="session_swiggy", style="secondary")
     )
     kb.row(
-        InlineKeyboardButton("🛒 Blinkit", callback_data="session_blinkit"),
-        InlineKeyboardButton("🔙 Back", callback_data="back_menu")
+        InlineKeyboardButton("🛒 Blinkit", callback_data="session_blinkit", style="secondary"),
+        InlineKeyboardButton("🔙 Back", callback_data="back_menu", style="danger")
     )
     return kb
