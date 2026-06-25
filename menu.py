@@ -21,11 +21,31 @@ def main_menu_keyboard(is_admin: bool = False):
     kb.add(InlineKeyboardButton("📧 Temp Generator", callback_data="module_temp", style="primary"))
     kb.add(InlineKeyboardButton("📱 Flipkart Checker", callback_data="module_flipkart", style="primary"))
     kb.add(InlineKeyboardButton("📥 Instagram Downloader", callback_data="module_instagram", style="primary"))
-    kb.add(InlineKeyboardButton("🔐 Session Extractors", callback_data="module_session", style="primary"))
+    kb.add(InlineKeyboardButton("🔐 Session Extractor", callback_data="module_session", style="primary"))   # NEW
     kb.add(InlineKeyboardButton("🎵 Music", callback_data="module_music", style="primary"))
     kb.add(InlineKeyboardButton("🔗 Referral", callback_data="module_referral", style="primary"))
     if is_admin:
         kb.add(InlineKeyboardButton("👑 Admin Panel", callback_data="module_admin", style="danger"))
+    return kb
+
+# ========== SHOPSY SUB-MENU ==========
+def shopsy_menu_text(user_id: int, balance: int = 15, status: str = "ACTIVE") -> str:
+    return (
+        f"🎯 <b>SHOPSY AUTO-MINE</b>\n\n"
+        f"Status: <b>{status}</b>\n"
+        f"Balance: <b>{balance} Credits</b>\n"
+        f"Run Cost: <b>1 Credit / run</b>\n\n"
+        f"Select an operation below:"
+    )
+
+def shopsy_menu_keyboard():
+    kb = InlineKeyboardMarkup(row_width=1)
+    kb.row(
+        InlineKeyboardButton("▶️ Start New Task", callback_data="shopsy_start", style="success"),
+        InlineKeyboardButton("📁 My Accounts", callback_data="shopsy_accounts", style="primary")
+    )
+    kb.add(InlineKeyboardButton("❓ How To Use", callback_data="shopsy_howto", style="primary"))
+    kb.add(InlineKeyboardButton("🔙 Back to Main", callback_data="back_menu", style="danger"))
     return kb
 
 # ========== FIREBASE EXTRACTOR SUB-MENU ==========
@@ -159,29 +179,4 @@ def admin_panel_keyboard():
         InlineKeyboardButton("⚙️ Set Costs", callback_data="admin_costs", style="primary")
     )
     kb.add(InlineKeyboardButton("🔙 Back to Main", callback_data="back_menu", style="danger"))
-    return kb
-
-# ========== SESSION EXTRACTOR SUB-MENU ==========
-def session_menu_text(user_id: int, balance: int = 15, status: str = "ACTIVE") -> str:
-    return (
-        f"🔐 <b>SESSION EXTRACTORS</b>\n\n"
-        f"Balance: <b>{balance} Credits</b>\n"
-        f"Cost: <b>1 Credit / extraction</b>\n\n"
-        f"Choose a service to extract your session JSON:\n\n"
-        f"📱 <b>Flipkart/Shopsy</b> – full session tokens\n"
-        f"🛵 <b>Swiggy</b> – coming soon\n"
-        f"🛒 <b>Blinkit</b> – coming soon\n\n"
-        f"<i>Session data is saved as a JSON file.</i>"
-    )
-
-def session_menu_keyboard():
-    kb = InlineKeyboardMarkup(row_width=2)
-    kb.row(
-        InlineKeyboardButton("📱 Flipkart/Shopsy", callback_data="session_flipkart", style="primary"),
-        InlineKeyboardButton("🛵 Swiggy", callback_data="session_swiggy", style="secondary")
-    )
-    kb.row(
-        InlineKeyboardButton("🛒 Blinkit", callback_data="session_blinkit", style="secondary"),
-        InlineKeyboardButton("🔙 Back", callback_data="back_menu", style="danger")
-    )
     return kb
