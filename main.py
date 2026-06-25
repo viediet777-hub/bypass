@@ -27,11 +27,11 @@ from menu import (
     instagram_menu_text, instagram_menu_keyboard,
     referral_menu_text, referral_menu_keyboard,
     admin_panel_text, admin_panel_keyboard,
-    session_menu_text, session_menu_keyboard   # NEW
+    session_menu_text, session_menu_keyboard   # <-- only these exist now
 )
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 
-# ---- Import Shopsy (for OTP functions) ----
+# ---- Import Shopsy for OTP functions only ----
 import shopsy
 
 # ==================== CONFIG ====================
