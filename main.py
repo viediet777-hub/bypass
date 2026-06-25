@@ -13,7 +13,6 @@ import random
 import string
 import instaloader
 import shutil
-import tempfile
 import hashlib
 import zipfile
 import sqlite3
@@ -27,11 +26,11 @@ from menu import (
     instagram_menu_text, instagram_menu_keyboard,
     referral_menu_text, referral_menu_keyboard,
     admin_panel_text, admin_panel_keyboard,
-    session_menu_text, session_menu_keyboard   # <-- only these exist now
+    session_menu_text, session_menu_keyboard
 )
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
+from telebot.apihelper import ApiTelegramException   # <-- for catching 409
 
-# ---- Import Shopsy for OTP functions only ----
 import shopsy
 
 # ==================== CONFIG ====================
@@ -305,9 +304,9 @@ pending_purchases = {}
 user_buy_state = {}
 user_music_state = {}
 
-# NEW: Session Extractor states
-user_session_state = {}      # user_id -> "waiting_phone" / "waiting_otp" / None
-session_temp_data = {}       # user_id -> { 'phone': ..., 'session_data': ..., 'req_id': ... }
+# Session Extractor states
+user_session_state = {}
+session_temp_data = {}
 
 # ==================== MUSIC API FUNCTIONS ====================
 MUSIC_API_BASE = "https://jiosavanapiryden.vercel.app/api"
@@ -904,7 +903,7 @@ def handle_module_callback(call):
         bot.send_message(call.message.chat.id, text, reply_markup=admin_panel_keyboard(), parse_mode="HTML")
         bot.answer_callback_query(call.id)
 
-    elif module == "session":   # NEW
+    elif module == "session":
         bot.delete_message(call.message.chat.id, call.message.message_id)
         text = session_menu_text(user_id, balance, "ACTIVE")
         bot.send_message(call.message.chat.id, text, reply_markup=session_menu_keyboard(), parse_mode="HTML")
@@ -1039,7 +1038,7 @@ def handle_apk(message):
             except:
                 pass
 
-@bot.callback_query_handler(func=lambda call: call.data.startswith("session_"))   # NEW
+@bot.callback_query_handler(func=lambda call: call.data.startswith("session_"))
 def handle_session_callback(call):
     action = call.data.split("_")[1]
     user_id = call.from_user.id
@@ -1082,24 +1081,34 @@ def handle_session_phone(message):
     processing_msg = bot.reply_to(message, f"⏳ Requesting OTP for +91{phone}...")
 
     def request_otp_thread():
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        session_data, req_id = loop.run_until_complete(shopsy.request_otp(phone))
-        if session_data and req_id:
-            session_temp_data[user_id] = {
-                'phone': phone,
-                'session_data': session_data,
-                'req_id': req_id
-            }
-            user_session_state[user_id] = "waiting_otp"
+        try:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            session_data, req_id = loop.run_until_complete(shopsy.request_otp(phone))
+            if session_data and req_id:
+                session_temp_data[user_id] = {
+                    'phone': phone,
+                    'session_data': session_data,
+                    'req_id': req_id
+                }
+                user_session_state[user_id] = "waiting_otp"
+                bot.edit_message_text(
+                    f"✅ OTP sent to +91{phone}.\n\nPlease enter the OTP you received.",
+                    chat_id=message.chat.id,
+                    message_id=processing_msg.message_id
+                )
+            else:
+                bot.edit_message_text(
+                    "❌ Failed to send OTP. Please try again later.",
+                    chat_id=message.chat.id,
+                    message_id=processing_msg.message_id
+                )
+                user_session_state[user_id] = None
+                session_temp_data.pop(user_id, None)
+        except Exception as e:
+            logger.error(f"OTP request error: {e}")
             bot.edit_message_text(
-                f"✅ OTP sent to +91{phone}.\n\nPlease enter the OTP you received.",
-                chat_id=message.chat.id,
-                message_id=processing_msg.message_id
-            )
-        else:
-            bot.edit_message_text(
-                "❌ Failed to send OTP. Please try again later.",
+                f"❌ Error requesting OTP: {str(e)[:100]}",
                 chat_id=message.chat.id,
                 message_id=processing_msg.message_id
             )
@@ -1127,49 +1136,57 @@ def handle_session_otp(message):
     processing_msg = bot.reply_to(message, "⏳ Verifying OTP...")
 
     def verify_otp_thread():
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        verified_session = loop.run_until_complete(shopsy.verify_otp(session_data, otp))
-        if verified_session:
-            # Charge 1 credit
-            balance = get_user_balance(user_id)
-            if balance < 1:
+        try:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            verified_session = loop.run_until_complete(shopsy.verify_otp(session_data, otp))
+            if verified_session:
+                # Charge 1 credit
+                balance = get_user_balance(user_id)
+                if balance < 1:
+                    bot.edit_message_text(
+                        "❌ Insufficient credits! You need 1 Credit for this extraction.",
+                        chat_id=message.chat.id,
+                        message_id=processing_msg.message_id
+                    )
+                    user_session_state[user_id] = None
+                    session_temp_data.pop(user_id, None)
+                    return
+
+                update_user_balance(user_id, -1)
+                # Save session JSON
+                json_str = json.dumps(verified_session, indent=2, ensure_ascii=False)
+                file_path = f"/tmp/{phone}_session.json"
+                with open(file_path, "w", encoding="utf-8") as f:
+                    f.write(json_str)
+
+                with open(file_path, "rb") as f:
+                    bot.send_document(
+                        message.chat.id,
+                        document=f,
+                        filename=f"{phone}_session.json",
+                        caption=f"✅ Session JSON for +91{phone} extracted successfully!\n💳 Cost: 1 Credit"
+                    )
+                os.remove(file_path)
+
+                bot.delete_message(message.chat.id, processing_msg.message_id)
+                log_usage(user_id, "Session Extractor", f"Phone: +91{phone}")
+            else:
                 bot.edit_message_text(
-                    "❌ Insufficient credits! You need 1 Credit for this extraction.",
+                    "❌ Invalid OTP or verification failed. Please try again.",
                     chat_id=message.chat.id,
                     message_id=processing_msg.message_id
                 )
-                user_session_state[user_id] = None
-                session_temp_data.pop(user_id, None)
-                return
-
-            update_user_balance(user_id, -1)
-            # Save session JSON
-            json_str = json.dumps(verified_session, indent=2, ensure_ascii=False)
-            file_path = f"/tmp/{phone}_session.json"
-            with open(file_path, "w", encoding="utf-8") as f:
-                f.write(json_str)
-
-            with open(file_path, "rb") as f:
-                bot.send_document(
-                    message.chat.id,
-                    document=f,
-                    filename=f"{phone}_session.json",
-                    caption=f"✅ Session JSON for +91{phone} extracted successfully!\n💳 Cost: 1 Credit"
-                )
-            os.remove(file_path)
-
-            bot.delete_message(message.chat.id, processing_msg.message_id)
-            log_usage(user_id, "Session Extractor", f"Phone: +91{phone}")
-        else:
+        except Exception as e:
+            logger.error(f"OTP verification error: {e}")
             bot.edit_message_text(
-                "❌ Invalid OTP or verification failed. Please try again.",
+                f"❌ Error during verification: {str(e)[:100]}",
                 chat_id=message.chat.id,
                 message_id=processing_msg.message_id
             )
-
-        user_session_state[user_id] = None
-        session_temp_data.pop(user_id, None)
+        finally:
+            user_session_state[user_id] = None
+            session_temp_data.pop(user_id, None)
 
     threading.Thread(target=verify_otp_thread, daemon=True).start()
 
@@ -1373,7 +1390,7 @@ def handle_phone_number(message):
     if (user_buy_state.get(user_id) or 
         user_firebase_state.get(user_id) or 
         user_music_state.get(user_id) or
-        user_session_state.get(user_id)):   # ADDED session state
+        user_session_state.get(user_id)):
         return
 
     balance = get_user_balance(user_id)
@@ -1926,14 +1943,31 @@ if __name__ == "__main__":
     task_thread = threading.Thread(target=run_scheduled_tasks, daemon=True)
     task_thread.start()
     logger.info("🤖 Bot is starting...")
+
+    # Remove webhook to avoid conflicts
     try:
         bot.remove_webhook()
-        time.sleep(5)
-    except:
-        pass
+        time.sleep(1)
+    except Exception as e:
+        logger.warning(f"remove_webhook failed: {e}")
+
+    # Polling loop with 409 recovery
     while True:
         try:
             bot.polling(non_stop=True, interval=0, timeout=60)
+        except ApiTelegramException as e:
+            if e.result_json.get('error_code') == 409:
+                logger.error("Conflict (409): Another bot instance is running. Retrying in 10s...")
+                time.sleep(10)
+                # Try to remove webhook again and continue
+                try:
+                    bot.remove_webhook()
+                except:
+                    pass
+                continue
+            else:
+                logger.error(f"ApiTelegramException: {e}")
+                time.sleep(5)
         except Exception as e:
             logger.error(f"Polling error: {e}")
             time.sleep(5)
