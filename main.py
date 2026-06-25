@@ -1306,7 +1306,6 @@ def handle_session_otp(message):
             asyncio.set_event_loop(loop)
             verified_session = loop.run_until_complete(shopsy.verify_otp(session_data, otp))
             if verified_session:
-                # Charge 1 credit
                 balance = get_user_balance(user_id)
                 if balance < 1:
                     bot.edit_message_text(
@@ -1319,7 +1318,6 @@ def handle_session_otp(message):
                     return
 
                 update_user_balance(user_id, -1)
-                # Save session JSON
                 json_str = json.dumps(verified_session, indent=2, ensure_ascii=False)
                 file_path = f"/tmp/{phone}_session.json"
                 with open(file_path, "w", encoding="utf-8") as f:
@@ -1329,7 +1327,7 @@ def handle_session_otp(message):
                     bot.send_document(
                         message.chat.id,
                         document=f,
-                        filename=f"{phone}_session.json",
+                        file_name=f"{phone}_session.json",   # <-- FIXED
                         caption=f"✅ Session JSON for +91{phone} extracted successfully!\n💳 Cost: 1 Credit"
                     )
                 os.remove(file_path)
