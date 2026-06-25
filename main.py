@@ -29,7 +29,7 @@ from menu import (
     session_menu_text, session_menu_keyboard
 )
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
-from telebot.apihelper import ApiTelegramException   # <-- for catching 409
+from telebot.apihelper import ApiTelegramException
 
 import shopsy
 
@@ -1137,9 +1137,11 @@ def handle_session_otp(message):
 
     def verify_otp_thread():
         try:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            verified_session = loop.run_until_complete(shopsy.verify_otp(session_data, otp))
+            # Use asyncio.run() with a timeout
+            async def verify_with_timeout():
+                return await shopsy.verify_otp(session_data, otp)
+            # 30-second timeout
+            verified_session = asyncio.run(asyncio.wait_for(verify_with_timeout(), timeout=30.0))
             if verified_session:
                 # Charge 1 credit
                 balance = get_user_balance(user_id)
@@ -1177,6 +1179,12 @@ def handle_session_otp(message):
                     chat_id=message.chat.id,
                     message_id=processing_msg.message_id
                 )
+        except asyncio.TimeoutError:
+            bot.edit_message_text(
+                "⏱️ Verification timed out (30 seconds). Please try again.",
+                chat_id=message.chat.id,
+                message_id=processing_msg.message_id
+            )
         except Exception as e:
             logger.error(f"OTP verification error: {e}")
             bot.edit_message_text(
@@ -1959,7 +1967,6 @@ if __name__ == "__main__":
             if e.result_json.get('error_code') == 409:
                 logger.error("Conflict (409): Another bot instance is running. Retrying in 10s...")
                 time.sleep(10)
-                # Try to remove webhook again and continue
                 try:
                     bot.remove_webhook()
                 except:
