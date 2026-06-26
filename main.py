@@ -43,6 +43,7 @@ if not BOT_TOKEN:
 ADMIN_ID = int(os.environ.get("ADMIN_ID", 1364476174))
 CHANNEL_USERNAME = "viedietlooters"
 GROUP_USERNAME = "viedietlooterschat"
+CHANNEL2_USERNAME = "shivamxcpn"   # <-- NEW CHANNEL ADDED
 REFERRAL_BONUS = 1
 NEW_USER_BONUS = 2
 MIN_ACCOUNT_AGE_DAYS = 7
@@ -204,8 +205,10 @@ def check_and_award_referrals():
             try:
                 channel_member = bot.get_chat_member(f"@{CHANNEL_USERNAME}", referred_id)
                 group_member = bot.get_chat_member(f"@{GROUP_USERNAME}", referred_id)
-                if channel_member.status in ['member', 'administrator', 'creator'] and \
-                   group_member.status in ['member', 'administrator', 'creator']:
+                channel2_member = bot.get_chat_member(f"@{CHANNEL2_USERNAME}", referred_id)  # <-- NEW CHECK
+                if (channel_member.status in ['member', 'administrator', 'creator'] and 
+                    group_member.status in ['member', 'administrator', 'creator'] and
+                    channel2_member.status in ['member', 'administrator', 'creator']):        # <-- NEW CONDITION
                     update_user_balance(referrer_id, REFERRAL_BONUS)
                     c.execute('INSERT INTO referrals (referrer_id, referred_id, join_timestamp, points_awarded, is_valid) VALUES (?, ?, ?, ?, 1)',
                               (referrer_id, referred_id, join_ts, REFERRAL_BONUS))
@@ -294,8 +297,19 @@ def is_group_member(user_id):
     except:
         return False
 
+# <-- NEW FUNCTION FOR SECOND CHANNEL -->
+def is_second_channel_member(user_id):
+    try:
+        member = bot.get_chat_member(f"@{CHANNEL2_USERNAME}", user_id)
+        return member.status in ['member', 'administrator', 'creator']
+    except:
+        return False
+
+# <-- UPDATED MEMBERSHIP CHECK TO INCLUDE SECOND CHANNEL -->
 def check_membership(user_id):
-    return is_channel_member(user_id) and is_group_member(user_id)
+    return (is_channel_member(user_id) and 
+            is_group_member(user_id) and 
+            is_second_channel_member(user_id))
 
 # ==================== GLOBAL STATES ====================
 user_temp_sessions = {}
@@ -778,18 +792,22 @@ def start_cmd(message):
         create_user(user_id, username, first_name, referred_by)
     
     if not check_membership(user_id):
+        # <-- UPDATED TEXT WITH SECOND CHANNEL -->
         text = (
             f"🔐 <b>Access Denied</b> 😞!\n\n"
             f"You must join our communities to use this bot.\n\n"
             f"📢 <b>Required Channels:</b>\n"
             f"• Channel: <a href='https://t.me/{CHANNEL_USERNAME}'>{CHANNEL_USERNAME}</a>\n"
-            f"• Group: <a href='https://t.me/{GROUP_USERNAME}'>{GROUP_USERNAME}</a>\n\n"
+            f"• Group: <a href='https://t.me/{GROUP_USERNAME}'>{GROUP_USERNAME}</a>\n"
+            f"• Channel 2: <a href='https://t.me/{CHANNEL2_USERNAME}'>{CHANNEL2_USERNAME}</a>\n\n"
             f"⚠️ After joining, click <b>VERIFY</b> button."
         )
+        # <-- UPDATED KEYBOARD WITH SECOND CHANNEL BUTTON -->
         keyboard = InlineKeyboardMarkup(row_width=1)
         keyboard.add(
             InlineKeyboardButton("📢 Join Channel", url=f"https://t.me/{CHANNEL_USERNAME}"),
-            InlineKeyboardButton("💬 Join Group", url=f"https://t.me/{GROUP_USERNAME}")
+            InlineKeyboardButton("💬 Join Group", url=f"https://t.me/{GROUP_USERNAME}"),
+            InlineKeyboardButton("📢 Join Channel 2", url=f"https://t.me/{CHANNEL2_USERNAME}")
         )
         keyboard.add(InlineKeyboardButton("✅ VERIFY MEMBERSHIP ✅", callback_data="verify_membership", style="success"))
         bot.send_message(message.chat.id, text, reply_markup=keyboard, parse_mode="HTML", disable_web_page_preview=True)
