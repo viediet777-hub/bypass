@@ -23,11 +23,42 @@ def main_menu_keyboard(is_admin: bool = False):
     kb.add(InlineKeyboardButton("📥 Instagram Downloader", callback_data="module_instagram", style="primary"))
     kb.add(InlineKeyboardButton("🔐 Session Extractor", callback_data="module_session", style="primary"))
     kb.add(InlineKeyboardButton("🏨 Brevistay", callback_data="module_brevistay", style="primary"))
-    kb.add(InlineKeyboardButton("🧘 Yoga", callback_data="module_habuild", style="primary"))
+    kb.add(InlineKeyboardButton("🧘 Habuild", callback_data="module_habuild", style="primary"))
+    kb.add(InlineKeyboardButton("🧘 Yoga", callback_data="module_yoga", style="primary"))
     kb.add(InlineKeyboardButton("🎵 Music", callback_data="module_music", style="primary"))
     kb.add(InlineKeyboardButton("🔗 Referral", callback_data="module_referral", style="primary"))
     if is_admin:
         kb.add(InlineKeyboardButton("👑 Admin Panel", callback_data="module_admin", style="danger"))
+    return kb
+
+# ========== YOGA SUB-MENU ==========
+def yoga_menu_text(user_id: int, balance: int = 15, status: str = "ACTIVE", cost: int = 1) -> str:
+    return (
+        f"🧘 <b>YOGA REFERRAL AUTOMATION</b>\n\n"
+        f"Status: <b>{status}</b>\n"
+        f"Balance: <b>{balance} Credits</b>\n"
+        f"Run Cost: <b>{cost} Credit(s) / referral</b>\n\n"
+        f"Click <b>Start Automation</b> to begin.\n"
+        f"Bot will:\n"
+        f"• Fetch numbers from your Firebase panel\n"
+        f"• Auto-register with your referral code\n"
+        f"• Auto-detect and verify OTP\n"
+        f"• Complete referral automatically\n\n"
+        f"⚙️ <b>Setup:</b>\n"
+        f"1. Set your Yoga referral code\n"
+        f"2. Add your Firebase panel URL\n"
+        f"3. Start automation\n\n"
+        f"⚠️ Make sure your panel has active devices!"
+    )
+
+def yoga_menu_keyboard():
+    kb = InlineKeyboardMarkup(row_width=1)
+    kb.add(InlineKeyboardButton("▶️ Start Automation", callback_data="yoga_start", style="success"))
+    kb.add(InlineKeyboardButton("⏹️ Stop Automation", callback_data="yoga_stop", style="danger"))
+    kb.add(InlineKeyboardButton("📊 My Stats", callback_data="yoga_stats", style="primary"))
+    kb.add(InlineKeyboardButton("⚙️ Set Referral Code", callback_data="yoga_set_ref", style="primary"))
+    kb.add(InlineKeyboardButton("📁 Add Panel", callback_data="yoga_add_panel", style="primary"))
+    kb.add(InlineKeyboardButton("🔙 Back to Main", callback_data="back_menu", style="danger"))
     return kb
 
 # ========== HABUILD SUB-MENU ==========
