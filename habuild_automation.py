@@ -421,5 +421,3 @@ class HabuildAutomation:
 
 # ==================== GLOBAL INSTANCE ====================
 user_automations: Dict[int, HabuildAutomation] = {}
-# ==================== GLOBAL INSTANCE ====================
-user_yoga_automations: Dict[int, YogaAutomation] = {}
