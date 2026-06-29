@@ -31,7 +31,8 @@ from menu import (
     brevistay_menu_text, brevistay_menu_keyboard,
     session_menu_text, session_menu_keyboard,
     music_menu_text, music_menu_keyboard,
-    habuild_menu_text, habuild_menu_keyboard
+    habuild_menu_text, habuild_menu_keyboard,
+    yoga_menu_text, yoga_menu_keyboard
 )
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 
@@ -39,6 +40,7 @@ from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 import shopsy
 from brevistay_client import BrevistayClient
 from habuild_automation import HabuildAutomation, get_user_habuild_data, update_habuild_settings, user_automations
+from yoga_automation import YogaAutomation, get_user_yoga_data, update_yoga_settings, user_yoga_automations
 
 # ==================== CONFIG ====================
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
@@ -63,7 +65,8 @@ DEFAULT_COSTS = {
     "music": 1,
     "session": 1,
     "brevistay": 1,
-    "habuild": 1
+    "habuild": 1,
+    "yoga": 1
 }
 
 logging.basicConfig(
@@ -121,8 +124,15 @@ def init_db():
         key TEXT PRIMARY KEY,
         value TEXT
     )''')
-    # Habuild settings table
     c.execute('''CREATE TABLE IF NOT EXISTS habuild_settings (
+        user_id INTEGER PRIMARY KEY,
+        referral_code TEXT,
+        panels TEXT,
+        is_running INTEGER DEFAULT 0,
+        total_referrals INTEGER DEFAULT 0,
+        last_run TEXT
+    )''')
+    c.execute('''CREATE TABLE IF NOT EXISTS yoga_settings (
         user_id INTEGER PRIMARY KEY,
         referral_code TEXT,
         panels TEXT,
@@ -134,11 +144,9 @@ def init_db():
     conn.close()
     logger.info("Database initialized.")
     
-    # Initialize default costs if not exist
     init_default_costs()
 
 def init_default_costs():
-    """Initialize default costs for all modules if not already set"""
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
     c = conn.cursor()
     for module, cost in DEFAULT_COSTS.items():
@@ -321,14 +329,12 @@ def set_config(key, value):
     conn.close()
 
 def get_module_cost(module_name):
-    """Get cost for a specific module"""
     cost = get_config(f"{module_name}_cost")
     if cost is None:
         return DEFAULT_COSTS.get(module_name, 1)
     return int(cost)
 
 def set_module_cost(module_name, cost):
-    """Set cost for a specific module"""
     set_config(f"{module_name}_cost", str(cost))
 
 def is_channel_member(user_id):
@@ -364,8 +370,8 @@ session_temp_data = {}
 user_brevistay_state = {}
 brevistay_temp_data = {}
 
-# Habuild state for message handlers
 habuild_user_state = {}
+yoga_user_state = {}
 
 # ==================== MUSIC API FUNCTIONS ====================
 MUSIC_API_BASE = "https://jiosavanapiryden.vercel.app/api"
@@ -992,7 +998,6 @@ def handle_module_callback(call):
         bot.delete_message(call.message.chat.id, call.message.message_id)
         cost = get_module_cost("habuild")
         
-        # Initialize automation if not exists
         if user_id not in user_automations:
             user_automations[user_id] = HabuildAutomation(user_id, bot)
         
@@ -1014,6 +1019,33 @@ def handle_module_callback(call):
             f"Choose an option below:"
         )
         bot.send_message(call.message.chat.id, text, reply_markup=habuild_menu_keyboard(), parse_mode="HTML")
+        bot.answer_callback_query(call.id)
+
+    elif module == "yoga":
+        bot.delete_message(call.message.chat.id, call.message.message_id)
+        cost = get_module_cost("yoga")
+        
+        if user_id not in user_yoga_automations:
+            user_yoga_automations[user_id] = YogaAutomation(user_id, bot)
+        
+        data = get_user_yoga_data(user_id)
+        ref_code = data.get('referral_code', 'Not Set')
+        panels = data.get('panels', [])
+        is_running = data.get('is_running', False)
+        total_refs = data.get('total_referrals', 0)
+        
+        text = (
+            f"🧘 <b>YOGA REFERRAL AUTOMATION</b>\n\n"
+            f"Status: {'🟢 Running' if is_running else '🔴 Stopped'}\n"
+            f"Balance: <b>{balance} Credits</b>\n"
+            f"Run Cost: <b>{cost} Credit(s) / referral</b>\n\n"
+            f"📊 <b>Your Settings:</b>\n"
+            f"🎁 Referral Code: <code>{ref_code}</code>\n"
+            f"📁 Panels: {len(panels)} active\n"
+            f"🏆 Total Referrals: {total_refs}\n\n"
+            f"Choose an option below:"
+        )
+        bot.send_message(call.message.chat.id, text, reply_markup=yoga_menu_keyboard(), parse_mode="HTML")
         bot.answer_callback_query(call.id)
 
 # ==================== Referral callbacks ====================
@@ -1515,7 +1547,6 @@ def handle_habuild_callback(call):
     chat_id = call.message.chat.id
     msg_id = call.message.message_id
     
-    # Initialize automation if not exists
     if user_id not in user_automations:
         user_automations[user_id] = HabuildAutomation(user_id, bot)
     
@@ -1653,6 +1684,159 @@ def handle_habuild_add_panel(message):
         user_automations[user_id].panels = panels
     
     habuild_user_state.pop(user_id, None)
+    bot.reply_to(
+        message, 
+        f"✅ Panel added successfully!\n\n"
+        f"📁 Total Panels: {len(panels)}\n"
+        f"📋 Your Panels:\n" + "\n".join([f"• {p}" for p in panels]) + "\n\nYou can now start automation!",
+        parse_mode="HTML"
+    )
+
+# ==================== YOGA CALLBACKS ====================
+@bot.callback_query_handler(func=lambda call: call.data.startswith("yoga_"))
+def handle_yoga_callback(call):
+    action = call.data.split("_")[1]
+    user_id = call.from_user.id
+    chat_id = call.message.chat.id
+    msg_id = call.message.message_id
+    
+    if user_id not in user_yoga_automations:
+        user_yoga_automations[user_id] = YogaAutomation(user_id, bot)
+    
+    auto = user_yoga_automations[user_id]
+    
+    if action == "start":
+        bot.answer_callback_query(call.id, "🔄 Starting automation...")
+        
+        async def start_auto():
+            result = await auto.start_automation()
+            if result['status'] == 'success':
+                bot.edit_message_text(
+                    f"✅ {result['message']}\n\n"
+                    f"🟢 Automation is now running!\n"
+                    f"📁 Monitoring {len(auto.panels)} panel(s)\n"
+                    f"🎁 Referral Code: {auto.referral_code}",
+                    chat_id=chat_id, message_id=msg_id,
+                    reply_markup=yoga_menu_keyboard(),
+                    parse_mode="HTML"
+                )
+            else:
+                bot.edit_message_text(
+                    f"❌ {result['message']}",
+                    chat_id=chat_id, message_id=msg_id,
+                    reply_markup=yoga_menu_keyboard(),
+                    parse_mode="HTML"
+                )
+        asyncio.create_task(start_auto())
+    
+    elif action == "stop":
+        bot.answer_callback_query(call.id, "⏹️ Stopping automation...")
+        
+        async def stop_auto():
+            result = await auto.stop_automation()
+            bot.edit_message_text(
+                f"✅ {result['message']}",
+                chat_id=chat_id, message_id=msg_id,
+                reply_markup=yoga_menu_keyboard(),
+                parse_mode="HTML"
+            )
+        asyncio.create_task(stop_auto())
+    
+    elif action == "stats":
+        stats = auto.get_stats()
+        bot.answer_callback_query(call.id, "📊 Fetching stats...")
+        bot.edit_message_text(
+            f"📊 <b>Yoga Automation Stats</b>\n\n"
+            f"🟢 Status: {'Running' if stats['is_running'] else 'Stopped'}\n"
+            f"📁 Active Panels: {stats['panels']}\n"
+            f"🏆 Total Referrals: {stats['total_referrals']}\n"
+            f"⏳ Pending OTP: {stats['pending_otp']}\n"
+            f"📱 Processed Numbers: {stats['processed_numbers']}\n"
+            f"🎁 Referral Code: {auto.referral_code or 'Not Set'}",
+            chat_id=chat_id, message_id=msg_id,
+            reply_markup=yoga_menu_keyboard(),
+            parse_mode="HTML"
+        )
+    
+    elif action == "set_ref":
+        bot.answer_callback_query(call.id)
+        yoga_user_state[user_id] = "waiting_ref_code"
+        bot.edit_message_text(
+            f"⚙️ <b>Set Yoga Referral Code</b>\n\n"
+            f"Send your Yoga referral code.\n"
+            f"Current: <code>{auto.referral_code or 'Not Set'}</code>\n\n"
+            f"Send <code>/cancel</code> to cancel.",
+            chat_id=chat_id, message_id=msg_id,
+            reply_markup=yoga_menu_keyboard(),
+            parse_mode="HTML"
+        )
+    
+    elif action == "add_panel":
+        bot.answer_callback_query(call.id)
+        yoga_user_state[user_id] = "waiting_panel_url"
+        bot.edit_message_text(
+            f"📁 <b>Add Firebase Panel</b>\n\n"
+            f"Send your Firebase database URL.\n"
+            f"Example: <code>https://myapp-8228a-default-rtdb.firebaseio.com</code>\n\n"
+            f"Current Panels: {len(auto.panels)}\n"
+            f"<i>{', '.join(auto.panels) if auto.panels else 'No panels added yet'}</i>\n\n"
+            f"Send <code>/cancel</code> to cancel.",
+            chat_id=chat_id, message_id=msg_id,
+            reply_markup=yoga_menu_keyboard(),
+            parse_mode="HTML"
+        )
+
+# ---------- Yoga Message Handlers ----------
+@bot.message_handler(func=lambda message: yoga_user_state.get(message.from_user.id) == "waiting_ref_code")
+def handle_yoga_set_ref(message):
+    user_id = message.from_user.id
+    text = message.text.strip()
+    
+    if text.lower() == '/cancel':
+        yoga_user_state.pop(user_id, None)
+        bot.reply_to(message, "❌ Cancelled.")
+        return
+    
+    if not text:
+        bot.reply_to(message, "❌ Please send a valid referral code.")
+        return
+    
+    update_yoga_settings(user_id, referral_code=text)
+    
+    if user_id in user_yoga_automations:
+        user_yoga_automations[user_id].referral_code = text
+    
+    yoga_user_state.pop(user_id, None)
+    bot.reply_to(message, f"✅ Referral code set to: <code>{text}</code>\n\nYou can now start automation!", parse_mode="HTML")
+
+@bot.message_handler(func=lambda message: yoga_user_state.get(message.from_user.id) == "waiting_panel_url")
+def handle_yoga_add_panel(message):
+    user_id = message.from_user.id
+    url = message.text.strip()
+    
+    if url.lower() == '/cancel':
+        yoga_user_state.pop(user_id, None)
+        bot.reply_to(message, "❌ Cancelled.")
+        return
+    
+    if not url.startswith("https://") or not url.endswith(".firebaseio.com"):
+        bot.reply_to(message, "❌ Invalid Firebase URL. Must start with https:// and end with .firebaseio.com")
+        return
+    
+    data = get_user_yoga_data(user_id)
+    panels = data.get('panels', [])
+    
+    if url in panels:
+        bot.reply_to(message, "❌ This panel is already added.")
+        return
+    
+    panels.append(url)
+    update_yoga_settings(user_id, panels=panels)
+    
+    if user_id in user_yoga_automations:
+        user_yoga_automations[user_id].panels = panels
+    
+    yoga_user_state.pop(user_id, None)
     bot.reply_to(
         message, 
         f"✅ Panel added successfully!\n\n"
@@ -2045,7 +2229,8 @@ def handle_phone_number(message):
         user_music_state.get(user_id) or
         user_session_state.get(user_id) or
         user_brevistay_state.get(user_id) or
-        habuild_user_state.get(user_id)):
+        habuild_user_state.get(user_id) or
+        yoga_user_state.get(user_id)):
         return
 
     cost = get_module_cost("flipkart")
@@ -2373,6 +2558,7 @@ def handle_admin_callback(call):
         session_cost = get_module_cost("session")
         brevistay_cost = get_module_cost("brevistay")
         habuild_cost = get_module_cost("habuild")
+        yoga_cost = get_module_cost("yoga")
         
         bot.answer_callback_query(call.id)
         bot.edit_message_text(
@@ -2384,10 +2570,11 @@ def handle_admin_callback(call):
             f"🎵 Music Downloader: <code>{music_cost}</code> credits\n"
             f"🔐 Session Extractor: <code>{session_cost}</code> credits\n"
             f"🏨 Brevistay Referral: <code>{brevistay_cost}</code> credits\n"
-            f"🧘 Habuild Referral: <code>{habuild_cost}</code> credits\n\n"
+            f"🧘 Habuild Referral: <code>{habuild_cost}</code> credits\n"
+            f"🧘 Yoga Referral: <code>{yoga_cost}</code> credits\n\n"
             f"To change a cost, send:\n"
             f"<code>/setcost module_name amount</code>\n\n"
-            f"Available modules: firebase, shopsy, flipkart, instagram, music, session, brevistay, habuild\n\n"
+            f"Available modules: firebase, shopsy, flipkart, instagram, music, session, brevistay, habuild, yoga\n\n"
             f"Example: <code>/setcost firebase 5</code>",
             chat_id=chat_id, message_id=msg_id,
             reply_markup=admin_panel_keyboard(), parse_mode="HTML"
@@ -2505,7 +2692,7 @@ def setcost_cmd(message):
         module = parts[1].lower()
         amount = int(parts[2])
         
-        valid_modules = ["firebase", "shopsy", "flipkart", "instagram", "music", "session", "brevistay", "habuild"]
+        valid_modules = ["firebase", "shopsy", "flipkart", "instagram", "music", "session", "brevistay", "habuild", "yoga"]
         if module not in valid_modules:
             bot.reply_to(message, f"❌ Invalid module. Available: {', '.join(valid_modules)}")
             return
@@ -2589,7 +2776,7 @@ if __name__ == "__main__":
     init_db()
     task_thread = threading.Thread(target=run_scheduled_tasks, daemon=True)
     task_thread.start()
-    logger.info("🤖 Bot is starting with all features integrated (including Habuild)...")
+    logger.info("🤖 Bot is starting with all features integrated (including Habuild & Yoga)...")
     try:
         bot.remove_webhook()
         time.sleep(5)
