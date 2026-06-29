@@ -22,7 +22,7 @@ def main_menu_keyboard(is_admin: bool = False):
     kb.add(InlineKeyboardButton("📱 Flipkart Checker", callback_data="module_flipkart", style="primary"))
     kb.add(InlineKeyboardButton("📥 Instagram Downloader", callback_data="module_instagram", style="primary"))
     kb.add(InlineKeyboardButton("🔐 Session Extractor", callback_data="module_session", style="primary"))
-    kb.add(InlineKeyboardButton("🏨 Brevistay", callback_data="module_brevistay", style="primary"))  # <-- NEW
+    kb.add(InlineKeyboardButton("🏨 Brevistay", callback_data="module_brevistay", style="primary"))
     kb.add(InlineKeyboardButton("🎵 Music", callback_data="module_music", style="primary"))
     kb.add(InlineKeyboardButton("🔗 Referral", callback_data="module_referral", style="primary"))
     if is_admin:
@@ -30,12 +30,12 @@ def main_menu_keyboard(is_admin: bool = False):
     return kb
 
 # ========== BREVISTAY SUB-MENU ==========
-def brevistay_menu_text(user_id: int, balance: int = 15, status: str = "ACTIVE") -> str:
+def brevistay_menu_text(user_id: int, balance: int = 15, status: str = "ACTIVE", cost: int = 1) -> str:
     return (
         f"🏨 <b>BREVISTAY REFERRAL AUTOMATION</b>\n\n"
         f"Status: <b>{status}</b>\n"
         f"Balance: <b>{balance} Credits</b>\n"
-        f"Run Cost: <b>1 Credit / referral</b>\n\n"
+        f"Run Cost: <b>{cost} Credit(s) / referral</b>\n\n"
         f"Click <b>Start Referral</b> to begin.\n"
         f"Bot will:\n"
         f"• Generate random Indian name & email\n"
@@ -53,12 +53,12 @@ def brevistay_menu_keyboard():
     return kb
 
 # ========== SHOPSY SUB-MENU ==========
-def shopsy_menu_text(user_id: int, balance: int = 15, status: str = "ACTIVE") -> str:
+def shopsy_menu_text(user_id: int, balance: int = 15, status: str = "ACTIVE", cost: int = 1) -> str:
     return (
         f"🎯 <b>SHOPSY AUTO-MINE</b>\n\n"
         f"Status: <b>{status}</b>\n"
         f"Balance: <b>{balance} Credits</b>\n"
-        f"Run Cost: <b>1 Credit / run</b>\n\n"
+        f"Run Cost: <b>{cost} Credit(s) / run</b>\n\n"
         f"Select an operation below:"
     )
 
@@ -73,12 +73,12 @@ def shopsy_menu_keyboard():
     return kb
 
 # ========== FIREBASE EXTRACTOR SUB-MENU ==========
-def firebase_menu_text(user_id: int, balance: int = 15, status: str = "ACTIVE") -> str:
+def firebase_menu_text(user_id: int, balance: int = 15, status: str = "ACTIVE", cost: int = 2) -> str:
     return (
         f"🔥 <b>FIREBASE EXTRACTOR</b>\n\n"
         f"Status: <b>{status}</b>\n"
         f"Balance: <b>{balance} Credits</b>\n"
-        f"Run Cost: <b>2 Credits / scan</b>\n\n"
+        f"Run Cost: <b>{cost} Credit(s) / scan</b>\n\n"
         f"Click <b>Send APK</b> to upload an APK file.\n"
         f"I'll extract:\n"
         f"• Firebase URLs\n"
@@ -120,12 +120,12 @@ def temp_menu_keyboard():
     return kb
 
 # ========== FLIPKART CHECKER SUB-MENU ==========
-def flipkart_menu_text(user_id: int, balance: int = 15, status: str = "ACTIVE") -> str:
+def flipkart_menu_text(user_id: int, balance: int = 15, status: str = "ACTIVE", cost: int = 1) -> str:
     return (
         f"📱 <b>FLIPKART NUMBER CHECKER</b>\n\n"
         f"Status: <b>{status}</b>\n"
         f"Balance: <b>{balance} Credits</b>\n"
-        f"Run Cost: <b>1 Credit / check</b>\n\n"
+        f"Run Cost: <b>{cost} Credit(s) / check</b>\n\n"
         f"Send a phone number (10 digits) to check if it's registered on Flipkart/Shopsy."
     )
 
@@ -135,12 +135,12 @@ def flipkart_menu_keyboard():
     return kb
 
 # ========== INSTAGRAM DOWNLOADER SUB-MENU ==========
-def instagram_menu_text(user_id: int, balance: int = 15, status: str = "ACTIVE") -> str:
+def instagram_menu_text(user_id: int, balance: int = 15, status: str = "ACTIVE", cost: int = 1) -> str:
     return (
         f"📥 <b>INSTAGRAM DOWNLOADER</b>\n\n"
         f"Status: <b>{status}</b>\n"
         f"Balance: <b>{balance} Credits</b>\n"
-        f"Download Cost: <b>1 Credit / video</b>\n\n"
+        f"Download Cost: <b>{cost} Credit(s) / video</b>\n\n"
         f"Click <b>Single Download</b> for one reel, or <b>Bulk Download</b> for multiple.\n"
         f"Then send the Instagram video link(s)."
     )
@@ -155,12 +155,12 @@ def instagram_menu_keyboard():
     return kb
 
 # ========== SESSION EXTRACTOR SUB-MENU ==========
-def session_menu_text(user_id: int, balance: int = 15, status: str = "ACTIVE") -> str:
+def session_menu_text(user_id: int, balance: int = 15, status: str = "ACTIVE", cost: int = 1) -> str:
     return (
         f"🔐 <b>SESSION EXTRACTOR</b>\n\n"
         f"Status: <b>{status}</b>\n"
         f"Balance: <b>{balance} Credits</b>\n"
-        f"Run Cost: <b>1 Credit / session</b>\n\n"
+        f"Run Cost: <b>{cost} Credit(s) / session</b>\n\n"
         f"Click <b>Start</b> to extract your Flipkart/Shopsy session.\n"
         f"Send your 10-digit phone number, verify OTP, and get full session JSON."
     )
@@ -168,6 +168,21 @@ def session_menu_text(user_id: int, balance: int = 15, status: str = "ACTIVE") -
 def session_menu_keyboard():
     kb = InlineKeyboardMarkup(row_width=1)
     kb.add(InlineKeyboardButton("🔐 Start Extraction", callback_data="session_flipkart", style="success"))
+    kb.add(InlineKeyboardButton("🔙 Back to Main", callback_data="back_menu", style="danger"))
+    return kb
+
+# ========== MUSIC SUB-MENU ==========
+def music_menu_text(user_id: int, balance: int = 15, status: str = "ACTIVE", cost: int = 1) -> str:
+    return (
+        f"🎵 <b>MUSIC DOWNLOADER</b>\n\n"
+        f"Status: <b>{status}</b>\n"
+        f"Balance: <b>{balance} Credits</b>\n"
+        f"Cost: <b>{cost} Credit(s) / song</b>\n\n"
+        f"Send a song name or artist name to search and download."
+    )
+
+def music_menu_keyboard():
+    kb = InlineKeyboardMarkup(row_width=1)
     kb.add(InlineKeyboardButton("🔙 Back to Main", callback_data="back_menu", style="danger"))
     return kb
 
