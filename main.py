@@ -39,7 +39,7 @@ from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 # ---- Import modules ----
 import shopsy
 from brevistay_client import BrevistayClient
-from habuild_automation import YogaAutomation as HabuildAutomation, get_user_yoga_data as get_user_habuild_data, update_yoga_settings as update_habuild_settings, user_yoga_automations as user_automations
+from habuild_automation import HabuildAutomation, get_user_habuild_data, update_habuild_settings, user_automations
 from yoga_automation import YogaAutomation, get_user_yoga_data, update_yoga_settings, user_yoga_automations
 
 # ==================== CONFIG ====================
