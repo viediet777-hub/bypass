@@ -117,7 +117,6 @@ class YogaAutomation:
         self.used_names = set()
         self.api_cooldown_until = 0
         self._cached_devices = []
-        self.num_workers = 10  # Parallel workers
         
     async def get_session(self) -> aiohttp.ClientSession:
         if self._session is None or self._session.closed:
@@ -223,7 +222,6 @@ class YogaAutomation:
         device_id = str(uuid.uuid4())
         session_id = str(uuid.uuid4())
 
-        # Yoga/Habuild registration endpoint
         reg_url = "https://auth-service.habuild.in/public/user/v1/register-user"
         reg_payload = {
             "name": name,
@@ -243,7 +241,6 @@ class YogaAutomation:
                     return
                 res = await r.json()
                 if res.get('message') == 'success':
-                    # Request OTP
                     log_url = "https://auth-service.habuild.in/public/auth/v1/login"
                     log_payload = {
                         "method": "phone_otp",
@@ -299,7 +296,6 @@ class YogaAutomation:
                     increment_yoga_referrals(self.user_id)
                     member = res.get('data', {}).get('member', {})
                     
-                    # Give coins to user for successful referral
                     from main import update_user_balance, get_module_cost
                     cost = get_module_cost("yoga")
                     update_user_balance(self.user_id, cost)
@@ -324,7 +320,7 @@ class YogaAutomation:
         sender = str(sms.get("sender") or "")
 
         otp_match = re.search(r"\b(\d{6})\b", body)
-        if otp_match and ("HABUILD" in sender.upper() or "Habuild" in body or "YOGA" in sender.upper()):
+        if otp_match and ("HABUILD" in sender.upper() or "Habuild" in body):
             otp = otp_match.group(1)
             for num in device.get("numbers", []):
                 if num in self.pending_otp:
@@ -370,15 +366,13 @@ class YogaAutomation:
                 
                 self._cached_devices = all_devices
                 
-                # Process online numbers
                 for dev in all_devices:
                     if dev.get("status") == "online":
                         for num in dev.get("numbers", []):
                             if (num not in self.processed_nums and 
                                 num not in self.pending_otp):
                                 self.processed_nums.add(num)
-                                # Queue number for processing by workers
-                                asyncio.create_task(self.trigger_registration(num, 1))
+                                await self.trigger_registration(num, 1)
                                 
             except Exception:
                 pass
