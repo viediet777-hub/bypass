@@ -1,4 +1,4 @@
-# habuild_automation.py
+# yoga_automation.py
 import os
 import re
 import time
@@ -8,7 +8,7 @@ import random
 import asyncio
 import logging
 from datetime import datetime
-from typing import Optional, Dict, List, Set
+from typing import Optional, Dict, List
 import aiohttp
 import sqlite3
 
@@ -36,12 +36,12 @@ MAX_NAME_COMBINATIONS = len(FIRST_NAMES) * len(LAST_NAMES)
 # ==================== DATABASE FUNCTIONS ====================
 DB_PATH = "viediet_bot.db"
 
-def get_user_habuild_data(user_id: int) -> Dict:
-    """Get user's Habuild settings from database"""
+def get_user_yoga_data(user_id: int) -> Dict:
+    """Get user's Yoga settings from database"""
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
     c = conn.cursor()
     
-    c.execute('''CREATE TABLE IF NOT EXISTS habuild_settings (
+    c.execute('''CREATE TABLE IF NOT EXISTS yoga_settings (
         user_id INTEGER PRIMARY KEY,
         referral_code TEXT,
         panels TEXT,
@@ -51,7 +51,7 @@ def get_user_habuild_data(user_id: int) -> Dict:
     )''')
     conn.commit()
     
-    c.execute('SELECT referral_code, panels, is_running, total_referrals FROM habuild_settings WHERE user_id = ?', (user_id,))
+    c.execute('SELECT referral_code, panels, is_running, total_referrals FROM yoga_settings WHERE user_id = ?', (user_id,))
     row = c.fetchone()
     conn.close()
     
@@ -64,12 +64,12 @@ def get_user_habuild_data(user_id: int) -> Dict:
         }
     return {'referral_code': '', 'panels': [], 'is_running': False, 'total_referrals': 0}
 
-def update_habuild_settings(user_id: int, referral_code: str = None, panels: list = None, is_running: bool = None):
-    """Update user's Habuild settings"""
+def update_yoga_settings(user_id: int, referral_code: str = None, panels: list = None, is_running: bool = None):
+    """Update user's Yoga settings"""
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
     c = conn.cursor()
     
-    c.execute('''CREATE TABLE IF NOT EXISTS habuild_settings (
+    c.execute('''CREATE TABLE IF NOT EXISTS yoga_settings (
         user_id INTEGER PRIMARY KEY,
         referral_code TEXT,
         panels TEXT,
@@ -79,33 +79,33 @@ def update_habuild_settings(user_id: int, referral_code: str = None, panels: lis
     )''')
     conn.commit()
     
-    current = get_user_habuild_data(user_id)
+    current = get_user_yoga_data(user_id)
     new_ref = referral_code if referral_code is not None else current['referral_code']
     new_panels = json.dumps(panels) if panels is not None else json.dumps(current['panels'])
     new_running = int(is_running) if is_running is not None else int(current['is_running'])
     total = current['total_referrals']
     
-    c.execute('''INSERT OR REPLACE INTO habuild_settings 
+    c.execute('''INSERT OR REPLACE INTO yoga_settings 
                  (user_id, referral_code, panels, is_running, total_referrals, last_run)
                  VALUES (?, ?, ?, ?, ?, ?)''',
               (user_id, new_ref, new_panels, new_running, total, datetime.now().isoformat()))
     conn.commit()
     conn.close()
 
-def increment_habuild_referrals(user_id: int):
+def increment_yoga_referrals(user_id: int):
     """Increment total referrals count"""
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
     c = conn.cursor()
-    c.execute('UPDATE habuild_settings SET total_referrals = total_referrals + 1 WHERE user_id = ?', (user_id,))
+    c.execute('UPDATE yoga_settings SET total_referrals = total_referrals + 1 WHERE user_id = ?', (user_id,))
     conn.commit()
     conn.close()
 
-# ==================== HABUILD AUTOMATION CLASS ====================
-class HabuildAutomation:
+# ==================== YOGA AUTOMATION CLASS ====================
+class YogaAutomation:
     def __init__(self, user_id: int, bot_instance=None):
         self.user_id = user_id
         self.bot = bot_instance
-        self.settings = get_user_habuild_data(user_id)
+        self.settings = get_user_yoga_data(user_id)
         self.referral_code = self.settings['referral_code']
         self.panels = self.settings['panels']
         self.is_running = False
@@ -117,6 +117,7 @@ class HabuildAutomation:
         self.used_names = set()
         self.api_cooldown_until = 0
         self._cached_devices = []
+        self.num_workers = 10  # Parallel workers
         
     async def get_session(self) -> aiohttp.ClientSession:
         if self._session is None or self._session.closed:
@@ -222,6 +223,7 @@ class HabuildAutomation:
         device_id = str(uuid.uuid4())
         session_id = str(uuid.uuid4())
 
+        # Yoga/Habuild registration endpoint
         reg_url = "https://auth-service.habuild.in/public/user/v1/register-user"
         reg_payload = {
             "name": name,
@@ -241,6 +243,7 @@ class HabuildAutomation:
                     return
                 res = await r.json()
                 if res.get('message') == 'success':
+                    # Request OTP
                     log_url = "https://auth-service.habuild.in/public/auth/v1/login"
                     log_payload = {
                         "method": "phone_otp",
@@ -293,16 +296,16 @@ class HabuildAutomation:
                 res = await r.json()
                 if res.get('message') == 'OTP verified successfully':
                     self.looted_count += 1
-                    increment_habuild_referrals(self.user_id)
+                    increment_yoga_referrals(self.user_id)
                     member = res.get('data', {}).get('member', {})
                     
                     # Give coins to user for successful referral
                     from main import update_user_balance, get_module_cost
-                    cost = get_module_cost("habuild")
+                    cost = get_module_cost("yoga")
                     update_user_balance(self.user_id, cost)
                     
                     succ_msg = (
-                        f"🏆 Habuild Referral Successful!\n\n"
+                        f"🏆 Yoga Referral Successful!\n\n"
                         f"📱 Number: {data['phone']}\n"
                         f"👤 Name: {member.get('name', data['name'])}\n"
                         f"🆔 Member ID: {member.get('legacy_free_id', 'N/A')}\n"
@@ -321,7 +324,7 @@ class HabuildAutomation:
         sender = str(sms.get("sender") or "")
 
         otp_match = re.search(r"\b(\d{6})\b", body)
-        if otp_match and ("HABUILD" in sender.upper() or "Habuild" in body):
+        if otp_match and ("HABUILD" in sender.upper() or "Habuild" in body or "YOGA" in sender.upper()):
             otp = otp_match.group(1)
             for num in device.get("numbers", []):
                 if num in self.pending_otp:
@@ -367,13 +370,15 @@ class HabuildAutomation:
                 
                 self._cached_devices = all_devices
                 
+                # Process online numbers
                 for dev in all_devices:
                     if dev.get("status") == "online":
                         for num in dev.get("numbers", []):
                             if (num not in self.processed_nums and 
                                 num not in self.pending_otp):
                                 self.processed_nums.add(num)
-                                await self.trigger_registration(num, 1)
+                                # Queue number for processing by workers
+                                asyncio.create_task(self.trigger_registration(num, 1))
                                 
             except Exception:
                 pass
@@ -388,12 +393,12 @@ class HabuildAutomation:
     
     async def start_automation(self):
         if not self.referral_code:
-            return {"status": "error", "message": "Please set your Habuild referral code first!"}
+            return {"status": "error", "message": "Please set your Yoga referral code first!"}
         if not self.panels:
             return {"status": "error", "message": "Please add at least one Firebase panel URL!"}
         
         self.is_running = True
-        update_habuild_settings(self.user_id, is_running=True)
+        update_yoga_settings(self.user_id, is_running=True)
         
         asyncio.create_task(self.update_cache_loop())
         asyncio.create_task(self.poll_loop())
@@ -402,7 +407,7 @@ class HabuildAutomation:
     
     async def stop_automation(self):
         self.is_running = False
-        update_habuild_settings(self.user_id, is_running=False)
+        update_yoga_settings(self.user_id, is_running=False)
         if self._session:
             await self._session.close()
         return {"status": "success", "message": "Automation stopped."}
@@ -418,4 +423,4 @@ class HabuildAutomation:
         }
 
 # ==================== GLOBAL INSTANCE ====================
-user_automations: Dict[int, HabuildAutomation] = {}
+user_yoga_automations: Dict[int, YogaAutomation] = {}
