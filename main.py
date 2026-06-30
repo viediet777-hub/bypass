@@ -320,6 +320,20 @@ def set_module_cost(module_name, cost):
     """Set cost for a specific module"""
     set_config(f"{module_name}_cost", str(cost))
 
+# --- NEW: Brevistay referral code functions ---
+def get_brevistay_referral_code():
+    """Get the Brevistay referral code from config"""
+    code = get_config("brevistay_referral_code")
+    if not code:
+        return ""  # empty if not set
+    return code
+
+def set_brevistay_referral_code(code):
+    """Set the Brevistay referral code in config"""
+    set_config("brevistay_referral_code", code)
+
+# ===================================================
+
 def is_channel_member(user_id):
     try:
         member = bot.get_chat_member(f"@{CHANNEL_USERNAME}", user_id)
@@ -1258,7 +1272,7 @@ def handle_brevistay_phone(message):
     
     threading.Thread(target=send_otp_thread).start()
 
-# ---------- Brevistay OTP Handler ----------
+# ---------- Brevistay OTP Handler (UPDATED) ----------
 @bot.message_handler(func=lambda message: user_brevistay_state.get(message.from_user.id) == "waiting_otp")
 def handle_brevistay_otp(message):
     user_id = message.from_user.id
@@ -1290,13 +1304,24 @@ def handle_brevistay_otp(message):
         try:
             cost = get_module_cost("brevistay")
             
+            # Get referral code from database
+            REFERRAL_CODE = get_brevistay_referral_code()
+            if not REFERRAL_CODE:
+                bot.edit_message_text(
+                    "❌ Brevistay referral code not set.\n\n"
+                    "Please contact admin to set the referral code using /setbrevistayref.",
+                    chat_id=message.chat.id,
+                    message_id=processing_msg.message_id
+                )
+                user_brevistay_state[user_id] = None
+                brevistay_temp_data.pop(user_id, None)
+                return
+
             if is_registered:
                 response = client.login_existing_user(phone, otp)
             else:
                 first_name, last_name = client.generate_random_name()
                 email = client.generate_random_email(first_name, last_name, phone)
-                # 🔑 CHANGE THIS TO YOUR BREVISTAY REFERRAL CODE
-                REFERRAL_CODE = "YOUR_BREVISTAY_REFERRAL_CODE_HERE"
                 response = client.register_new_user(
                     email=email,
                     mobile=int(phone),
@@ -1306,7 +1331,8 @@ def handle_brevistay_otp(message):
                     ref_code=REFERRAL_CODE
                 )
             
-            if response.get("status") == "SUCCESS":
+            # Check if response is a dict and has status
+            if response and response.get("status") == "SUCCESS":
                 # Charge credits
                 update_user_balance(user_id, -cost)
                 
@@ -1335,14 +1361,32 @@ def handle_brevistay_otp(message):
                 )
                 log_usage(user_id, "Brevistay Referral", f"Phone: +91{phone}")
             else:
+                # Handle error responses
+                error_msg = response.get('msg', 'Unknown error') if response else 'No response from server'
                 bot.edit_message_text(
-                    f"❌ Verification failed: {response.get('msg', 'Unknown error')}",
+                    f"❌ Verification failed: {error_msg}",
                     chat_id=message.chat.id,
                     message_id=processing_msg.message_id
                 )
+        except json.JSONDecodeError:
+            bot.edit_message_text(
+                f"❌ Brevistay API error: Invalid JSON response.\n\n"
+                "The service might be temporarily unavailable.\n"
+                "Please try again later.",
+                chat_id=message.chat.id,
+                message_id=processing_msg.message_id
+            )
+        except ValueError as e:
+            bot.edit_message_text(
+                f"❌ Brevistay API error: {str(e)}\n\n"
+                "The service might be temporarily unavailable or your referral code may be invalid.\n"
+                "Please try again later.",
+                chat_id=message.chat.id,
+                message_id=processing_msg.message_id
+            )
         except Exception as e:
             bot.edit_message_text(
-                f"❌ Error: {str(e)[:100]}",
+                f"❌ Unexpected error: {str(e)[:100]}",
                 chat_id=message.chat.id,
                 message_id=processing_msg.message_id
             )
@@ -1586,6 +1630,22 @@ def setcost_cmd(message):
         bot.reply_to(message, "❌ Amount must be a number.")
     except Exception as e:
         bot.reply_to(message, f"❌ Error: {str(e)}")
+
+# --- NEW: Admin command to set Brevistay referral code ---
+@bot.message_handler(commands=['setbrevistayref'])
+def set_brevistay_ref_cmd(message):
+    if message.from_user.id != ADMIN_ID:
+        bot.reply_to(message, "⛔ Admin only!")
+        return
+    parts = message.text.split()
+    if len(parts) < 2:
+        bot.reply_to(message, "❌ Usage: /setbrevistayref YOUR_REFERRAL_CODE")
+        return
+    code = parts[1].strip()
+    set_brevistay_referral_code(code)
+    bot.reply_to(message, f"✅ Brevistay referral code updated to: <code>{code}</code>", parse_mode="HTML")
+
+# =======================================================
 
 @bot.message_handler(commands=['giveallcoins'])
 def give_all_coins_cmd(message):
