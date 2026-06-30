@@ -810,8 +810,20 @@ def format_results(results, apk_path, file_size, num_dex_strings):
 
 # ==================== HANDLERS ====================
 
-# ========== YOGA MESSAGE HANDLERS (MUST BE FIRST) ==========
-@bot.message_handler(func=lambda message: yoga_user_state.get(message.from_user.id) == "waiting_ref_code")
+# ==================== YOGA MESSAGE HANDLERS ====================
+@bot.message_handler(func=lambda message: True)
+def yoga_state_handler(message):
+    """Handle all messages when yoga state is active"""
+    user_id = message.from_user.id
+    state = yoga_user_state.get(user_id)
+    
+    if state == "waiting_ref_code":
+        handle_yoga_set_ref(message)
+        return
+    elif state == "waiting_panel_url":
+        handle_yoga_add_panel(message)
+        return
+
 def handle_yoga_set_ref(message):
     user_id = message.from_user.id
     text = message.text.strip()
@@ -833,7 +845,6 @@ def handle_yoga_set_ref(message):
     yoga_user_state.pop(user_id, None)
     bot.reply_to(message, f"✅ Referral code set to: <code>{text}</code>\n\nYou can now start automation!", parse_mode="HTML")
 
-@bot.message_handler(func=lambda message: yoga_user_state.get(message.from_user.id) == "waiting_panel_url")
 def handle_yoga_add_panel(message):
     user_id = message.from_user.id
     url = message.text.strip()
@@ -1628,32 +1639,36 @@ def handle_yoga_callback(call):
         )
     
     elif action == "set_ref":
-        bot.answer_callback_query(call.id)
-        yoga_user_state[user_id] = "waiting_ref_code"
-        bot.edit_message_text(
-            f"⚙️ <b>Set Yoga Referral Code</b>\n\n"
-            f"Send your Yoga referral code.\n"
-            f"Current: <code>{auto.referral_code or 'Not Set'}</code>\n\n"
-            f"Send <code>/cancel</code> to cancel.",
-            chat_id=chat_id, message_id=msg_id,
-            reply_markup=yoga_menu_keyboard(),
-            parse_mode="HTML"
-        )
+    bot.answer_callback_query(call.id)
+    yoga_user_state.pop(user_id, None)  # <-- YE LINE ADD KAREIN
+    yoga_user_state[user_id] = "waiting_ref_code"
+    print(f"🔵 Yoga state set: user={user_id}, state=waiting_ref_code")  # <-- DEBUG
+    bot.edit_message_text(
+        f"⚙️ <b>Set Yoga Referral Code</b>\n\n"
+        f"Send your Yoga referral code.\n"
+        f"Current: <code>{auto.referral_code or 'Not Set'}</code>\n\n"
+        f"Send <code>/cancel</code> to cancel.",
+        chat_id=chat_id, message_id=msg_id,
+        reply_markup=yoga_menu_keyboard(),
+        parse_mode="HTML"
+    )
     
     elif action == "add_panel":
-        bot.answer_callback_query(call.id)
-        yoga_user_state[user_id] = "waiting_panel_url"
-        bot.edit_message_text(
-            f"📁 <b>Add Firebase Panel</b>\n\n"
-            f"Send your Firebase database URL.\n"
-            f"Example: <code>https://myapp-8228a-default-rtdb.firebaseio.com</code>\n\n"
-            f"Current Panels: {len(auto.panels)}\n"
-            f"<i>{', '.join(auto.panels) if auto.panels else 'No panels added yet'}</i>\n\n"
-            f"Send <code>/cancel</code> to cancel.",
-            chat_id=chat_id, message_id=msg_id,
-            reply_markup=yoga_menu_keyboard(),
-            parse_mode="HTML"
-        )
+    bot.answer_callback_query(call.id)
+    yoga_user_state.pop(user_id, None)  # <-- YE LINE ADD KAREIN
+    yoga_user_state[user_id] = "waiting_panel_url"
+    print(f"🔵 Yoga state set: user={user_id}, state=waiting_panel_url")  # <-- DEBUG
+    bot.edit_message_text(
+        f"📁 <b>Add Firebase Panel</b>\n\n"
+        f"Send your Firebase database URL.\n"
+        f"Example: <code>https://myapp-8228a-default-rtdb.firebaseio.com</code>\n\n"
+        f"Current Panels: {len(auto.panels)}\n"
+        f"<i>{', '.join(auto.panels) if auto.panels else 'No panels added yet'}</i>\n\n"
+        f"Send <code>/cancel</code> to cancel.",
+        chat_id=chat_id, message_id=msg_id,
+        reply_markup=yoga_menu_keyboard(),
+        parse_mode="HTML"
+    )
     
     elif action == "my_panels":
         panels = auto.panels
@@ -2598,40 +2613,14 @@ if __name__ == "__main__":
     task_thread = threading.Thread(target=run_scheduled_tasks, daemon=True)
     task_thread.start()
     logger.info("🤖 Bot is starting with all features integrated (including Yoga)...")
-    
-    # Force delete webhook
-    for i in range(3):
-        try:
-            bot.remove_webhook()
-            print(f"✅ Webhook removed attempt {i+1}")
-            time.sleep(2)
-        except Exception as e:
-            print(f"⚠️ Remove webhook error: {e}")
-    
-    # Direct API call to delete webhook
     try:
-        import requests
-        url = f"https://api.telegram.org/bot{BOT_TOKEN}/deleteWebhook"
-        response = requests.get(url)
-        print(f"✅ Direct webhook delete: {response.json()}")
+        bot.remove_webhook()
+        time.sleep(5)
     except:
         pass
-    
-    print("🚀 Bot Started Successfully! Listening for messages...")
-    
-    # Use infinity_polling instead of polling
     while True:
         try:
-            bot.infinity_polling(timeout=60, long_polling_timeout=60)
+            bot.polling(non_stop=True, interval=0, timeout=60)
         except Exception as e:
-            if "409" in str(e) or "Conflict" in str(e):
-                print("⚠️ Conflict! Waiting 15 seconds...")
-                time.sleep(15)
-                try:
-                    bot.remove_webhook()
-                    time.sleep(2)
-                except:
-                    pass
-            else:
-                print(f"❌ Error: {e}")
-                time.sleep(5)
+            logger.error(f"Polling error: {e}")
+            time.sleep(5)
