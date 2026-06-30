@@ -810,6 +810,65 @@ def format_results(results, apk_path, file_size, num_dex_strings):
 
 # ==================== HANDLERS ====================
 
+# ========== YOGA MESSAGE HANDLERS (MUST BE FIRST) ==========
+@bot.message_handler(func=lambda message: yoga_user_state.get(message.from_user.id) == "waiting_ref_code")
+def handle_yoga_set_ref(message):
+    user_id = message.from_user.id
+    text = message.text.strip()
+    
+    if text.lower() == '/cancel':
+        yoga_user_state.pop(user_id, None)
+        bot.reply_to(message, "❌ Cancelled.")
+        return
+    
+    if not text:
+        bot.reply_to(message, "❌ Please send a valid referral code.")
+        return
+    
+    update_yoga_settings(user_id, referral_code=text)
+    
+    if user_id in user_yoga_automations:
+        user_yoga_automations[user_id].referral_code = text
+    
+    yoga_user_state.pop(user_id, None)
+    bot.reply_to(message, f"✅ Referral code set to: <code>{text}</code>\n\nYou can now start automation!", parse_mode="HTML")
+
+@bot.message_handler(func=lambda message: yoga_user_state.get(message.from_user.id) == "waiting_panel_url")
+def handle_yoga_add_panel(message):
+    user_id = message.from_user.id
+    url = message.text.strip()
+    
+    if url.lower() == '/cancel':
+        yoga_user_state.pop(user_id, None)
+        bot.reply_to(message, "❌ Cancelled.")
+        return
+    
+    if not url.startswith("https://") or not url.endswith(".firebaseio.com"):
+        bot.reply_to(message, "❌ Invalid Firebase URL. Must start with https:// and end with .firebaseio.com")
+        return
+    
+    data = get_user_yoga_data(user_id)
+    panels = data.get('panels', [])
+    
+    if url in panels:
+        bot.reply_to(message, "❌ This panel is already added.")
+        return
+    
+    panels.append(url)
+    update_yoga_settings(user_id, panels=panels)
+    
+    if user_id in user_yoga_automations:
+        user_yoga_automations[user_id].panels = panels
+    
+    yoga_user_state.pop(user_id, None)
+    bot.reply_to(
+        message, 
+        f"✅ Panel added successfully!\n\n"
+        f"📁 Total Panels: {len(panels)}\n"
+        f"📋 Your Panels:\n" + "\n".join([f"• {p}" for p in panels]) + "\n\nYou can now start automation!",
+        parse_mode="HTML"
+    )
+
 @bot.message_handler(commands=['start'])
 def start_cmd(message):
     user = message.from_user
@@ -1609,65 +1668,6 @@ def handle_yoga_callback(call):
             reply_markup=yoga_menu_keyboard(),
             parse_mode="HTML"
         )
-
-# ---------- Yoga Message Handlers ----------
-@bot.message_handler(func=lambda message: yoga_user_state.get(message.from_user.id) == "waiting_ref_code")
-def handle_yoga_set_ref(message):
-    user_id = message.from_user.id
-    text = message.text.strip()
-    
-    if text.lower() == '/cancel':
-        yoga_user_state.pop(user_id, None)
-        bot.reply_to(message, "❌ Cancelled.")
-        return
-    
-    if not text:
-        bot.reply_to(message, "❌ Please send a valid referral code.")
-        return
-    
-    update_yoga_settings(user_id, referral_code=text)
-    
-    if user_id in user_yoga_automations:
-        user_yoga_automations[user_id].referral_code = text
-    
-    yoga_user_state.pop(user_id, None)
-    bot.reply_to(message, f"✅ Referral code set to: <code>{text}</code>\n\nYou can now start automation!", parse_mode="HTML")
-
-@bot.message_handler(func=lambda message: yoga_user_state.get(message.from_user.id) == "waiting_panel_url")
-def handle_yoga_add_panel(message):
-    user_id = message.from_user.id
-    url = message.text.strip()
-    
-    if url.lower() == '/cancel':
-        yoga_user_state.pop(user_id, None)
-        bot.reply_to(message, "❌ Cancelled.")
-        return
-    
-    if not url.startswith("https://") or not url.endswith(".firebaseio.com"):
-        bot.reply_to(message, "❌ Invalid Firebase URL. Must start with https:// and end with .firebaseio.com")
-        return
-    
-    data = get_user_yoga_data(user_id)
-    panels = data.get('panels', [])
-    
-    if url in panels:
-        bot.reply_to(message, "❌ This panel is already added.")
-        return
-    
-    panels.append(url)
-    update_yoga_settings(user_id, panels=panels)
-    
-    if user_id in user_yoga_automations:
-        user_yoga_automations[user_id].panels = panels
-    
-    yoga_user_state.pop(user_id, None)
-    bot.reply_to(
-        message, 
-        f"✅ Panel added successfully!\n\n"
-        f"📁 Total Panels: {len(panels)}\n"
-        f"📋 Your Panels:\n" + "\n".join([f"• {p}" for p in panels]) + "\n\nYou can now start automation!",
-        parse_mode="HTML"
-    )
 
 # ==================== Session Extractor Handlers ====================
 @bot.message_handler(func=lambda message: user_session_state.get(message.from_user.id) == "waiting_phone")
