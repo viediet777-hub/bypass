@@ -2598,14 +2598,31 @@ if __name__ == "__main__":
     task_thread = threading.Thread(target=run_scheduled_tasks, daemon=True)
     task_thread.start()
     logger.info("🤖 Bot is starting with all features integrated (including Yoga)...")
+    
+    # Remove webhook to avoid conflicts
     try:
         bot.remove_webhook()
-        time.sleep(5)
-    except:
-        pass
+        print("✅ Webhook removed successfully")
+        time.sleep(3)
+    except Exception as e:
+        print(f"⚠️ Remove webhook error (ignored): {e}")
+    
+    # Polling with auto-retry on 409 conflict
     while True:
         try:
+            print("🚀 Bot Started Successfully! Listening for messages...")
             bot.polling(non_stop=True, interval=0, timeout=60)
         except Exception as e:
-            logger.error(f"Polling error: {e}")
-            time.sleep(5)
+            error_msg = str(e)
+            if "409" in error_msg or "Conflict" in error_msg:
+                print("⚠️ Conflict detected! Another instance is running. Retrying in 10 seconds...")
+                time.sleep(10)
+                try:
+                    bot.remove_webhook()
+                    time.sleep(2)
+                except:
+                    pass
+                continue
+            else:
+                print(f"❌ Polling error: {e}")
+                time.sleep(5)
