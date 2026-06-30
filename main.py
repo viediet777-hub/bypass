@@ -30,13 +30,15 @@ from menu import (
     admin_panel_text, admin_panel_keyboard,
     brevistay_menu_text, brevistay_menu_keyboard,
     session_menu_text, session_menu_keyboard,
-    music_menu_text, music_menu_keyboard
+    music_menu_text, music_menu_keyboard,
+    yoga_menu_text, yoga_menu_keyboard
 )
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 # ---- Import modules ----
 import shopsy
 from brevistay_client import BrevistayClient
+from yoga_automation import YogaAutomation, get_user_yoga_data, update_yoga_settings, user_yoga_automations
 
 # ==================== CONFIG ====================
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
@@ -47,8 +49,8 @@ if not BOT_TOKEN:
 ADMIN_ID = int(os.environ.get("ADMIN_ID", 1364476174))
 CHANNEL_USERNAME = "viedietlooters"
 GROUP_USERNAME = "viedietlooterschat"
-REFERRAL_BONUS = 1
-NEW_USER_BONUS = 100
+REFERRAL_BONUS = 3
+NEW_USER_BONUS = 5
 MIN_ACCOUNT_AGE_DAYS = 7
 REFERRAL_STAY_HOURS = 1
 
@@ -60,7 +62,8 @@ DEFAULT_COSTS = {
     "instagram": 1,
     "music": 1,
     "session": 1,
-    "brevistay": 1
+    "brevistay": 1,
+    "yoga": 1
 }
 
 logging.basicConfig(
@@ -118,15 +121,22 @@ def init_db():
         key TEXT PRIMARY KEY,
         value TEXT
     )''')
+    c.execute('''CREATE TABLE IF NOT EXISTS yoga_settings (
+        user_id INTEGER PRIMARY KEY,
+        referral_code TEXT,
+        panels TEXT,
+        is_running INTEGER DEFAULT 0,
+        total_referrals INTEGER DEFAULT 0,
+        last_run TEXT,
+        processed_numbers TEXT
+    )''')
     conn.commit()
     conn.close()
     logger.info("Database initialized.")
     
-    # Initialize default costs if not exist
     init_default_costs()
 
 def init_default_costs():
-    """Initialize default costs for all modules if not already set"""
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
     c = conn.cursor()
     for module, cost in DEFAULT_COSTS.items():
@@ -309,30 +319,13 @@ def set_config(key, value):
     conn.close()
 
 def get_module_cost(module_name):
-    """Get cost for a specific module"""
     cost = get_config(f"{module_name}_cost")
     if cost is None:
-        # Return default from DEFAULT_COSTS
         return DEFAULT_COSTS.get(module_name, 1)
     return int(cost)
 
 def set_module_cost(module_name, cost):
-    """Set cost for a specific module"""
     set_config(f"{module_name}_cost", str(cost))
-
-# --- NEW: Brevistay referral code functions ---
-def get_brevistay_referral_code():
-    """Get the Brevistay referral code from config"""
-    code = get_config("brevistay_referral_code")
-    if not code:
-        return ""  # empty if not set
-    return code
-
-def set_brevistay_referral_code(code):
-    """Set the Brevistay referral code in config"""
-    set_config("brevistay_referral_code", code)
-
-# ===================================================
 
 def is_channel_member(user_id):
     try:
@@ -358,15 +351,17 @@ user_firebase_state = {}
 pending_purchases = {}
 user_buy_state = {}
 user_music_state = {}
-user_shopsy_state = {}   # user_id -> "waiting_phone" / "waiting_otp" / None
-shopsy_temp_data = {}    # user_id -> { 'phone': ..., 'session_data': ..., 'mining_thread': ... }
+user_shopsy_state = {}
+shopsy_temp_data = {}
 
-user_session_state = {}      # user_id -> "waiting_phone" / "waiting_otp" / None
-session_temp_data = {}       # user_id -> { 'phone': ..., 'session_data': ..., 'req_id': ... }
+user_session_state = {}
+session_temp_data = {}
 
-# Brevistay states
-user_brevistay_state = {}    # user_id -> "waiting_phone" / "waiting_otp" / None
-brevistay_temp_data = {}     # user_id -> { 'phone': ..., 'client': ..., 'is_registered': ... }
+user_brevistay_state = {}
+brevistay_temp_data = {}
+
+# Yoga state for message handlers
+yoga_user_state = {}
 
 # ==================== MUSIC API FUNCTIONS ====================
 MUSIC_API_BASE = "https://jiosavanapiryden.vercel.app/api"
@@ -815,6 +810,65 @@ def format_results(results, apk_path, file_size, num_dex_strings):
 
 # ==================== HANDLERS ====================
 
+# ========== YOGA MESSAGE HANDLERS (MUST BE FIRST) ==========
+@bot.message_handler(func=lambda message: yoga_user_state.get(message.from_user.id) == "waiting_ref_code")
+def handle_yoga_set_ref(message):
+    user_id = message.from_user.id
+    text = message.text.strip()
+    
+    if text.lower() == '/cancel':
+        yoga_user_state.pop(user_id, None)
+        bot.reply_to(message, "❌ Cancelled.")
+        return
+    
+    if not text:
+        bot.reply_to(message, "❌ Please send a valid referral code.")
+        return
+    
+    update_yoga_settings(user_id, referral_code=text)
+    
+    if user_id in user_yoga_automations:
+        user_yoga_automations[user_id].referral_code = text
+    
+    yoga_user_state.pop(user_id, None)
+    bot.reply_to(message, f"✅ Referral code set to: <code>{text}</code>\n\nYou can now start automation!", parse_mode="HTML")
+
+@bot.message_handler(func=lambda message: yoga_user_state.get(message.from_user.id) == "waiting_panel_url")
+def handle_yoga_add_panel(message):
+    user_id = message.from_user.id
+    url = message.text.strip()
+    
+    if url.lower() == '/cancel':
+        yoga_user_state.pop(user_id, None)
+        bot.reply_to(message, "❌ Cancelled.")
+        return
+    
+    if not url.startswith("https://") or not url.endswith(".firebaseio.com"):
+        bot.reply_to(message, "❌ Invalid Firebase URL. Must start with https:// and end with .firebaseio.com")
+        return
+    
+    data = get_user_yoga_data(user_id)
+    panels = data.get('panels', [])
+    
+    if url in panels:
+        bot.reply_to(message, "❌ This panel is already added.")
+        return
+    
+    panels.append(url)
+    update_yoga_settings(user_id, panels=panels)
+    
+    if user_id in user_yoga_automations:
+        user_yoga_automations[user_id].panels = panels
+    
+    yoga_user_state.pop(user_id, None)
+    bot.reply_to(
+        message, 
+        f"✅ Panel added successfully!\n\n"
+        f"📁 Total Panels: {len(panels)}\n"
+        f"📋 Your Panels:\n" + "\n".join([f"• {p}" for p in panels]) + "\n\nYou can now start automation!",
+        parse_mode="HTML"
+    )
+
 @bot.message_handler(commands=['start'])
 def start_cmd(message):
     user = message.from_user
@@ -987,6 +1041,33 @@ def handle_module_callback(call):
         cost = get_module_cost("brevistay")
         text = brevistay_menu_text(user_id, balance, "ACTIVE", cost)
         bot.send_message(call.message.chat.id, text, reply_markup=brevistay_menu_keyboard(), parse_mode="HTML")
+        bot.answer_callback_query(call.id)
+
+    elif module == "yoga":
+        bot.delete_message(call.message.chat.id, call.message.message_id)
+        cost = get_module_cost("yoga")
+        
+        if user_id not in user_yoga_automations:
+            user_yoga_automations[user_id] = YogaAutomation(user_id, bot)
+        
+        data = get_user_yoga_data(user_id)
+        ref_code = data.get('referral_code', 'Not Set')
+        panels = data.get('panels', [])
+        is_running = data.get('is_running', False)
+        total_refs = data.get('total_referrals', 0)
+        
+        text = (
+            f"🧘 <b>YOGA REFERRAL AUTOMATION</b>\n\n"
+            f"Status: {'🟢 Running' if is_running else '🔴 Stopped'}\n"
+            f"Balance: <b>{balance} Credits</b>\n"
+            f"Run Cost: <b>{cost} Credit(s) / referral</b>\n\n"
+            f"📊 <b>Your Settings:</b>\n"
+            f"🎁 Referral Code: <code>{ref_code}</code>\n"
+            f"📁 Panels: {len(panels)} active\n"
+            f"🏆 Total Referrals: {total_refs}\n\n"
+            f"Choose an option below:"
+        )
+        bot.send_message(call.message.chat.id, text, reply_markup=yoga_menu_keyboard(), parse_mode="HTML")
         bot.answer_callback_query(call.id)
 
 # ==================== Referral callbacks ====================
@@ -1174,8 +1255,124 @@ def handle_shopsy_callback(call):
             parse_mode="HTML"
         )
 
-# ---------- Shopsy Phone & OTP Handlers (Keep existing code) ----------
-# [The shopsy phone and OTP handlers remain unchanged - they use the existing shopsy module]
+# ---------- Shopsy Phone & OTP Handlers ----------
+@bot.message_handler(func=lambda message: user_shopsy_state.get(message.from_user.id) == "waiting_phone")
+def handle_shopsy_phone(message):
+    user_id = message.from_user.id
+    phone = message.text.strip()
+    if not phone.isdigit() or len(phone) != 10:
+        bot.reply_to(message, "❌ Invalid phone number. Please enter 10 digits.")
+        return
+    existing = shopsy.load_session(phone)
+    if existing and existing.get("isLoggedIn"):
+        user_shopsy_state[user_id] = None
+        shopsy_temp_data[user_id] = {'phone': phone, 'session_data': existing}
+        bot.reply_to(message, "✅ Session found! Starting mining...")
+        start_shopsy_mining(user_id, message.chat.id)
+        return
+    user_shopsy_state[user_id] = "waiting_otp"
+    shopsy_temp_data[user_id] = {'phone': phone, 'session_data': None}
+    def request_otp_thread():
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        session_data, req_id = loop.run_until_complete(shopsy.request_otp(phone))
+        if session_data and req_id:
+            shopsy_temp_data[user_id]['session_data'] = session_data
+            shopsy_temp_data[user_id]['req_id'] = req_id
+            bot.send_message(user_id, "📲 OTP sent to your phone. Please enter the OTP:")
+        else:
+            bot.send_message(user_id, "❌ Failed to send OTP. Please try again later.")
+            user_shopsy_state[user_id] = None
+    threading.Thread(target=request_otp_thread).start()
+    bot.reply_to(message, "⏳ Requesting OTP...")
+
+@bot.message_handler(func=lambda message: user_shopsy_state.get(message.from_user.id) == "waiting_otp")
+def handle_shopsy_otp(message):
+    user_id = message.from_user.id
+    otp = message.text.strip()
+    if not otp.isdigit():
+        bot.reply_to(message, "❌ Invalid OTP. Please enter numeric code.")
+        return
+    data = shopsy_temp_data.get(user_id, {})
+    session_data = data.get('session_data')
+    if not session_data:
+        bot.reply_to(message, "❌ Session expired. Please start again.")
+        user_shopsy_state[user_id] = None
+        return
+    def verify_otp_thread():
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        verified = loop.run_until_complete(shopsy.verify_otp(session_data, otp))
+        if verified:
+            shopsy_temp_data[user_id]['session_data'] = verified
+            bot.send_message(user_id, "✅ Login successful! Starting mining...")
+            user_shopsy_state[user_id] = None
+            start_shopsy_mining(user_id, message.chat.id)
+        else:
+            bot.send_message(user_id, "❌ Invalid OTP. Please try again.")
+    threading.Thread(target=verify_otp_thread).start()
+    bot.reply_to(message, "⏳ Verifying OTP...")
+
+def start_shopsy_mining(user_id, chat_id):
+    data = shopsy_temp_data.get(user_id, {})
+    session_data = data.get('session_data')
+    phone = data.get('phone')
+    if not session_data or not phone:
+        bot.send_message(chat_id, "❌ Mining data missing. Please start again.")
+        return
+
+    msg = bot.send_message(chat_id, "⏳ Mining started...\n\nInitializing...")
+    progress_messages = []
+
+    def progress_callback(progress_text):
+        nonlocal msg
+        progress_messages.append(progress_text)
+        if len(progress_messages) > 5:
+            progress_messages.pop(0)
+        display = "\n".join(progress_messages)
+        try:
+            bot.edit_message_text(f"⏳ Mining in progress...\n\n{display}", chat_id, msg.message_id)
+        except:
+            pass
+
+    def mining_thread():
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            result = loop.run_until_complete(shopsy.mine_account_parallel(session_data, progress_callback, parallel_count=500))
+        except Exception as e:
+            result = {"status": "fail", "earned": 0, "msg": f"⚠️ Unexpected error: {str(e)[:100]}"}
+        finally:
+            loop.close()
+
+        if result and result.get('status') == 'success':
+            earned = result.get('earned', 0)
+            final_coins = result.get('final_coins', 0)
+            played = result.get('played', 0)
+            total = result.get('total', 0)
+
+            update_user_balance(user_id, -get_module_cost("shopsy"))
+            update_shopsy_balance(user_id, earned)
+            final_text = (
+                f"✅ <b>Mining Complete!</b>\n\n"
+                f"🎯 Earned: <b>{earned} SC</b>\n"
+                f"💰 Total Shopsy Coins: <b>{final_coins} SC</b>\n"
+                f"🎮 Games Played: {played}/{total}\n"
+                f"📱 Phone: +91{phone}\n\n"
+                f"💎 Your Shopsy Balance: {get_shopsy_balance(user_id)} SC"
+            )
+            bot.edit_message_text(final_text, chat_id, msg.message_id, parse_mode="HTML")
+        else:
+            err = result.get('msg', 'Unknown error') if result else 'Failed to mine.'
+            bot.edit_message_text(f"❌ Mining failed!\n\n{err}", chat_id, msg.message_id)
+
+        shopsy_temp_data.pop(user_id, None)
+        user_shopsy_state.pop(user_id, None)
+
+    thread = threading.Thread(target=mining_thread)
+    thread.daemon = True
+    shopsy_temp_data[user_id]['mining_thread'] = thread
+    thread.start()
 
 # ==================== BREVISTAY CALLBACKS ====================
 @bot.callback_query_handler(func=lambda call: call.data.startswith("brevistay_"))
@@ -1272,7 +1469,7 @@ def handle_brevistay_phone(message):
     
     threading.Thread(target=send_otp_thread).start()
 
-# ---------- Brevistay OTP Handler (UPDATED) ----------
+# ---------- Brevistay OTP Handler ----------
 @bot.message_handler(func=lambda message: user_brevistay_state.get(message.from_user.id) == "waiting_otp")
 def handle_brevistay_otp(message):
     user_id = message.from_user.id
@@ -1304,24 +1501,12 @@ def handle_brevistay_otp(message):
         try:
             cost = get_module_cost("brevistay")
             
-            # Get referral code from database
-            REFERRAL_CODE = get_brevistay_referral_code()
-            if not REFERRAL_CODE:
-                bot.edit_message_text(
-                    "❌ Brevistay referral code not set.\n\n"
-                    "Please contact admin to set the referral code using /setbrevistayref.",
-                    chat_id=message.chat.id,
-                    message_id=processing_msg.message_id
-                )
-                user_brevistay_state[user_id] = None
-                brevistay_temp_data.pop(user_id, None)
-                return
-
             if is_registered:
                 response = client.login_existing_user(phone, otp)
             else:
                 first_name, last_name = client.generate_random_name()
                 email = client.generate_random_email(first_name, last_name, phone)
+                REFERRAL_CODE = "YOUR_BREVISTAY_REFERRAL_CODE_HERE"
                 response = client.register_new_user(
                     email=email,
                     mobile=int(phone),
@@ -1331,9 +1516,7 @@ def handle_brevistay_otp(message):
                     ref_code=REFERRAL_CODE
                 )
             
-            # Check if response is a dict and has status
-            if response and response.get("status") == "SUCCESS":
-                # Charge credits
+            if response.get("status") == "SUCCESS":
                 update_user_balance(user_id, -cost)
                 
                 try:
@@ -1361,32 +1544,14 @@ def handle_brevistay_otp(message):
                 )
                 log_usage(user_id, "Brevistay Referral", f"Phone: +91{phone}")
             else:
-                # Handle error responses
-                error_msg = response.get('msg', 'Unknown error') if response else 'No response from server'
                 bot.edit_message_text(
-                    f"❌ Verification failed: {error_msg}",
+                    f"❌ Verification failed: {response.get('msg', 'Unknown error')}",
                     chat_id=message.chat.id,
                     message_id=processing_msg.message_id
                 )
-        except json.JSONDecodeError:
-            bot.edit_message_text(
-                f"❌ Brevistay API error: Invalid JSON response.\n\n"
-                "The service might be temporarily unavailable.\n"
-                "Please try again later.",
-                chat_id=message.chat.id,
-                message_id=processing_msg.message_id
-            )
-        except ValueError as e:
-            bot.edit_message_text(
-                f"❌ Brevistay API error: {str(e)}\n\n"
-                "The service might be temporarily unavailable or your referral code may be invalid.\n"
-                "Please try again later.",
-                chat_id=message.chat.id,
-                message_id=processing_msg.message_id
-            )
         except Exception as e:
             bot.edit_message_text(
-                f"❌ Unexpected error: {str(e)[:100]}",
+                f"❌ Error: {str(e)[:100]}",
                 chat_id=message.chat.id,
                 message_id=processing_msg.message_id
             )
@@ -1396,20 +1561,755 @@ def handle_brevistay_otp(message):
     
     threading.Thread(target=verify_otp_thread).start()
 
+# ==================== YOGA CALLBACKS ====================
+@bot.callback_query_handler(func=lambda call: call.data.startswith("yoga_"))
+def handle_yoga_callback(call):
+    action = call.data.split("_")[1]
+    user_id = call.from_user.id
+    chat_id = call.message.chat.id
+    msg_id = call.message.message_id
+    
+    if user_id not in user_yoga_automations:
+        user_yoga_automations[user_id] = YogaAutomation(user_id, bot)
+    
+    auto = user_yoga_automations[user_id]
+    
+    if action == "start":
+        bot.answer_callback_query(call.id, "🔄 Starting automation...")
+        
+        async def start_auto():
+            result = await auto.start_automation()
+            if result['status'] == 'success':
+                bot.edit_message_text(
+                    f"✅ {result['message']}\n\n"
+                    f"🟢 Automation is now running!\n"
+                    f"📁 Monitoring {len(auto.panels)} panel(s)\n"
+                    f"🎁 Referral Code: {auto.referral_code}",
+                    chat_id=chat_id, message_id=msg_id,
+                    reply_markup=yoga_menu_keyboard(),
+                    parse_mode="HTML"
+                )
+            else:
+                bot.edit_message_text(
+                    f"❌ {result['message']}",
+                    chat_id=chat_id, message_id=msg_id,
+                    reply_markup=yoga_menu_keyboard(),
+                    parse_mode="HTML"
+                )
+        asyncio.create_task(start_auto())
+    
+    elif action == "stop":
+        bot.answer_callback_query(call.id, "⏹️ Stopping automation...")
+        
+        async def stop_auto():
+            result = await auto.stop_automation()
+            bot.edit_message_text(
+                f"✅ {result['message']}",
+                chat_id=chat_id, message_id=msg_id,
+                reply_markup=yoga_menu_keyboard(),
+                parse_mode="HTML"
+            )
+        asyncio.create_task(stop_auto())
+    
+    elif action == "stats":
+        stats = auto.get_stats()
+        bot.answer_callback_query(call.id, "📊 Fetching stats...")
+        bot.edit_message_text(
+            f"📊 <b>Yoga Automation Stats</b>\n\n"
+            f"🟢 Status: {'Running' if stats['is_running'] else 'Stopped'}\n"
+            f"📁 Active Panels: {stats['panels']}\n"
+            f"🏆 Total Referrals: {stats['total_referrals']}\n"
+            f"⏳ Pending OTP: {stats['pending_otp']}\n"
+            f"📱 Processed Numbers: {stats['processed_numbers']}\n"
+            f"🎁 Referral Code: {auto.referral_code or 'Not Set'}",
+            chat_id=chat_id, message_id=msg_id,
+            reply_markup=yoga_menu_keyboard(),
+            parse_mode="HTML"
+        )
+    
+    elif action == "set_ref":
+        bot.answer_callback_query(call.id)
+        yoga_user_state[user_id] = "waiting_ref_code"
+        bot.edit_message_text(
+            f"⚙️ <b>Set Yoga Referral Code</b>\n\n"
+            f"Send your Yoga referral code.\n"
+            f"Current: <code>{auto.referral_code or 'Not Set'}</code>\n\n"
+            f"Send <code>/cancel</code> to cancel.",
+            chat_id=chat_id, message_id=msg_id,
+            reply_markup=yoga_menu_keyboard(),
+            parse_mode="HTML"
+        )
+    
+    elif action == "add_panel":
+        bot.answer_callback_query(call.id)
+        yoga_user_state[user_id] = "waiting_panel_url"
+        bot.edit_message_text(
+            f"📁 <b>Add Firebase Panel</b>\n\n"
+            f"Send your Firebase database URL.\n"
+            f"Example: <code>https://myapp-8228a-default-rtdb.firebaseio.com</code>\n\n"
+            f"Current Panels: {len(auto.panels)}\n"
+            f"<i>{', '.join(auto.panels) if auto.panels else 'No panels added yet'}</i>\n\n"
+            f"Send <code>/cancel</code> to cancel.",
+            chat_id=chat_id, message_id=msg_id,
+            reply_markup=yoga_menu_keyboard(),
+            parse_mode="HTML"
+        )
+    
+    elif action == "my_panels":
+        panels = auto.panels
+        if panels:
+            text = f"📋 <b>Your Panels</b>\n\n" + "\n".join([f"• {p}" for p in panels])
+        else:
+            text = "📋 <b>Your Panels</b>\n\nNo panels added yet. Use 'Add Panel' to add one."
+        bot.answer_callback_query(call.id, "📋 Fetching panels...")
+        bot.edit_message_text(
+            text,
+            chat_id=chat_id, message_id=msg_id,
+            reply_markup=yoga_menu_keyboard(),
+            parse_mode="HTML"
+        )
+
 # ==================== Session Extractor Handlers ====================
-# [Keep existing session extractor code from main (17).py]
+@bot.message_handler(func=lambda message: user_session_state.get(message.from_user.id) == "waiting_phone")
+def handle_session_phone(message):
+    user_id = message.from_user.id
+    phone = message.text.strip()
+    
+    if phone.lower() == '/cancel':
+        user_session_state[user_id] = None
+        bot.reply_to(message, "❌ Cancelled.")
+        return
+    
+    if not phone.isdigit() or len(phone) != 10:
+        bot.reply_to(message, "❌ Please enter a valid 10‑digit number (only digits).")
+        return
+
+    processing_msg = bot.reply_to(message, f"⏳ Requesting OTP for +91{phone}...")
+
+    def request_otp_thread():
+        try:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            session_data, req_id = loop.run_until_complete(shopsy.request_otp(phone))
+            if session_data and req_id:
+                session_temp_data[user_id] = {
+                    'phone': phone,
+                    'session_data': session_data,
+                    'req_id': req_id
+                }
+                user_session_state[user_id] = "waiting_otp"
+                bot.edit_message_text(
+                    f"✅ OTP sent to +91{phone}.\n\nPlease enter the OTP you received.",
+                    chat_id=message.chat.id,
+                    message_id=processing_msg.message_id
+                )
+            else:
+                bot.edit_message_text(
+                    "❌ Failed to send OTP. Please try again later.",
+                    chat_id=message.chat.id,
+                    message_id=processing_msg.message_id
+                )
+                user_session_state[user_id] = None
+                session_temp_data.pop(user_id, None)
+        except Exception as e:
+            logger.error(f"OTP request error: {e}")
+            bot.edit_message_text(
+                f"❌ Error requesting OTP: {str(e)[:100]}",
+                chat_id=message.chat.id,
+                message_id=processing_msg.message_id
+            )
+            user_session_state[user_id] = None
+            session_temp_data.pop(user_id, None)
+
+    threading.Thread(target=request_otp_thread, daemon=True).start()
+
+@bot.message_handler(func=lambda message: user_session_state.get(message.from_user.id) == "waiting_otp")
+def handle_session_otp(message):
+    user_id = message.from_user.id
+    otp = message.text.strip()
+    
+    if otp.lower() == '/cancel':
+        user_session_state[user_id] = None
+        session_temp_data.pop(user_id, None)
+        bot.reply_to(message, "❌ Cancelled.")
+        return
+    
+    if not otp.isdigit():
+        bot.reply_to(message, "❌ Please enter a numeric OTP.")
+        return
+
+    data = session_temp_data.get(user_id, {})
+    session_data = data.get('session_data')
+    phone = data.get('phone')
+    if not session_data or not phone:
+        bot.reply_to(message, "❌ Session expired. Please start again.")
+        user_session_state[user_id] = None
+        return
+
+    processing_msg = bot.reply_to(message, "⏳ Verifying OTP...")
+
+    def verify_otp_thread():
+        try:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            verified_session = loop.run_until_complete(shopsy.verify_otp(session_data, otp))
+            if verified_session:
+                cost = get_module_cost("session")
+                balance = get_user_balance(user_id)
+                if balance < cost:
+                    bot.edit_message_text(
+                        f"❌ Insufficient credits! You need {cost} Credit(s) for this extraction.",
+                        chat_id=message.chat.id,
+                        message_id=processing_msg.message_id
+                    )
+                    user_session_state[user_id] = None
+                    session_temp_data.pop(user_id, None)
+                    return
+
+                update_user_balance(user_id, -cost)
+                json_str = json.dumps(verified_session, indent=2, ensure_ascii=False)
+
+                if len(json_str) > 4000:
+                    chunks = [json_str[i:i+4000] for i in range(0, len(json_str), 4000)]
+                    for idx, chunk in enumerate(chunks):
+                        caption = f"✅ Session JSON for +91{phone} (Part {idx+1}/{len(chunks)}):\n\n```json\n{chunk}\n```"
+                        bot.send_message(message.chat.id, caption, parse_mode="Markdown")
+                    bot.delete_message(message.chat.id, processing_msg.message_id)
+                else:
+                    bot.edit_message_text(
+                        f"✅ Session JSON for +91{phone}:\n\n```json\n{json_str}\n```",
+                        chat_id=message.chat.id,
+                        message_id=processing_msg.message_id,
+                        parse_mode="Markdown"
+                    )
+                log_usage(user_id, "Session Extractor", f"Phone: +91{phone}")
+            else:
+                bot.edit_message_text(
+                    "❌ Invalid OTP or verification failed. Please try again.",
+                    chat_id=message.chat.id,
+                    message_id=processing_msg.message_id
+                )
+        except Exception as e:
+            logger.error(f"OTP verification error: {e}")
+            bot.edit_message_text(
+                f"❌ Error during verification: {str(e)[:100]}",
+                chat_id=message.chat.id,
+                message_id=processing_msg.message_id
+            )
+        finally:
+            user_session_state[user_id] = None
+            session_temp_data.pop(user_id, None)
+
+    threading.Thread(target=verify_otp_thread, daemon=True).start()
 
 # ==================== Temp Mail callbacks ====================
-# [Keep existing temp mail code from main (17).py]
+@bot.callback_query_handler(func=lambda call: call.data.startswith("temp_"))
+def handle_temp_callback(call):
+    action = call.data.split("_")[1]
+    user_id = call.from_user.id
+    chat_id = call.message.chat.id
+    msg_id = call.message.message_id
+
+    if action == "new":
+        if user_id in user_temp_sessions:
+            user_temp_sessions[user_id] = None
+        temp = TempMailBot()
+        result = temp.generate_email()
+        if result['success']:
+            user_temp_sessions[user_id] = temp
+            bot.answer_callback_query(call.id, "✅ New email created!")
+            bot.edit_message_text(
+                f"📧 <b>New Email Created!</b>\n\n"
+                f"📧 <b>Email:</b> <code>{result['email']}</code>\n"
+                f"⏱️ <b>Expires:</b> 10 minutes\n\n"
+                f"💡 Use <b>Check Inbox</b> to see messages\n"
+                f"🔑 Use <b>Get OTP</b> to auto-detect OTP\n\n"
+                f"<i>Powered By Viediet Utility</i>",
+                chat_id=chat_id,
+                message_id=msg_id,
+                reply_markup=temp_menu_keyboard(),
+                parse_mode="HTML"
+            )
+        else:
+            bot.answer_callback_query(call.id, "❌ Failed to create email!", show_alert=True)
+            bot.edit_message_text(
+                f"❌ <b>Failed!</b>\n\nError: {result.get('error', 'Unknown')}",
+                chat_id=chat_id,
+                message_id=msg_id,
+                reply_markup=temp_menu_keyboard(),
+                parse_mode="HTML"
+            )
+
+    elif action == "inbox":
+        if user_id not in user_temp_sessions:
+            bot.answer_callback_query(call.id, "❌ No email! Create one first.", show_alert=True)
+            return
+        temp = user_temp_sessions[user_id]
+        if temp.expiry_time and datetime.now() > temp.expiry_time:
+            bot.answer_callback_query(call.id, "❌ Email expired! Create new one.", show_alert=True)
+            del user_temp_sessions[user_id]
+            return
+        bot.answer_callback_query(call.id, "📥 Checking inbox...")
+        messages = temp.check_inbox()
+        if not messages:
+            bot.edit_message_text(
+                "📥 <b>Inbox</b>\n\n📭 No messages yet!\n\n💡 Try getting OTP.",
+                chat_id=chat_id,
+                message_id=msg_id,
+                reply_markup=temp_menu_keyboard(),
+                parse_mode="HTML"
+            )
+            return
+        inbox_text = f"📥 <b>Inbox</b>\n\n"
+        for i, msg in enumerate(messages[-5:], 1):
+            from_addr = msg.get('from', {}).get('address', 'Unknown')
+            subject = msg.get('subject', 'No Subject')
+            inbox_text += f"━━━━━━━━━━━━━━━━━━━━\n"
+            inbox_text += f"{i}. 📧 <b>From:</b> {from_addr}\n"
+            inbox_text += f"   📝 <b>Subject:</b> {subject}\n"
+            body = msg.get('body', '')
+            if not body:
+                full = temp.get_message_content(msg['id'])
+                if full:
+                    body = full.get('text', '')
+            combined = body + " " + subject
+            otp_match = re.search(r'\b\d{4,6}\b', combined)
+            if otp_match:
+                inbox_text += f"   🔑 <b>OTP:</b> <code>{otp_match.group()}</code>\n"
+            inbox_text += f"\n"
+        inbox_text += f"━━━━━━━━━━━━━━━━━━━━\n"
+        inbox_text += f"📊 <b>Total:</b> {len(messages)} messages\n\n"
+        inbox_text += f"<i>Powered By Viediet Utility</i>"
+        bot.edit_message_text(
+            inbox_text,
+            chat_id=chat_id,
+            message_id=msg_id,
+            reply_markup=temp_menu_keyboard(),
+            parse_mode="HTML"
+        )
+
+    elif action == "otp":
+        if user_id not in user_temp_sessions:
+            bot.answer_callback_query(call.id, "❌ No email! Create one first.", show_alert=True)
+            return
+        temp = user_temp_sessions[user_id]
+        if temp.expiry_time and datetime.now() > temp.expiry_time:
+            bot.answer_callback_query(call.id, "❌ Email expired! Create new one.", show_alert=True)
+            del user_temp_sessions[user_id]
+            return
+        bot.answer_callback_query(call.id, "🔑 Monitoring for OTP...")
+        waiting_msg = bot.send_message(
+            chat_id,
+            "🔑 <b>Waiting for OTP...</b>\n\n"
+            "⏳ Monitoring inbox...\n"
+            "📩 OTP will appear here instantly\n"
+            "⏱️ Timeout: 2 minutes\n\n"
+            "<i>Powered By Viediet Utility</i>",
+            parse_mode='HTML'
+        )
+        def otp_callback(result):
+            if result:
+                from_display = result['from_name'] if result['from_name'] else result['from']
+                bot.edit_message_text(
+                    f"🔑 <b>✅ OTP Received!</b>\n\n"
+                    f"━━━━━━━━━━━━━━━━━━━━\n"
+                    f"🔑 <b>OTP Code:</b> <code>{result['otp']}</code>\n"
+                    f"━━━━━━━━━━━━━━━━━━━━\n"
+                    f"📧 <b>From:</b> {from_display}\n"
+                    f"📧 <b>Email:</b> {result['from']}\n"
+                    f"📝 <b>Subject:</b> {result['subject']}\n"
+                    f"⏱️ <b>Time:</b> {result['time']}\n"
+                    f"━━━━━━━━━━━━━━━━━━━━\n\n"
+                    f"<i>Powered By Viediet Utility</i>",
+                    chat_id=chat_id,
+                    message_id=waiting_msg.message_id,
+                    parse_mode='HTML'
+                )
+            else:
+                bot.edit_message_text(
+                    "❌ <b>No OTP Found!</b>\n\n"
+                    "⏱️ No OTP received in 2 minutes.\n\n"
+                    "💡 <b>Try:</b>\n"
+                    "• Send OTP again\n"
+                    "• Check inbox manually\n"
+                    "• Create new email\n\n"
+                    "<i>Powered By Viediet Utility</i>",
+                    chat_id=chat_id,
+                    message_id=waiting_msg.message_id,
+                    parse_mode='HTML'
+                )
+        thread = threading.Thread(target=temp.wait_for_otp, args=(otp_callback, 120))
+        thread.daemon = True
+        thread.start()
+
+    elif action == "delete":
+        if user_id in user_temp_sessions:
+            user_temp_sessions[user_id] = None
+            del user_temp_sessions[user_id]
+        bot.answer_callback_query(call.id, "✅ Email deleted!")
+        bot.edit_message_text(
+            "🗑️ <b>Email Deleted</b>\n\n"
+            "Your temporary email has been deleted.\n\n"
+            "<i>Powered By Viediet Utility</i>",
+            chat_id=chat_id,
+            message_id=msg_id,
+            reply_markup=temp_menu_keyboard(),
+            parse_mode="HTML"
+        )
 
 # ==================== Buy handler ====================
-# [Keep existing buy handler code from main (17).py]
+@bot.message_handler(func=lambda message: user_buy_state.get(message.from_user.id) == "waiting_amount")
+def handle_buy_amount(message):
+    user_id = message.from_user.id
+    logger.info(f"Buy amount handler triggered for user {user_id} with text: {message.text}")
+    try:
+        amount = int(message.text.strip())
+        if amount < 1 or amount > 10000:
+            bot.reply_to(message, "❌ Amount must be between ₹1 and ₹10,000.")
+            return
+    except ValueError:
+        bot.reply_to(message, "❌ Please send a valid number.")
+        return
+    order_id = f"ORD{int(time.time())}{random.randint(1000,9999)}"
+    pending_purchases[user_id] = {'order_id': order_id, 'amount': amount}
+    upi = f"upi://pay?pa=paytm.s1dw5n0@pty&pn=VC Payment Gateway&tid={order_id}&tr={order_id}&tn=VC Payment&am={amount}&cu=INR"
+    qr_url = f"https://quickchart.io/qr?text={requests.utils.quote(upi)}"
+    caption = (
+        f"╔════════════════════╗\n"
+        f"     💳 *VC PAYMENT GATEWAY*\n"
+        f"╚════════════════════╝\n\n"
+        f"💰 *Amount:* ₹{amount}\n"
+        f"🆔 *Order ID:* {order_id}\n\n"
+        f"━━━━━━━━━━━━━━━━━━\n"
+        f"⚠️ Complete the payment using the QR code above.\n"
+        f"After successful payment, tap the button below.\n"
+        f"━━━━━━━━━━━━━━━━━━"
+    )
+    keyboard = InlineKeyboardMarkup()
+    keyboard.add(InlineKeyboardButton("✅ Check Payment", callback_data="buy_check"))
+    bot.send_photo(message.chat.id, qr_url, caption=caption, reply_markup=keyboard, parse_mode="Markdown")
+    user_buy_state[user_id] = None
+    logger.info(f"QR sent for order {order_id} to user {user_id}")
+
+@bot.callback_query_handler(func=lambda call: call.data == "buy_check")
+def handle_buy_check(call):
+    user_id = call.from_user.id
+    chat_id = call.message.chat.id
+    msg_id = call.message.message_id
+    if user_id not in pending_purchases:
+        bot.answer_callback_query(call.id, "❌ No pending purchase found.")
+        return
+    purchase = pending_purchases[user_id]
+    order_id = purchase['order_id']
+    amount = purchase['amount']
+    API_KEY = os.environ.get("VC_API_KEY")
+    if not API_KEY:
+        bot.answer_callback_query(call.id, "❌ Payment gateway not configured.")
+        return
+    url = f"https://vcapi.vcstore.site/payment_api.php?api_key={API_KEY}&order_id={order_id}&amount={amount}"
+    try:
+        response = requests.get(url, timeout=10)
+        if response.status_code == 200:
+            data = response.json()
+            if data.get('status') == 'success' or data.get('success') == True:
+                coins = amount
+                update_user_balance(user_id, coins)
+                del pending_purchases[user_id]
+                bot.edit_message_text(
+                    f"✅ <b>Payment Verified!</b>\n\n"
+                    f"💰 Added {coins} coins to your account.\n"
+                    f"💳 Order ID: {order_id}\n"
+                    f"📊 New Balance: {get_user_balance(user_id)}",
+                    chat_id=chat_id, message_id=msg_id,
+                    parse_mode="HTML"
+                )
+                bot.answer_callback_query(call.id, "✅ Payment successful!")
+                log_usage(user_id, "Buy Coins", f"Amount: {amount}, Order: {order_id}")
+            else:
+                bot.edit_message_text(
+                    "❌ <b>Payment Not Verified</b>\n\n"
+                    "We could not confirm your payment. Please check your UPI transaction or try again later.",
+                    chat_id=chat_id, message_id=msg_id,
+                    parse_mode="HTML"
+                )
+                bot.answer_callback_query(call.id, "❌ Payment not found.")
+        else:
+            bot.answer_callback_query(call.id, f"❌ API error: {response.status_code}")
+    except Exception as e:
+        bot.answer_callback_query(call.id, f"❌ Error: {str(e)[:50]}")
 
 # ==================== Flipkart checker callback ====================
-# [Keep existing flipkart code from main (17).py]
+@bot.callback_query_handler(func=lambda call: call.data.startswith("flipkart_"))
+def handle_flipkart_callback(call):
+    bot.answer_callback_query(call.id, "📱 Send a 10-digit number to check.")
+
+@bot.message_handler(func=lambda message: message.text and message.text.isdigit() and len(message.text) == 10)
+def handle_phone_number(message):
+    user_id = message.from_user.id
+
+    if (user_shopsy_state.get(user_id) or 
+        user_buy_state.get(user_id) or 
+        user_firebase_state.get(user_id) or 
+        user_music_state.get(user_id) or
+        user_session_state.get(user_id) or
+        user_brevistay_state.get(user_id) or
+        yoga_user_state.get(user_id)):
+        return
+
+    cost = get_module_cost("flipkart")
+    balance = get_user_balance(user_id)
+    if balance < cost:
+        bot.reply_to(message, f"❌ Insufficient credits! You need {cost} credit(s) to check a number.")
+        return
+    update_user_balance(user_id, -cost)
+    processing = bot.reply_to(message, f"🔍 Checking <code>{message.text}</code> on Flipkart...", parse_mode="HTML")
+    def check_thread():
+        result = check_flipkart(message.text)
+        new_balance = get_user_balance(user_id)
+        bot.edit_message_text(
+            f"📱 <b>Result for {message.text}</b>\n\n{result}\n\n💰 Remaining Credits: {new_balance}",
+            chat_id=message.chat.id,
+            message_id=processing.message_id,
+            parse_mode="HTML"
+        )
+        log_usage(user_id, "Flipkart Checker", f"Number: {message.text}")
+    threading.Thread(target=check_thread).start()
 
 # ==================== Instagram callbacks ====================
-# [Keep existing instagram code from main (17).py]
+@bot.callback_query_handler(func=lambda call: call.data.startswith("instagram_"))
+def handle_instagram_callback(call):
+    action = call.data.split("_")[1]
+    user_id = call.from_user.id
+
+    if action == "single":
+        user_instagram_state[user_id] = "single"
+        bot.answer_callback_query(call.id, "📹 Send a single Instagram video URL.")
+        bot.edit_message_text(
+            "📹 <b>Single Download</b>\n\n"
+            f"Send me the Instagram video link.\n"
+            f"Example: <code>https://www.instagram.com/reel/xyz123/</code>\n\n"
+            f"💡 Costs {get_module_cost('instagram')} Credit(s).\n\n"
+            f"<i>Powered By Viediet Utility</i>",
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            reply_markup=instagram_menu_keyboard(),
+            parse_mode="HTML"
+        )
+
+    elif action == "bulk":
+        user_instagram_state[user_id] = "bulk"
+        bot.answer_callback_query(call.id, "📚 Send multiple Instagram video URLs (one per line).")
+        bot.edit_message_text(
+            "📚 <b>Bulk Download</b>\n\n"
+            "Send me multiple Instagram video links,\n"
+            "each on a new line.\n\n"
+            "Example:\n"
+            "<code>https://www.instagram.com/reel/abc/\n"
+            "https://www.instagram.com/reel/def/</code>\n\n"
+            f"💡 Costs {get_module_cost('instagram')} Credit(s) per video.\n\n"
+            f"<i>Powered By Viediet Utility</i>",
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            reply_markup=instagram_menu_keyboard(),
+            parse_mode="HTML"
+        )
+
+@bot.message_handler(func=lambda message: message.text and 'instagram.com' in message.text.lower())
+def handle_instagram_link(message):
+    user_id = message.from_user.id
+    balance = get_user_balance(user_id)
+    state = user_instagram_state.get(user_id)
+
+    if not state:
+        bot.reply_to(message, "📥 Please use the Instagram Downloader module from the main menu to send links.")
+        return
+
+    lines = message.text.strip().splitlines()
+    urls = [line.strip() for line in lines if 'instagram.com' in line]
+
+    if not urls:
+        bot.reply_to(message, "❌ No valid Instagram URLs found.")
+        return
+
+    cost = get_module_cost("instagram")
+
+    if state == "single":
+        if balance < cost:
+            bot.reply_to(message, f"❌ Insufficient credits! You need {cost} credit(s) to download.")
+            return
+        update_user_balance(user_id, -cost)
+        processing = bot.reply_to(message, "⏳ Downloading reel...")
+        def download_single():
+            file_path = download_reel(urls[0])
+            if file_path:
+                try:
+                    with open(file_path, "rb") as vid:
+                        bot.send_video(message.chat.id, vid, caption="✅ Downloaded successfully!")
+                    os.remove(file_path)
+                    shutil.rmtree(os.path.dirname(file_path), ignore_errors=True)
+                except Exception as e:
+                    bot.send_message(message.chat.id, f"❌ Upload failed: {e}")
+            else:
+                bot.send_message(message.chat.id, "❌ Failed to download reel. Check URL or try again.")
+            bot.delete_message(message.chat.id, processing.message_id)
+        threading.Thread(target=download_single).start()
+
+    elif state == "bulk":
+        total_cost = len(urls) * cost
+        if balance < total_cost:
+            bot.reply_to(message, f"❌ Insufficient credits! Need {total_cost} credits for {len(urls)} videos.")
+            return
+        update_user_balance(user_id, -total_cost)
+        processing = bot.reply_to(message, f"⏳ Downloading {len(urls)} reels...")
+        def download_bulk_thread():
+            paths = download_bulk(urls)
+            if paths:
+                for path in paths:
+                    try:
+                        with open(path, "rb") as vid:
+                            bot.send_video(message.chat.id, vid)
+                        os.remove(path)
+                        shutil.rmtree(os.path.dirname(path), ignore_errors=True)
+                    except Exception as e:
+                        bot.send_message(message.chat.id, f"❌ Upload failed for one video: {e}")
+                bot.send_message(message.chat.id, f"✅ All {len(paths)} videos sent successfully!")
+            else:
+                bot.send_message(message.chat.id, "❌ Failed to download any reel.")
+            bot.delete_message(message.chat.id, processing.message_id)
+        threading.Thread(target=download_bulk_thread).start()
+
+    user_instagram_state[user_id] = None
+
+# ==================== Music Handlers ====================
+@bot.message_handler(func=lambda message: user_music_state.get(message.from_user.id) == "waiting_for_search")
+def handle_music_search(message):
+    user_id = message.from_user.id
+    query = message.text.strip()
+    
+    if query.lower() == '/cancel':
+        user_music_state[user_id] = None
+        bot.reply_to(message, "❌ Search cancelled.", reply_markup=main_menu_keyboard(is_admin=(user_id==ADMIN_ID)))
+        return
+    
+    if len(query) < 2:
+        bot.reply_to(message, "❌ Please enter at least 2 characters.")
+        return
+    
+    searching_msg = bot.reply_to(message, f"🎵 Searching for <b>{query}</b>...\n\n⏳ Please wait.")
+    
+    results = search_songs(query, page=0, limit=15)
+    if not results or not results.get("success"):
+        bot.edit_message_text("❌ No results found. Try different spelling.", chat_id=message.chat.id, message_id=searching_msg.message_id)
+        return
+    
+    songs = results.get("data", {}).get("results", [])
+    if not songs:
+        bot.edit_message_text("❌ No songs found for that query.", chat_id=message.chat.id, message_id=searching_msg.message_id)
+        return
+    
+    keyboard = InlineKeyboardMarkup(row_width=1)
+    for idx, song in enumerate(songs[:15], 1):
+        title = song.get("name", "Unknown")
+        artists = song.get("artists", {}).get("primary", [])
+        artist_names = ", ".join([a.get("name", "") for a in artists[:2]])
+        duration = song.get("duration", 0)
+        dur_str = format_duration(duration)
+        button_text = f"{idx}. {title[:30]} - {artist_names[:20]} [{dur_str}]"
+        keyboard.add(InlineKeyboardButton(button_text, callback_data=f"music_song_{song.get('id')}"))
+    
+    bot.edit_message_text(f"🎵 <b>Search Results for</b>: {query}\n\nSelect a song to download ({get_module_cost('music')} Credit(s)):",
+                          chat_id=message.chat.id, message_id=searching_msg.message_id,
+                          reply_markup=keyboard, parse_mode="HTML")
+    
+    log_usage(user_id, "Music Search", query)
+    user_music_state[user_id] = None
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith("music_song_"))
+def handle_music_song_callback(call):
+    user_id = call.from_user.id
+    song_id = call.data.replace("music_song_", "")
+    bot.answer_callback_query(call.id, "🔄 Fetching song...")
+    
+    cost = get_module_cost("music")
+    balance = get_user_balance(user_id)
+    if balance < cost:
+        bot.edit_message_text(f"❌ Insufficient credits! You need {cost} credit(s) to download a song.",
+                              chat_id=call.message.chat.id, message_id=call.message.message_id)
+        return
+    
+    update_user_balance(user_id, -cost)
+    processing_msg = bot.send_message(call.message.chat.id, "⏳ Downloading high-quality audio...")
+    
+    try:
+        song_details = get_song_details(song_id)
+        if not song_details or not song_details.get("url"):
+            update_user_balance(user_id, cost)
+            bot.edit_message_text("❌ Failed to get download link. Please try again.",
+                                  chat_id=call.message.chat.id, message_id=processing_msg.message_id)
+            return
+        
+        download_url = song_details["url"]
+        title = song_details["title"]
+        artist = song_details["artist"] or "Unknown Artist"
+        duration = song_details["duration"]
+        duration_formatted = song_details.get("duration_formatted", format_duration(duration))
+        album = song_details.get("album", "Single")
+        year = song_details.get("year", "N/A")
+        
+        audio_resp = requests.get(download_url, timeout=45)
+        if audio_resp.status_code != 200:
+            update_user_balance(user_id, cost)
+            bot.edit_message_text("❌ Download failed. Server error.",
+                                  chat_id=call.message.chat.id, message_id=processing_msg.message_id)
+            return
+        
+        import hashlib
+        temp_filename = f"temp_{song_id}_{hashlib.md5(title.encode()).hexdigest()[:8]}.mp3"
+        with open(temp_filename, 'wb') as f:
+            f.write(audio_resp.content)
+        
+        caption = f"""🎵 {title} 🎵
+
+━━━━━━━━━━━━━━━━
+✨ TRACK DETAILS ✨
+━━━━━━━━━━━━━━━━
+
+🎤 Artist: {artist}
+⏱️ Duration: {duration_formatted}
+💿 Album: {album}
+📅 Year: {year}
+📊 Quality: 320kbps MP3
+
+━━━━━━━━━━━━━━━━
+👨‍💻 Developer: @viedietextraa
+🎧 Keep vibing!"""
+        
+        with open(temp_filename, 'rb') as audio:
+            bot.send_audio(call.message.chat.id, audio, title=title[:60], performer=artist[:60], duration=duration, caption=caption)
+        
+        try:
+            os.remove(temp_filename)
+            bot.delete_message(call.message.chat.id, processing_msg.message_id)
+        except:
+            pass
+        
+        log_usage(user_id, "Music Download", f"{title} - {artist}")
+        
+        markup = InlineKeyboardMarkup()
+        markup.add(InlineKeyboardButton("🎵 New Search", callback_data="music_new_search"))
+        bot.send_message(call.message.chat.id, "✅ Song sent! Want more? Tap below 👇", reply_markup=markup)
+        
+    except Exception as e:
+        logger.error(f"Music download error: {e}")
+        update_user_balance(user_id, cost)
+        bot.edit_message_text(f"❌ Error: {str(e)[:200]}", chat_id=call.message.chat.id, message_id=processing_msg.message_id)
+
+@bot.callback_query_handler(func=lambda call: call.data == "music_new_search")
+def music_new_search_callback(call):
+    user_id = call.from_user.id
+    user_music_state[user_id] = "waiting_for_search"
+    bot.answer_callback_query(call.id, "🔍 Ready to search!")
+    bot.send_message(call.message.chat.id, "🎵 Enter song or artist name:")
 
 # ==================== Admin callbacks ====================
 @bot.callback_query_handler(func=lambda call: call.data.startswith("admin_"))
@@ -1473,7 +2373,6 @@ def handle_admin_callback(call):
         )
 
     elif call.data == "admin_costs":
-        # Show all module costs
         firebase_cost = get_module_cost("firebase")
         shopsy_cost = get_module_cost("shopsy")
         flipkart_cost = get_module_cost("flipkart")
@@ -1481,6 +2380,7 @@ def handle_admin_callback(call):
         music_cost = get_module_cost("music")
         session_cost = get_module_cost("session")
         brevistay_cost = get_module_cost("brevistay")
+        yoga_cost = get_module_cost("yoga")
         
         bot.answer_callback_query(call.id)
         bot.edit_message_text(
@@ -1491,17 +2391,15 @@ def handle_admin_callback(call):
             f"📥 Instagram Downloader: <code>{instagram_cost}</code> credits\n"
             f"🎵 Music Downloader: <code>{music_cost}</code> credits\n"
             f"🔐 Session Extractor: <code>{session_cost}</code> credits\n"
-            f"🏨 Brevistay Referral: <code>{brevistay_cost}</code> credits\n\n"
+            f"🏨 Brevistay Referral: <code>{brevistay_cost}</code> credits\n"
+            f"🧘 Yoga Referral: <code>{yoga_cost}</code> credits\n\n"
             f"To change a cost, send:\n"
             f"<code>/setcost module_name amount</code>\n\n"
-            f"Available modules: firebase, shopsy, flipkart, instagram, music, session, brevistay\n\n"
+            f"Available modules: firebase, shopsy, flipkart, instagram, music, session, brevistay, yoga\n\n"
             f"Example: <code>/setcost firebase 5</code>",
             chat_id=chat_id, message_id=msg_id,
             reply_markup=admin_panel_keyboard(), parse_mode="HTML"
         )
-
-# ==================== Music Handlers ====================
-# [Keep existing music handlers from main (17).py]
 
 # ---------- Admin Commands ----------
 @bot.message_handler(commands=['addcoins'])
@@ -1615,7 +2513,7 @@ def setcost_cmd(message):
         module = parts[1].lower()
         amount = int(parts[2])
         
-        valid_modules = ["firebase", "shopsy", "flipkart", "instagram", "music", "session", "brevistay"]
+        valid_modules = ["firebase", "shopsy", "flipkart", "instagram", "music", "session", "brevistay", "yoga"]
         if module not in valid_modules:
             bot.reply_to(message, f"❌ Invalid module. Available: {', '.join(valid_modules)}")
             return
@@ -1630,22 +2528,6 @@ def setcost_cmd(message):
         bot.reply_to(message, "❌ Amount must be a number.")
     except Exception as e:
         bot.reply_to(message, f"❌ Error: {str(e)}")
-
-# --- NEW: Admin command to set Brevistay referral code ---
-@bot.message_handler(commands=['setbrevistayref'])
-def set_brevistay_ref_cmd(message):
-    if message.from_user.id != ADMIN_ID:
-        bot.reply_to(message, "⛔ Admin only!")
-        return
-    parts = message.text.split()
-    if len(parts) < 2:
-        bot.reply_to(message, "❌ Usage: /setbrevistayref YOUR_REFERRAL_CODE")
-        return
-    code = parts[1].strip()
-    set_brevistay_referral_code(code)
-    bot.reply_to(message, f"✅ Brevistay referral code updated to: <code>{code}</code>", parse_mode="HTML")
-
-# =======================================================
 
 @bot.message_handler(commands=['giveallcoins'])
 def give_all_coins_cmd(message):
@@ -1715,15 +2597,41 @@ if __name__ == "__main__":
     init_db()
     task_thread = threading.Thread(target=run_scheduled_tasks, daemon=True)
     task_thread.start()
-    logger.info("🤖 Bot is starting with all features integrated...")
+    logger.info("🤖 Bot is starting with all features integrated (including Yoga)...")
+    
+    # Force delete webhook
+    for i in range(3):
+        try:
+            bot.remove_webhook()
+            print(f"✅ Webhook removed attempt {i+1}")
+            time.sleep(2)
+        except Exception as e:
+            print(f"⚠️ Remove webhook error: {e}")
+    
+    # Direct API call to delete webhook
     try:
-        bot.remove_webhook()
-        time.sleep(5)
+        import requests
+        url = f"https://api.telegram.org/bot{BOT_TOKEN}/deleteWebhook"
+        response = requests.get(url)
+        print(f"✅ Direct webhook delete: {response.json()}")
     except:
         pass
+    
+    print("🚀 Bot Started Successfully! Listening for messages...")
+    
+    # Use infinity_polling instead of polling
     while True:
         try:
-            bot.polling(non_stop=True, interval=0, timeout=60)
+            bot.infinity_polling(timeout=60, long_polling_timeout=60)
         except Exception as e:
-            logger.error(f"Polling error: {e}")
-            time.sleep(5)
+            if "409" in str(e) or "Conflict" in str(e):
+                print("⚠️ Conflict! Waiting 15 seconds...")
+                time.sleep(15)
+                try:
+                    bot.remove_webhook()
+                    time.sleep(2)
+                except:
+                    pass
+            else:
+                print(f"❌ Error: {e}")
+                time.sleep(5)
