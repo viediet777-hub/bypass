@@ -28,9 +28,9 @@ from menu import (
     instagram_menu_text, instagram_menu_keyboard,
     referral_menu_text, referral_menu_keyboard,
     admin_panel_text, admin_panel_keyboard,
-    brevistay_menu_text, brevistay_menu_keyboard,   # <-- added
-    session_menu_text, session_menu_keyboard,       # <-- added
-    music_menu_text, music_menu_keyboard            # <-- added
+    brevistay_menu_text, brevistay_menu_keyboard,
+    session_menu_text, session_menu_keyboard,
+    music_menu_text, music_menu_keyboard
 )
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 
@@ -936,10 +936,10 @@ def handle_module_callback(call):
         )
         bot.answer_callback_query(call.id)
 
-    # ---------- NEW: Brevistay module ----------
+    # ---------- Brevistay module ----------
     elif module == "brevistay":
         bot.delete_message(call.message.chat.id, call.message.message_id)
-        cost = 1  # You can make this configurable via get_config later
+        cost = 1  # You can make this configurable
         text = brevistay_menu_text(user_id, balance, "ACTIVE", cost)
         bot.send_message(call.message.chat.id, text, reply_markup=brevistay_menu_keyboard(), parse_mode="HTML")
         bot.answer_callback_query(call.id)
@@ -1377,7 +1377,7 @@ def handle_brevistay_callback(call):
     msg_id = call.message.message_id
 
     if action == "start":
-        cost = 1  # You can make this dynamic later
+        cost = 1
         if get_user_balance(user_id) < cost:
             bot.answer_callback_query(call.id, f"❌ Insufficient credits! Need {cost} credit(s).", show_alert=True)
             return
@@ -1410,7 +1410,7 @@ def handle_brevistay_callback(call):
             parse_mode="HTML"
         )
 
-# ---------- Brevistay Phone Handler ----------
+# ---------- Brevistay Phone Handler (FIXED) ----------
 @bot.message_handler(func=lambda message: user_brevistay_state.get(message.from_user.id) == "waiting_phone")
 def handle_brevistay_phone(message):
     user_id = message.from_user.id
@@ -1433,8 +1433,12 @@ def handle_brevistay_phone(message):
     def send_otp_thread():
         try:
             response = client.send_login_otp(phone)
-            if response.get("is_otp_sent") == "1":
-                is_registered = response.get("is_user_registered") == "1"
+            logger.info(f"Brevistay OTP response: {response}")
+            
+            # Check if OTP sent – handle both string and int responses
+            otp_sent = response.get("is_otp_sent")
+            if otp_sent in (1, "1", True):
+                is_registered = response.get("is_user_registered") in (1, "1", True)
                 brevistay_temp_data[user_id]['is_registered'] = is_registered
                 user_brevistay_state[user_id] = "waiting_otp"
                 bot.edit_message_text(
@@ -1445,14 +1449,16 @@ def handle_brevistay_phone(message):
                     message_id=processing_msg.message_id
                 )
             else:
+                error_msg = response.get("msg", "Unknown error")
                 bot.edit_message_text(
-                    "❌ Failed to send OTP. Please try again.",
+                    f"❌ Failed to send OTP: {error_msg}",
                     chat_id=message.chat.id,
                     message_id=processing_msg.message_id
                 )
                 user_brevistay_state[user_id] = None
                 brevistay_temp_data.pop(user_id, None)
         except ValueError as e:
+            logger.error(f"Brevistay API error: {e}")
             bot.edit_message_text(
                 f"❌ Brevistay API error: {str(e)}\n\n"
                 "The service might be temporarily unavailable.\n"
@@ -1463,8 +1469,9 @@ def handle_brevistay_phone(message):
             user_brevistay_state[user_id] = None
             brevistay_temp_data.pop(user_id, None)
         except Exception as e:
+            logger.error(f"Brevistay unexpected error: {e}")
             bot.edit_message_text(
-                f"❌ Error: {str(e)[:100]}",
+                f"❌ Unexpected error: {str(e)[:100]}",
                 chat_id=message.chat.id,
                 message_id=processing_msg.message_id
             )
@@ -1473,7 +1480,7 @@ def handle_brevistay_phone(message):
     
     threading.Thread(target=send_otp_thread).start()
 
-# ---------- Brevistay OTP Handler ----------
+# ---------- Brevistay OTP Handler (FIXED) ----------
 @bot.message_handler(func=lambda message: user_brevistay_state.get(message.from_user.id) == "waiting_otp")
 def handle_brevistay_otp(message):
     user_id = message.from_user.id
@@ -1503,7 +1510,7 @@ def handle_brevistay_otp(message):
     
     def verify_otp_thread():
         try:
-            cost = 1  # You can make this dynamic later
+            cost = 1
             # Get referral code from config
             REFERRAL_CODE = get_config("brevistay_referral_code", "")
             if not REFERRAL_CODE:
@@ -1531,15 +1538,18 @@ def handle_brevistay_otp(message):
                     ref_code=REFERRAL_CODE
                 )
             
-            if response and response.get("status") == "SUCCESS":
+            logger.info(f"Brevistay verification response: {response}")
+            
+            # Check success – API may return "status": "SUCCESS" or "success": True
+            if response and (response.get("status") == "SUCCESS" or response.get("success") == True):
                 # Charge credits
                 update_user_balance(user_id, -cost)
                 
                 try:
                     client.get_user_profile()
                     client.resend_email_verification()
-                except:
-                    pass
+                except Exception as e:
+                    logger.warning(f"Brevistay profile/email error: {e}")
                 
                 user_ref_code = response.get('user_referral_code', 'N/A')
                 wallet_balance = response.get('usr_wallet_bal', 0)
@@ -1583,6 +1593,7 @@ def handle_brevistay_otp(message):
                 message_id=processing_msg.message_id
             )
         except Exception as e:
+            logger.error(f"Brevistay verification unexpected error: {e}")
             bot.edit_message_text(
                 f"❌ Unexpected error: {str(e)[:100]}",
                 chat_id=message.chat.id,
@@ -1799,7 +1810,7 @@ def handle_phone_number(message):
         user_firebase_state.get(user_id) or 
         user_music_state.get(user_id) or
         user_session_state.get(user_id) or
-        user_brevistay_state.get(user_id)):   # <-- added brevistay
+        user_brevistay_state.get(user_id)):
         return
 
     balance = get_user_balance(user_id)
