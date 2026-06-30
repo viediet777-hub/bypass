@@ -23,7 +23,6 @@ def main_menu_keyboard(is_admin: bool = False):
     kb.add(InlineKeyboardButton("📥 Instagram Downloader", callback_data="module_instagram", style="primary"))
     kb.add(InlineKeyboardButton("🔐 Session Extractor", callback_data="module_session", style="primary"))
     kb.add(InlineKeyboardButton("🏨 Brevistay", callback_data="module_brevistay", style="primary"))
-    kb.add(InlineKeyboardButton("🧘 Yoga", callback_data="module_yoga", style="primary"))
     kb.add(InlineKeyboardButton("🎵 Music", callback_data="module_music", style="primary"))
     kb.add(InlineKeyboardButton("🔗 Referral", callback_data="module_referral", style="primary"))
     if is_admin:
