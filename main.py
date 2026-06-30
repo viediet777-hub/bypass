@@ -810,7 +810,7 @@ def format_results(results, apk_path, file_size, num_dex_strings):
 
 # ==================== HANDLERS ====================
 
-# ==================== YOGA MESSAGE HANDLERS ====================
+# ========== YOGA MESSAGE HANDLERS ==========
 @bot.message_handler(func=lambda message: True)
 def yoga_state_handler(message):
     """Handle all messages when yoga state is active"""
@@ -1639,36 +1639,34 @@ def handle_yoga_callback(call):
         )
     
     elif action == "set_ref":
-    bot.answer_callback_query(call.id)
-    yoga_user_state.pop(user_id, None)  # <-- YE LINE ADD KAREIN
-    yoga_user_state[user_id] = "waiting_ref_code"
-    print(f"🔵 Yoga state set: user={user_id}, state=waiting_ref_code")  # <-- DEBUG
-    bot.edit_message_text(
-        f"⚙️ <b>Set Yoga Referral Code</b>\n\n"
-        f"Send your Yoga referral code.\n"
-        f"Current: <code>{auto.referral_code or 'Not Set'}</code>\n\n"
-        f"Send <code>/cancel</code> to cancel.",
-        chat_id=chat_id, message_id=msg_id,
-        reply_markup=yoga_menu_keyboard(),
-        parse_mode="HTML"
-    )
+        bot.answer_callback_query(call.id)
+        yoga_user_state.pop(user_id, None)
+        yoga_user_state[user_id] = "waiting_ref_code"
+        bot.edit_message_text(
+            f"⚙️ <b>Set Yoga Referral Code</b>\n\n"
+            f"Send your Yoga referral code.\n"
+            f"Current: <code>{auto.referral_code or 'Not Set'}</code>\n\n"
+            f"Send <code>/cancel</code> to cancel.",
+            chat_id=chat_id, message_id=msg_id,
+            reply_markup=yoga_menu_keyboard(),
+            parse_mode="HTML"
+        )
     
     elif action == "add_panel":
-    bot.answer_callback_query(call.id)
-    yoga_user_state.pop(user_id, None)  # <-- YE LINE ADD KAREIN
-    yoga_user_state[user_id] = "waiting_panel_url"
-    print(f"🔵 Yoga state set: user={user_id}, state=waiting_panel_url")  # <-- DEBUG
-    bot.edit_message_text(
-        f"📁 <b>Add Firebase Panel</b>\n\n"
-        f"Send your Firebase database URL.\n"
-        f"Example: <code>https://myapp-8228a-default-rtdb.firebaseio.com</code>\n\n"
-        f"Current Panels: {len(auto.panels)}\n"
-        f"<i>{', '.join(auto.panels) if auto.panels else 'No panels added yet'}</i>\n\n"
-        f"Send <code>/cancel</code> to cancel.",
-        chat_id=chat_id, message_id=msg_id,
-        reply_markup=yoga_menu_keyboard(),
-        parse_mode="HTML"
-    )
+        bot.answer_callback_query(call.id)
+        yoga_user_state.pop(user_id, None)
+        yoga_user_state[user_id] = "waiting_panel_url"
+        bot.edit_message_text(
+            f"📁 <b>Add Firebase Panel</b>\n\n"
+            f"Send your Firebase database URL.\n"
+            f"Example: <code>https://myapp-8228a-default-rtdb.firebaseio.com</code>\n\n"
+            f"Current Panels: {len(auto.panels)}\n"
+            f"<i>{', '.join(auto.panels) if auto.panels else 'No panels added yet'}</i>\n\n"
+            f"Send <code>/cancel</code> to cancel.",
+            chat_id=chat_id, message_id=msg_id,
+            reply_markup=yoga_menu_keyboard(),
+            parse_mode="HTML"
+        )
     
     elif action == "my_panels":
         panels = auto.panels
