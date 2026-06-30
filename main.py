@@ -27,12 +27,16 @@ from menu import (
     flipkart_menu_text, flipkart_menu_keyboard,
     instagram_menu_text, instagram_menu_keyboard,
     referral_menu_text, referral_menu_keyboard,
-    admin_panel_text, admin_panel_keyboard
+    admin_panel_text, admin_panel_keyboard,
+    brevistay_menu_text, brevistay_menu_keyboard,   # <-- added
+    session_menu_text, session_menu_keyboard,       # <-- added
+    music_menu_text, music_menu_keyboard            # <-- added
 )
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 
-# ---- Import Shopsy module ----
+# ---- Import modules ----
 import shopsy
+from brevistay_client import BrevistayClient
 
 # ==================== CONFIG ====================
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
@@ -307,9 +311,12 @@ user_music_state = {}
 user_shopsy_state = {}   # user_id -> "waiting_phone" / "waiting_otp" / None
 shopsy_temp_data = {}    # user_id -> { 'phone': ..., 'session_data': ..., 'mining_thread': ... }
 
-# ---------- NEW: Session Extractor states ----------
 user_session_state = {}      # user_id -> "waiting_phone" / "waiting_otp" / None
 session_temp_data = {}       # user_id -> { 'phone': ..., 'session_data': ..., 'req_id': ... }
+
+# Brevistay states
+user_brevistay_state = {}    # user_id -> "waiting_phone" / "waiting_otp" / None
+brevistay_temp_data = {}     # user_id -> { 'phone': ..., 'client': ..., 'is_registered': ... }
 
 # ==================== MUSIC API FUNCTIONS ====================
 MUSIC_API_BASE = "https://jiosavanapiryden.vercel.app/api"
@@ -912,9 +919,7 @@ def handle_module_callback(call):
         bot.send_message(call.message.chat.id, text, reply_markup=admin_panel_keyboard(), parse_mode="HTML")
         bot.answer_callback_query(call.id)
 
-    # ---------- NEW: Session Extractor module ----------
     elif module == "session":
-        balance = get_user_balance(user_id)
         if balance < 1:
             bot.answer_callback_query(call.id, "❌ Insufficient credits! Need 1 credit.", show_alert=True)
             return
@@ -929,6 +934,14 @@ def handle_module_callback(call):
             "Send <code>/cancel</code> to abort.",
             parse_mode="HTML"
         )
+        bot.answer_callback_query(call.id)
+
+    # ---------- NEW: Brevistay module ----------
+    elif module == "brevistay":
+        bot.delete_message(call.message.chat.id, call.message.message_id)
+        cost = 1  # You can make this configurable via get_config later
+        text = brevistay_menu_text(user_id, balance, "ACTIVE", cost)
+        bot.send_message(call.message.chat.id, text, reply_markup=brevistay_menu_keyboard(), parse_mode="HTML")
         bot.answer_callback_query(call.id)
 
 # ==================== Referral callbacks ====================
@@ -1070,7 +1083,6 @@ def handle_shopsy_callback(call):
     user_id = call.from_user.id
     chat_id = call.message.chat.id
     msg_id = call.message.message_id
-    balance, status = get_user_balance(user_id), "ACTIVE"
 
     if action == "start":
         if get_user_balance(user_id) < 1:
@@ -1234,7 +1246,7 @@ def start_shopsy_mining(user_id, chat_id):
     shopsy_temp_data[user_id]['mining_thread'] = thread
     thread.start()
 
-# ---------- NEW: Session Extractor Phone Handler ----------
+# ---------- Session Extractor Phone Handler ----------
 @bot.message_handler(func=lambda message: user_session_state.get(message.from_user.id) == "waiting_phone")
 def handle_session_phone(message):
     user_id = message.from_user.id
@@ -1282,7 +1294,7 @@ def handle_session_phone(message):
 
     threading.Thread(target=request_otp_thread, daemon=True).start()
 
-# ---------- NEW: Session Extractor OTP Handler ----------
+# ---------- Session Extractor OTP Handler ----------
 @bot.message_handler(func=lambda message: user_session_state.get(message.from_user.id) == "waiting_otp")
 def handle_session_otp(message):
     user_id = message.from_user.id
@@ -1355,6 +1367,232 @@ def handle_session_otp(message):
             session_temp_data.pop(user_id, None)
 
     threading.Thread(target=verify_otp_thread, daemon=True).start()
+
+# ==================== BREVISTAY CALLBACKS ====================
+@bot.callback_query_handler(func=lambda call: call.data.startswith("brevistay_"))
+def handle_brevistay_callback(call):
+    action = call.data.split("_")[1]
+    user_id = call.from_user.id
+    chat_id = call.message.chat.id
+    msg_id = call.message.message_id
+
+    if action == "start":
+        cost = 1  # You can make this dynamic later
+        if get_user_balance(user_id) < cost:
+            bot.answer_callback_query(call.id, f"❌ Insufficient credits! Need {cost} credit(s).", show_alert=True)
+            return
+        user_brevistay_state[user_id] = "waiting_phone"
+        bot.delete_message(chat_id, msg_id)
+        bot.send_message(
+            chat_id,
+            f"🏨 <b>Brevistay Referral</b>\n\n"
+            f"Enter your 10-digit mobile number:\n"
+            f"💰 Cost: <b>{cost} Credit(s)</b> (only on success)\n\n"
+            f"Send <code>/cancel</code> to abort.",
+            parse_mode="HTML"
+        )
+        bot.answer_callback_query(call.id)
+
+    elif action == "howto":
+        bot.answer_callback_query(call.id)
+        bot.edit_message_text(
+            "❓ <b>How To Use Brevistay Referral</b>\n\n"
+            "1️⃣ Click <b>Start Referral</b>\n"
+            "2️⃣ Enter your 10-digit mobile number\n"
+            "3️⃣ Enter the OTP received on your phone\n"
+            "4️⃣ Bot auto-generates random Indian name & email\n"
+            "5️⃣ Registration completes with your referral code\n"
+            "6️⃣ Email verification is sent automatically\n\n"
+            f"💰 Cost: <b>1 Credit</b> per referral\n"
+            "🎁 You earn Brevistay referral rewards!",
+            chat_id=chat_id, message_id=msg_id,
+            reply_markup=brevistay_menu_keyboard(),
+            parse_mode="HTML"
+        )
+
+# ---------- Brevistay Phone Handler ----------
+@bot.message_handler(func=lambda message: user_brevistay_state.get(message.from_user.id) == "waiting_phone")
+def handle_brevistay_phone(message):
+    user_id = message.from_user.id
+    phone = message.text.strip()
+    
+    if phone.lower() == '/cancel':
+        user_brevistay_state[user_id] = None
+        bot.reply_to(message, "❌ Cancelled.")
+        return
+    
+    if not phone.isdigit() or len(phone) != 10:
+        bot.reply_to(message, "❌ Invalid phone number. Please enter 10 digits.")
+        return
+    
+    client = BrevistayClient()
+    brevistay_temp_data[user_id] = {'phone': phone, 'client': client}
+    
+    processing_msg = bot.reply_to(message, "⏳ Sending OTP...")
+    
+    def send_otp_thread():
+        try:
+            response = client.send_login_otp(phone)
+            if response.get("is_otp_sent") == "1":
+                is_registered = response.get("is_user_registered") == "1"
+                brevistay_temp_data[user_id]['is_registered'] = is_registered
+                user_brevistay_state[user_id] = "waiting_otp"
+                bot.edit_message_text(
+                    f"✅ OTP sent to +91{phone}!\n\n"
+                    f"📌 User status: {'✅ Registered' if is_registered else '🆕 New User'}\n"
+                    f"Please enter the OTP:",
+                    chat_id=message.chat.id,
+                    message_id=processing_msg.message_id
+                )
+            else:
+                bot.edit_message_text(
+                    "❌ Failed to send OTP. Please try again.",
+                    chat_id=message.chat.id,
+                    message_id=processing_msg.message_id
+                )
+                user_brevistay_state[user_id] = None
+                brevistay_temp_data.pop(user_id, None)
+        except ValueError as e:
+            bot.edit_message_text(
+                f"❌ Brevistay API error: {str(e)}\n\n"
+                "The service might be temporarily unavailable.\n"
+                "Please try again later.",
+                chat_id=message.chat.id,
+                message_id=processing_msg.message_id
+            )
+            user_brevistay_state[user_id] = None
+            brevistay_temp_data.pop(user_id, None)
+        except Exception as e:
+            bot.edit_message_text(
+                f"❌ Error: {str(e)[:100]}",
+                chat_id=message.chat.id,
+                message_id=processing_msg.message_id
+            )
+            user_brevistay_state[user_id] = None
+            brevistay_temp_data.pop(user_id, None)
+    
+    threading.Thread(target=send_otp_thread).start()
+
+# ---------- Brevistay OTP Handler ----------
+@bot.message_handler(func=lambda message: user_brevistay_state.get(message.from_user.id) == "waiting_otp")
+def handle_brevistay_otp(message):
+    user_id = message.from_user.id
+    otp = message.text.strip()
+    
+    if otp.lower() == '/cancel':
+        user_brevistay_state[user_id] = None
+        brevistay_temp_data.pop(user_id, None)
+        bot.reply_to(message, "❌ Cancelled.")
+        return
+    
+    if not otp.isdigit():
+        bot.reply_to(message, "❌ Please enter a numeric OTP.")
+        return
+    
+    data = brevistay_temp_data.get(user_id, {})
+    client = data.get('client')
+    phone = data.get('phone')
+    is_registered = data.get('is_registered', False)
+    
+    if not client or not phone:
+        bot.reply_to(message, "❌ Session expired. Please start again.")
+        user_brevistay_state[user_id] = None
+        return
+    
+    processing_msg = bot.reply_to(message, "⏳ Verifying OTP...")
+    
+    def verify_otp_thread():
+        try:
+            cost = 1  # You can make this dynamic later
+            # Get referral code from config
+            REFERRAL_CODE = get_config("brevistay_referral_code", "")
+            if not REFERRAL_CODE:
+                bot.edit_message_text(
+                    "❌ Brevistay referral code not set.\n\n"
+                    "Please contact admin to set the referral code using /setbrevistayref.",
+                    chat_id=message.chat.id,
+                    message_id=processing_msg.message_id
+                )
+                user_brevistay_state[user_id] = None
+                brevistay_temp_data.pop(user_id, None)
+                return
+
+            if is_registered:
+                response = client.login_existing_user(phone, otp)
+            else:
+                first_name, last_name = client.generate_random_name()
+                email = client.generate_random_email(first_name, last_name, phone)
+                response = client.register_new_user(
+                    email=email,
+                    mobile=int(phone),
+                    name=first_name,
+                    last_name=last_name,
+                    otp=int(otp),
+                    ref_code=REFERRAL_CODE
+                )
+            
+            if response and response.get("status") == "SUCCESS":
+                # Charge credits
+                update_user_balance(user_id, -cost)
+                
+                try:
+                    client.get_user_profile()
+                    client.resend_email_verification()
+                except:
+                    pass
+                
+                user_ref_code = response.get('user_referral_code', 'N/A')
+                wallet_balance = response.get('usr_wallet_bal', 0)
+                
+                bot.edit_message_text(
+                    f"✅ <b>Brevistay Success!</b>\n\n"
+                    f"👤 User: {client.user_name} {client.user_last_name}\n"
+                    f"📱 Phone: +91{phone}\n"
+                    f"📧 Email: {client.user_email}\n"
+                    f"🎁 Your Referral Code: <code>{user_ref_code}</code>\n"
+                    f"💰 Wallet Balance: ₹{wallet_balance}\n\n"
+                    f"📧 Email verification sent!\n"
+                    f"💳 Cost: {cost} Credit(s)\n\n"
+                    f"<i>Powered By Viediet Utility</i>",
+                    chat_id=message.chat.id,
+                    message_id=processing_msg.message_id,
+                    parse_mode="HTML"
+                )
+                log_usage(user_id, "Brevistay Referral", f"Phone: +91{phone}")
+            else:
+                error_msg = response.get('msg', 'Unknown error') if response else 'No response from server'
+                bot.edit_message_text(
+                    f"❌ Verification failed: {error_msg}",
+                    chat_id=message.chat.id,
+                    message_id=processing_msg.message_id
+                )
+        except json.JSONDecodeError:
+            bot.edit_message_text(
+                f"❌ Brevistay API error: Invalid JSON response.\n\n"
+                "The service might be temporarily unavailable.\n"
+                "Please try again later.",
+                chat_id=message.chat.id,
+                message_id=processing_msg.message_id
+            )
+        except ValueError as e:
+            bot.edit_message_text(
+                f"❌ Brevistay API error: {str(e)}\n\n"
+                "The service might be temporarily unavailable or your referral code may be invalid.\n"
+                "Please try again later.",
+                chat_id=message.chat.id,
+                message_id=processing_msg.message_id
+            )
+        except Exception as e:
+            bot.edit_message_text(
+                f"❌ Unexpected error: {str(e)[:100]}",
+                chat_id=message.chat.id,
+                message_id=processing_msg.message_id
+            )
+        finally:
+            user_brevistay_state[user_id] = None
+            brevistay_temp_data.pop(user_id, None)
+    
+    threading.Thread(target=verify_otp_thread).start()
 
 # ==================== Temp Mail callbacks ====================
 @bot.callback_query_handler(func=lambda call: call.data.startswith("temp_"))
@@ -1555,12 +1793,13 @@ def handle_flipkart_callback(call):
 def handle_phone_number(message):
     user_id = message.from_user.id
 
-    # Skip if user is in any active state (Shopsy, Buy, Firebase, Music, Session)
+    # Skip if user is in any active state (Shopsy, Buy, Firebase, Music, Session, Brevistay)
     if (user_shopsy_state.get(user_id) or 
         user_buy_state.get(user_id) or 
         user_firebase_state.get(user_id) or 
         user_music_state.get(user_id) or
-        user_session_state.get(user_id)):   # <-- added session state
+        user_session_state.get(user_id) or
+        user_brevistay_state.get(user_id)):   # <-- added brevistay
         return
 
     balance = get_user_balance(user_id)
@@ -2048,6 +2287,22 @@ def setcost_cmd(message):
     except Exception as e:
         bot.reply_to(message, f"❌ Error: {str(e)}")
 
+# ---------- NEW: Admin command to set Brevistay referral code ----------
+@bot.message_handler(commands=['setbrevistayref'])
+def set_brevistay_ref_cmd(message):
+    if message.from_user.id != ADMIN_ID:
+        bot.reply_to(message, "⛔ Admin only!")
+        return
+    parts = message.text.split()
+    if len(parts) < 2:
+        bot.reply_to(message, "❌ Usage: /setbrevistayref YOUR_REFERRAL_CODE")
+        return
+    code = parts[1].strip()
+    set_config("brevistay_referral_code", code)
+    bot.reply_to(message, f"✅ Brevistay referral code updated to: <code>{code}</code>", parse_mode="HTML")
+
+# =========================================================
+
 @bot.message_handler(commands=['giveallcoins'])
 def give_all_coins_cmd(message):
     if message.from_user.id != ADMIN_ID:
@@ -2073,7 +2328,6 @@ def give_all_coins_cmd(message):
     except Exception as e:
         bot.reply_to(message, f"❌ Error: {str(e)}")
 
-# ---------- Admin command to manually check referrals ----------
 @bot.message_handler(commands=['checkref'])
 def check_referrals_cmd(message):
     if message.from_user.id != ADMIN_ID:
@@ -2117,7 +2371,7 @@ if __name__ == "__main__":
     init_db()
     task_thread = threading.Thread(target=run_scheduled_tasks, daemon=True)
     task_thread.start()
-    logger.info("🤖 Bot is starting with Shopsy mining integrated...")
+    logger.info("🤖 Bot is starting with all features integrated (including Brevistay)...")
     try:
         bot.remove_webhook()
         time.sleep(5)
