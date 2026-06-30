@@ -7,6 +7,7 @@ import json
 import random
 import asyncio
 import logging
+from datetime import datetime
 from typing import Optional, Dict, List
 import aiohttp
 import sqlite3
@@ -16,7 +17,6 @@ logging.basicConfig(
     level=logging.WARNING,
 )
 
-# ==================== CONFIG ====================
 FIRST_NAMES = ['Arjun', 'Aryan', 'Rohan', 'Vihaan', 'Shaurya', 'Advik', 'Kabir', 'Dhruv', 
                'Krishna', 'Aadhya', 'Ananya', 'Diya', 'Ishita', 'Kiara', 'Myra', 'Navya', 
                'Aarav', 'Ishaan', 'Kajal', 'Neha', 'Rahul', 'Vikram', 'Sneha', 'Pooja', 'Karan']
@@ -32,14 +32,11 @@ USER_AGENTS = [
 
 MAX_NAME_COMBINATIONS = len(FIRST_NAMES) * len(LAST_NAMES)
 
-# ==================== DATABASE FUNCTIONS ====================
 DB_PATH = "viediet_bot.db"
 
 def get_user_yoga_data(user_id: int) -> Dict:
-    """Get user's Yoga settings from database"""
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
     c = conn.cursor()
-    
     c.execute('''CREATE TABLE IF NOT EXISTS yoga_settings (
         user_id INTEGER PRIMARY KEY,
         referral_code TEXT,
@@ -50,11 +47,9 @@ def get_user_yoga_data(user_id: int) -> Dict:
         processed_numbers TEXT
     )''')
     conn.commit()
-    
     c.execute('SELECT referral_code, panels, is_running, total_referrals, processed_numbers FROM yoga_settings WHERE user_id = ?', (user_id,))
     row = c.fetchone()
     conn.close()
-    
     if row:
         return {
             'referral_code': row[0] or '',
@@ -66,10 +61,8 @@ def get_user_yoga_data(user_id: int) -> Dict:
     return {'referral_code': '', 'panels': [], 'is_running': False, 'total_referrals': 0, 'processed_numbers': []}
 
 def update_yoga_settings(user_id: int, referral_code: str = None, panels: list = None, is_running: bool = None, processed_numbers: list = None):
-    """Update user's Yoga settings"""
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
     c = conn.cursor()
-    
     c.execute('''CREATE TABLE IF NOT EXISTS yoga_settings (
         user_id INTEGER PRIMARY KEY,
         referral_code TEXT,
@@ -80,14 +73,12 @@ def update_yoga_settings(user_id: int, referral_code: str = None, panels: list =
         processed_numbers TEXT
     )''')
     conn.commit()
-    
     current = get_user_yoga_data(user_id)
     new_ref = referral_code if referral_code is not None else current['referral_code']
     new_panels = json.dumps(panels) if panels is not None else json.dumps(current['panels'])
     new_running = int(is_running) if is_running is not None else int(current['is_running'])
     total = current['total_referrals']
     new_processed = json.dumps(processed_numbers) if processed_numbers is not None else json.dumps(current.get('processed_numbers', []))
-    
     c.execute('''INSERT OR REPLACE INTO yoga_settings 
                  (user_id, referral_code, panels, is_running, total_referrals, last_run, processed_numbers)
                  VALUES (?, ?, ?, ?, ?, ?, ?)''',
@@ -96,27 +87,12 @@ def update_yoga_settings(user_id: int, referral_code: str = None, panels: list =
     conn.close()
 
 def increment_yoga_referrals(user_id: int):
-    """Increment total referrals count"""
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
     c = conn.cursor()
     c.execute('UPDATE yoga_settings SET total_referrals = total_referrals + 1 WHERE user_id = ?', (user_id,))
     conn.commit()
     conn.close()
 
-def add_processed_number(user_id: int, number: str):
-    """Add number to processed list"""
-    data = get_user_yoga_data(user_id)
-    processed = data.get('processed_numbers', [])
-    if number not in processed:
-        processed.append(number)
-        update_yoga_settings(user_id, processed_numbers=processed)
-
-def is_number_processed(user_id: int, number: str) -> bool:
-    """Check if number is already processed"""
-    data = get_user_yoga_data(user_id)
-    return number in data.get('processed_numbers', [])
-
-# ==================== YOGA AUTOMATION CLASS ====================
 class YogaAutomation:
     def __init__(self, user_id: int, bot_instance=None):
         self.user_id = user_id
@@ -133,7 +109,6 @@ class YogaAutomation:
         self.used_names = set()
         self.api_cooldown_until = 0
         self._cached_devices = []
-        self.num_workers = 5
         
     async def get_session(self) -> aiohttp.ClientSession:
         if self._session is None or self._session.closed:
@@ -196,7 +171,6 @@ class YogaAutomation:
                 self.fb_get("user_data", url),
                 return_exceptions=True
             )
-            
             if isinstance(sim_all, dict):
                 info_all = device_info_all if isinstance(device_info_all, dict) else {}
                 for dev_id, sim in sim_all.items():
@@ -204,24 +178,17 @@ class YogaAutomation:
                     nums = self.extract_all_nums(sim, info)
                     status = "online" if str(info.get("Status")).lower() == "online" else "offline"
                     devices_list.append({
-                        "id": dev_id, 
-                        "numbers": nums, 
-                        "status": status, 
-                        "base": url, 
-                        "path": f"All_Users/sms/{dev_id}"
+                        "id": dev_id, "numbers": nums, "status": status,
+                        "base": url, "path": f"All_Users/sms/{dev_id}"
                     })
-                    
             if isinstance(user_data_all, dict):
                 for dev_id, data in user_data_all.items():
                     if not isinstance(data, dict): continue
                     nums = self.extract_all_nums(data)
                     status = "online" if str(data.get("status")).lower() == "online" else "offline"
                     devices_list.append({
-                        "id": dev_id, 
-                        "numbers": nums, 
-                        "status": status, 
-                        "base": url, 
-                        "path": f"user_sms/{dev_id}"
+                        "id": dev_id, "numbers": nums, "status": status,
+                        "base": url, "path": f"user_sms/{dev_id}"
                     })
         except Exception:
             pass
@@ -230,15 +197,12 @@ class YogaAutomation:
     async def trigger_registration(self, phone_10d: str, worker_id: int):
         if not self.referral_code:
             return
-            
         if time.time() < self.api_cooldown_until:
             return
-
         phone_full = f"+91{phone_10d}"
         name = self.generate_indian_name()
         device_id = str(uuid.uuid4())
         session_id = str(uuid.uuid4())
-
         reg_url = "https://auth-service.habuild.in/public/user/v1/register-user"
         reg_payload = {
             "name": name,
@@ -247,11 +211,9 @@ class YogaAutomation:
             "sourceData": {"type": "Referral", "refererurl": "", "timezone": "Asia/Kolkata"},
             "experimentMetaInfo": {"deviceId": device_id, "sessionId": session_id}
         }
-
         try:
             session = await self.get_session()
             headers = self.get_random_headers()
-            
             async with session.post(reg_url, json=reg_payload, headers=headers, timeout=12) as r:
                 if r.status == 429:
                     self.api_cooldown_until = time.time() + 20
@@ -291,7 +253,6 @@ class YogaAutomation:
     async def verify_otp(self, phone_10d: str, otp: str):
         data = self.pending_otp.pop(phone_10d, None)
         if not data: return
-
         url = "https://auth-service.habuild.in/public/auth/v1/verify-otp"
         payload = {
             "phone": data['phone'],
@@ -303,24 +264,19 @@ class YogaAutomation:
         try:
             session = await self.get_session()
             headers = self.get_random_headers()
-            
             await asyncio.sleep(random.uniform(0.5, 1.5))
-            
             async with session.post(url, json=payload, headers=headers, timeout=12) as r:
                 res = await r.json()
                 if res.get('message') == 'OTP verified successfully':
                     self.looted_count += 1
                     increment_yoga_referrals(self.user_id)
                     member = res.get('data', {}).get('member', {})
-                    
-                    # Give coins to user
                     try:
                         from main import update_user_balance, get_module_cost
                         cost = get_module_cost("yoga")
                         update_user_balance(self.user_id, cost)
                     except:
                         pass
-                    
                     succ_msg = (
                         f"🏆 Yoga Referral Successful!\n\n"
                         f"📱 Number: {data['phone']}\n"
@@ -328,7 +284,6 @@ class YogaAutomation:
                         f"🆔 Member ID: {member.get('legacy_free_id', 'N/A')}\n"
                         f"🎁 Referral Code: {self.referral_code}\n"
                         f"✅ OTP: {otp}\n\n"
-                        f"💰 Rewarded: +{cost if 'cost' in locals() else 1} Credits\n"
                         f"🏆 Total Referrals: {self.looted_count}"
                     )
                     if self.bot:
@@ -339,9 +294,8 @@ class YogaAutomation:
     async def _forward_sms(self, device: dict, sms: dict):
         body = str(sms.get("body") or sms.get("message") or sms.get("text") or "")
         sender = str(sms.get("sender") or "")
-
         otp_match = re.search(r"\b(\d{6})\b", body)
-        if otp_match and ("HABUILD" in sender.upper() or "Habuild" in body or "YOGA" in sender.upper()):
+        if otp_match and ("HABUILD" in sender.upper() or "Habuild" in body):
             otp = otp_match.group(1)
             for num in device.get("numbers", []):
                 if num in self.pending_otp:
@@ -355,7 +309,6 @@ class YogaAutomation:
                 self.fb_get("user_sms", url),
                 return_exceptions=True
             )
-            
             for bulk_data in (r_main, r_user):
                 if not isinstance(bulk_data, dict): continue
                 for dev_id, sms_dict in bulk_data.items():
@@ -365,7 +318,6 @@ class YogaAutomation:
                         sk = f"{dev_id}/{k}"
                         if sk in self.seen_sms_ids: continue
                         self.seen_sms_ids.add(sk)
-                        
                         device = None
                         for d in self._cached_devices or []:
                             if d["id"] == dev_id:
@@ -384,18 +336,13 @@ class YogaAutomation:
                 for url in self.panels:
                     devices = await self.fetch_db_data(url)
                     all_devices.extend(devices)
-                
                 self._cached_devices = all_devices
-                
                 for dev in all_devices:
                     if dev.get("status") == "online":
                         for num in dev.get("numbers", []):
-                            if (num not in self.processed_nums and 
-                                num not in self.pending_otp):
+                            if (num not in self.processed_nums and num not in self.pending_otp):
                                 self.processed_nums.add(num)
-                                add_processed_number(self.user_id, num)
                                 await self.trigger_registration(num, 1)
-                                
             except Exception:
                 pass
             await asyncio.sleep(4)
@@ -412,13 +359,10 @@ class YogaAutomation:
             return {"status": "error", "message": "Please set your Yoga referral code first!"}
         if not self.panels:
             return {"status": "error", "message": "Please add at least one Firebase panel URL!"}
-        
         self.is_running = True
         update_yoga_settings(self.user_id, is_running=True)
-        
         asyncio.create_task(self.update_cache_loop())
         asyncio.create_task(self.poll_loop())
-        
         return {"status": "success", "message": f"Automation started! Monitoring {len(self.panels)} panels."}
     
     async def stop_automation(self):
@@ -439,5 +383,4 @@ class YogaAutomation:
             "panels_list": self.panels
         }
 
-# ==================== GLOBAL INSTANCE ====================
 user_yoga_automations: Dict[int, YogaAutomation] = {}
