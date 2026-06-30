@@ -2599,30 +2599,39 @@ if __name__ == "__main__":
     task_thread.start()
     logger.info("🤖 Bot is starting with all features integrated (including Yoga)...")
     
-    # Remove webhook to avoid conflicts
-    try:
-        bot.remove_webhook()
-        print("✅ Webhook removed successfully")
-        time.sleep(3)
-    except Exception as e:
-        print(f"⚠️ Remove webhook error (ignored): {e}")
+    # Force delete webhook
+    for i in range(3):
+        try:
+            bot.remove_webhook()
+            print(f"✅ Webhook removed attempt {i+1}")
+            time.sleep(2)
+        except Exception as e:
+            print(f"⚠️ Remove webhook error: {e}")
     
-    # Polling with auto-retry on 409 conflict
+    # Direct API call to delete webhook
+    try:
+        import requests
+        url = f"https://api.telegram.org/bot{BOT_TOKEN}/deleteWebhook"
+        response = requests.get(url)
+        print(f"✅ Direct webhook delete: {response.json()}")
+    except:
+        pass
+    
+    print("🚀 Bot Started Successfully! Listening for messages...")
+    
+    # Use infinity_polling instead of polling
     while True:
         try:
-            print("🚀 Bot Started Successfully! Listening for messages...")
-            bot.polling(non_stop=True, interval=0, timeout=60)
+            bot.infinity_polling(timeout=60, long_polling_timeout=60)
         except Exception as e:
-            error_msg = str(e)
-            if "409" in error_msg or "Conflict" in error_msg:
-                print("⚠️ Conflict detected! Another instance is running. Retrying in 10 seconds...")
-                time.sleep(10)
+            if "409" in str(e) or "Conflict" in str(e):
+                print("⚠️ Conflict! Waiting 15 seconds...")
+                time.sleep(15)
                 try:
                     bot.remove_webhook()
                     time.sleep(2)
                 except:
                     pass
-                continue
             else:
-                print(f"❌ Polling error: {e}")
+                print(f"❌ Error: {e}")
                 time.sleep(5)
