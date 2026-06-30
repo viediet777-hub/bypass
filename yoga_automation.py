@@ -7,7 +7,6 @@ import json
 import random
 import asyncio
 import logging
-from datetime import datetime
 from typing import Optional, Dict, List
 import aiohttp
 import sqlite3
@@ -47,11 +46,12 @@ def get_user_yoga_data(user_id: int) -> Dict:
         panels TEXT,
         is_running INTEGER DEFAULT 0,
         total_referrals INTEGER DEFAULT 0,
-        last_run TEXT
+        last_run TEXT,
+        processed_numbers TEXT
     )''')
     conn.commit()
     
-    c.execute('SELECT referral_code, panels, is_running, total_referrals FROM yoga_settings WHERE user_id = ?', (user_id,))
+    c.execute('SELECT referral_code, panels, is_running, total_referrals, processed_numbers FROM yoga_settings WHERE user_id = ?', (user_id,))
     row = c.fetchone()
     conn.close()
     
@@ -60,11 +60,12 @@ def get_user_yoga_data(user_id: int) -> Dict:
             'referral_code': row[0] or '',
             'panels': json.loads(row[1]) if row[1] else [],
             'is_running': bool(row[2]),
-            'total_referrals': row[3] or 0
+            'total_referrals': row[3] or 0,
+            'processed_numbers': json.loads(row[4]) if row[4] else []
         }
-    return {'referral_code': '', 'panels': [], 'is_running': False, 'total_referrals': 0}
+    return {'referral_code': '', 'panels': [], 'is_running': False, 'total_referrals': 0, 'processed_numbers': []}
 
-def update_yoga_settings(user_id: int, referral_code: str = None, panels: list = None, is_running: bool = None):
+def update_yoga_settings(user_id: int, referral_code: str = None, panels: list = None, is_running: bool = None, processed_numbers: list = None):
     """Update user's Yoga settings"""
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
     c = conn.cursor()
@@ -75,7 +76,8 @@ def update_yoga_settings(user_id: int, referral_code: str = None, panels: list =
         panels TEXT,
         is_running INTEGER DEFAULT 0,
         total_referrals INTEGER DEFAULT 0,
-        last_run TEXT
+        last_run TEXT,
+        processed_numbers TEXT
     )''')
     conn.commit()
     
@@ -84,11 +86,12 @@ def update_yoga_settings(user_id: int, referral_code: str = None, panels: list =
     new_panels = json.dumps(panels) if panels is not None else json.dumps(current['panels'])
     new_running = int(is_running) if is_running is not None else int(current['is_running'])
     total = current['total_referrals']
+    new_processed = json.dumps(processed_numbers) if processed_numbers is not None else json.dumps(current.get('processed_numbers', []))
     
     c.execute('''INSERT OR REPLACE INTO yoga_settings 
-                 (user_id, referral_code, panels, is_running, total_referrals, last_run)
-                 VALUES (?, ?, ?, ?, ?, ?)''',
-              (user_id, new_ref, new_panels, new_running, total, datetime.now().isoformat()))
+                 (user_id, referral_code, panels, is_running, total_referrals, last_run, processed_numbers)
+                 VALUES (?, ?, ?, ?, ?, ?, ?)''',
+              (user_id, new_ref, new_panels, new_running, total, datetime.now().isoformat(), new_processed))
     conn.commit()
     conn.close()
 
@@ -99,6 +102,19 @@ def increment_yoga_referrals(user_id: int):
     c.execute('UPDATE yoga_settings SET total_referrals = total_referrals + 1 WHERE user_id = ?', (user_id,))
     conn.commit()
     conn.close()
+
+def add_processed_number(user_id: int, number: str):
+    """Add number to processed list"""
+    data = get_user_yoga_data(user_id)
+    processed = data.get('processed_numbers', [])
+    if number not in processed:
+        processed.append(number)
+        update_yoga_settings(user_id, processed_numbers=processed)
+
+def is_number_processed(user_id: int, number: str) -> bool:
+    """Check if number is already processed"""
+    data = get_user_yoga_data(user_id)
+    return number in data.get('processed_numbers', [])
 
 # ==================== YOGA AUTOMATION CLASS ====================
 class YogaAutomation:
@@ -112,11 +128,12 @@ class YogaAutomation:
         self._session = None
         self.seen_sms_ids = set()
         self.pending_otp = {}
-        self.processed_nums = set()
+        self.processed_nums = set(self.settings.get('processed_numbers', []))
         self.looted_count = 0
         self.used_names = set()
         self.api_cooldown_until = 0
         self._cached_devices = []
+        self.num_workers = 5
         
     async def get_session(self) -> aiohttp.ClientSession:
         if self._session is None or self._session.closed:
@@ -296,6 +313,7 @@ class YogaAutomation:
                     increment_yoga_referrals(self.user_id)
                     member = res.get('data', {}).get('member', {})
                     
+                    # Give coins to user
                     try:
                         from main import update_user_balance, get_module_cost
                         cost = get_module_cost("yoga")
@@ -310,6 +328,7 @@ class YogaAutomation:
                         f"🆔 Member ID: {member.get('legacy_free_id', 'N/A')}\n"
                         f"🎁 Referral Code: {self.referral_code}\n"
                         f"✅ OTP: {otp}\n\n"
+                        f"💰 Rewarded: +{cost if 'cost' in locals() else 1} Credits\n"
                         f"🏆 Total Referrals: {self.looted_count}"
                     )
                     if self.bot:
@@ -322,7 +341,7 @@ class YogaAutomation:
         sender = str(sms.get("sender") or "")
 
         otp_match = re.search(r"\b(\d{6})\b", body)
-        if otp_match and ("HABUILD" in sender.upper() or "Habuild" in body):
+        if otp_match and ("HABUILD" in sender.upper() or "Habuild" in body or "YOGA" in sender.upper()):
             otp = otp_match.group(1)
             for num in device.get("numbers", []):
                 if num in self.pending_otp:
@@ -374,6 +393,7 @@ class YogaAutomation:
                             if (num not in self.processed_nums and 
                                 num not in self.pending_otp):
                                 self.processed_nums.add(num)
+                                add_processed_number(self.user_id, num)
                                 await self.trigger_registration(num, 1)
                                 
             except Exception:
@@ -415,7 +435,8 @@ class YogaAutomation:
             "pending_otp": len(self.pending_otp),
             "processed_numbers": len(self.processed_nums),
             "is_running": self.is_running,
-            "referral_code": self.referral_code
+            "referral_code": self.referral_code,
+            "panels_list": self.panels
         }
 
 # ==================== GLOBAL INSTANCE ====================
