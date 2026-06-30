@@ -31,10 +31,12 @@ def main_menu_keyboard(is_admin: bool = False):
         kb.add(InlineKeyboardButton("👑 Admin Panel", callback_data="module_admin", style="danger"))
     return kb
 
-# ========== YOGA SUB-MENU ==========
+# menu.py - Add these functions (add to existing file)
+
+# ========== YOGA/HABUILD AUTOMATION SUB-MENU ==========
 def yoga_menu_text(user_id: int, balance: int = 15, status: str = "ACTIVE", cost: int = 1) -> str:
     return (
-        f"🧘 <b>YOGA REFERRAL AUTOMATION</b>\n\n"
+        f"🧘 <b>YOGA/HABUILD REFERRAL AUTOMATION</b>\n\n"
         f"Status: <b>{status}</b>\n"
         f"Balance: <b>{balance} Credits</b>\n"
         f"Run Cost: <b>{cost} Credit(s) / referral</b>\n\n"
@@ -58,9 +60,13 @@ def yoga_menu_keyboard():
     kb.add(InlineKeyboardButton("📊 My Stats", callback_data="yoga_stats", style="primary"))
     kb.add(InlineKeyboardButton("⚙️ Set Referral Code", callback_data="yoga_set_ref", style="primary"))
     kb.add(InlineKeyboardButton("📁 Add Panel", callback_data="yoga_add_panel", style="primary"))
+    kb.add(InlineKeyboardButton("📋 My Panels", callback_data="yoga_my_panels", style="primary"))
     kb.add(InlineKeyboardButton("🔙 Back to Main", callback_data="back_menu", style="danger"))
     return kb
 
+# ========== ADD TO MAIN MENU KEYBOARD ==========
+# In main_menu_keyboard function, add:
+# kb.add(InlineKeyboardButton("🧘 Yoga/Habuild", callback_data="module_yoga", style="primary"))
 # ========== HABUILD SUB-MENU ==========
 def habuild_menu_text(user_id: int, balance: int = 15, status: str = "ACTIVE", cost: int = 1) -> str:
     return (
