@@ -24,13 +24,14 @@ def main_menu_keyboard(is_admin: bool = False):
     kb.add(InlineKeyboardButton("🔐 Session Extractor", callback_data="module_session", style="primary"))
     kb.add(InlineKeyboardButton("🏨 Brevistay", callback_data="module_brevistay", style="primary"))
     kb.add(InlineKeyboardButton("🎵 Music", callback_data="module_music", style="primary"))
-    kb.add(InlineKeyboardButton("🍽️ Swiggy Offers", callback_data="module_swiggy", style="primary"))   # NEW
+    kb.add(InlineKeyboardButton("🍽️ Swiggy Offers", callback_data="module_swiggy", style="primary"))
+    kb.add(InlineKeyboardButton("🏆 RewardSphere", callback_data="module_rewardsphere", style="primary"))
     kb.add(InlineKeyboardButton("🔗 Referral", callback_data="module_referral", style="primary"))
     if is_admin:
         kb.add(InlineKeyboardButton("👑 Admin Panel", callback_data="module_admin", style="danger"))
     return kb
 
-# ========== SHOPSY SUB-MENU ==========
+# ========== SHOPSY ==========
 def shopsy_menu_text(user_id: int, balance: int = 15, status: str = "ACTIVE", cost: int = 1) -> str:
     return (
         f"🎯 <b>SHOPSY AUTO-MINE</b>\n\n"
@@ -50,7 +51,7 @@ def shopsy_menu_keyboard():
     kb.add(InlineKeyboardButton("🔙 Back to Main", callback_data="back_menu", style="danger"))
     return kb
 
-# ========== FIREBASE EXTRACTOR ==========
+# ========== FIREBASE ==========
 def firebase_menu_text(user_id: int, balance: int = 15, status: str = "ACTIVE", cost: int = 2) -> str:
     return (
         f"🔥 <b>FIREBASE EXTRACTOR</b>\n\n"
@@ -75,7 +76,7 @@ def firebase_menu_keyboard():
     kb.add(InlineKeyboardButton("🔙 Back to Main", callback_data="back_menu", style="danger"))
     return kb
 
-# ========== TEMP GENERATOR ==========
+# ========== TEMP MAIL ==========
 def temp_menu_text(user_id: int) -> str:
     return (
         f"📧 <b>TEMP MAIL</b>\n\n"
@@ -97,7 +98,7 @@ def temp_menu_keyboard():
     kb.add(InlineKeyboardButton("🔙 Back to Main", callback_data="back_menu", style="danger"))
     return kb
 
-# ========== FLIPKART CHECKER ==========
+# ========== FLIPKART ==========
 def flipkart_menu_text(user_id: int, balance: int = 15, status: str = "ACTIVE", cost: int = 1) -> str:
     return (
         f"📱 <b>FLIPKART NUMBER CHECKER</b>\n\n"
@@ -112,7 +113,7 @@ def flipkart_menu_keyboard():
     kb.add(InlineKeyboardButton("🔙 Back to Main", callback_data="back_menu", style="danger"))
     return kb
 
-# ========== INSTAGRAM DOWNLOADER ==========
+# ========== INSTAGRAM ==========
 def instagram_menu_text(user_id: int, balance: int = 15, status: str = "ACTIVE", cost: int = 1) -> str:
     return (
         f"📥 <b>INSTAGRAM DOWNLOADER</b>\n\n"
@@ -132,7 +133,7 @@ def instagram_menu_keyboard():
     kb.add(InlineKeyboardButton("🔙 Back to Main", callback_data="back_menu", style="danger"))
     return kb
 
-# ========== SESSION EXTRACTOR ==========
+# ========== SESSION ==========
 def session_menu_text(user_id: int, balance: int = 15, status: str = "ACTIVE", cost: int = 1) -> str:
     return (
         f"🔐 <b>SESSION EXTRACTOR</b>\n\n"
@@ -149,7 +150,7 @@ def session_menu_keyboard():
     kb.add(InlineKeyboardButton("🔙 Back to Main", callback_data="back_menu", style="danger"))
     return kb
 
-# ========== MUSIC SUB-MENU ==========
+# ========== MUSIC (FREE) ==========
 def music_menu_text(user_id: int, balance: int = 15, status: str = "ACTIVE", cost: int = 0) -> str:
     return (
         f"🎵 <b>MUSIC DOWNLOADER</b>\n\n"
@@ -164,7 +165,7 @@ def music_menu_keyboard():
     kb.add(InlineKeyboardButton("🔙 Back to Main", callback_data="back_menu", style="danger"))
     return kb
 
-# ========== REFERRAL SUB-MENU ==========
+# ========== REFERRAL ==========
 def referral_menu_text(user_id: int, balance: int = 15, referral_count: int = 0) -> str:
     return (
         f"🔗 <b>REFERRAL SYSTEM</b>\n\n"
@@ -177,7 +178,7 @@ def referral_menu_text(user_id: int, balance: int = 15, referral_count: int = 0)
         f"• Each feature use costs <b>1 Credit</b>\n\n"
         f"⚠️ <b>Rules:</b>\n"
         f"• Account must be 7+ days old\n"
-        f"• Must stay in channel/group for 24 hours\n"
+        f"• Must stay in channel for 24 hours\n"
         f"• No self-referrals allowed\n"
         f"• One referral per user only\n\n"
         f"👇 Click below to get your referral link!"
@@ -190,7 +191,7 @@ def referral_menu_keyboard():
     kb.add(InlineKeyboardButton("🔙 Back to Main", callback_data="back_menu", style="danger"))
     return kb
 
-# ========== ADMIN PANEL ==========
+# ========== ADMIN ==========
 def admin_panel_text() -> str:
     return (
         f"👑 <b>ADMIN PANEL</b>\n\n"
@@ -215,7 +216,7 @@ def admin_panel_keyboard():
     kb.add(InlineKeyboardButton("🔙 Back to Main", callback_data="back_menu", style="danger"))
     return kb
 
-# ========== BREVISTAY SUB-MENU ==========
+# ========== BREVISTAY ==========
 def brevistay_menu_text(user_id: int, balance: int = 15, status: str = "ACTIVE", cost: int = 1) -> str:
     return (
         f"🏨 <b>BREVISTAY REFERRAL AUTOMATION</b>\n\n"
@@ -235,5 +236,28 @@ def brevistay_menu_keyboard():
     kb = InlineKeyboardMarkup(row_width=1)
     kb.add(InlineKeyboardButton("▶️ Start Referral", callback_data="brevistay_start", style="success"))
     kb.add(InlineKeyboardButton("❓ How To Use", callback_data="brevistay_howto", style="primary"))
+    kb.add(InlineKeyboardButton("🔙 Back to Main", callback_data="back_menu", style="danger"))
+    return kb
+
+# ========== REWARDSPHERE ==========
+def rewardsphere_menu_text(user_id: int, balance: int = 15, status: str = "ACTIVE", cost: int = 1) -> str:
+    return (
+        f"🏆 <b>REWARDSPHERE</b>\n\n"
+        f"Status: <b>{status}</b>\n"
+        f"Balance: <b>{balance} Credits</b>\n"
+        f"Run Cost: <b>{cost} Credit(s)</b> (per registration/login)\n\n"
+        f"Earn real rewards by uploading receipts!\n"
+        f"Click <b>Start</b> to register/login.\n"
+        f"Then use <b>Upload Receipt</b> to earn points.\n\n"
+        f"💡 You can upload unlimited receipts!"
+    )
+
+def rewardsphere_menu_keyboard():
+    kb = InlineKeyboardMarkup(row_width=1)
+    kb.add(InlineKeyboardButton("▶️ Start", callback_data="rewardsphere_start", style="success"))
+    kb.add(InlineKeyboardButton("📸 Upload Receipt", callback_data="rewardsphere_upload", style="primary"))
+    kb.add(InlineKeyboardButton("💰 My Points", callback_data="rewardsphere_points", style="primary"))
+    kb.add(InlineKeyboardButton("🎁 Rewards", callback_data="rewardsphere_rewards", style="primary"))
+    kb.add(InlineKeyboardButton("🚪 Logout", callback_data="rewardsphere_logout", style="danger"))
     kb.add(InlineKeyboardButton("🔙 Back to Main", callback_data="back_menu", style="danger"))
     return kb
