@@ -30,61 +30,6 @@ def main_menu_keyboard(is_admin: bool = False):
         kb.add(InlineKeyboardButton("👑 Admin Panel", callback_data="module_admin", style="danger"))
     return kb
 
-# … (other menus unchanged, keep them as they are)
-# ========== YOGA SUB-MENU ==========
-def yoga_menu_text(user_id: int, balance: int = 15, status: str = "ACTIVE", cost: int = 1) -> str:
-    return (
-        f"🧘 <b>YOGA REFERRAL AUTOMATION</b>\n\n"
-        f"Status: <b>{status}</b>\n"
-        f"Balance: <b>{balance} Credits</b>\n"
-        f"Run Cost: <b>{cost} Credit(s) / referral</b>\n\n"
-        f"Click <b>Start Automation</b> to begin.\n"
-        f"Bot will:\n"
-        f"• Fetch numbers from your Firebase panel\n"
-        f"• Auto-register with your referral code\n"
-        f"• Auto-detect and verify OTP\n"
-        f"• Complete referral automatically\n\n"
-        f"⚙️ <b>Setup:</b>\n"
-        f"1. Set your Yoga referral code\n"
-        f"2. Add your Firebase panel URL\n"
-        f"3. Start automation\n\n"
-        f"⚠️ Make sure your panel has active devices!"
-    )
-
-def yoga_menu_keyboard():
-    kb = InlineKeyboardMarkup(row_width=1)
-    kb.add(InlineKeyboardButton("▶️ Start Automation", callback_data="yoga_start", style="success"))
-    kb.add(InlineKeyboardButton("⏹️ Stop Automation", callback_data="yoga_stop", style="danger"))
-    kb.add(InlineKeyboardButton("📊 My Stats", callback_data="yoga_stats", style="primary"))
-    kb.add(InlineKeyboardButton("⚙️ Set Referral Code", callback_data="yoga_set_ref", style="primary"))
-    kb.add(InlineKeyboardButton("📁 Add Panel", callback_data="yoga_add_panel", style="primary"))
-    kb.add(InlineKeyboardButton("📋 My Panels", callback_data="yoga_my_panels", style="primary"))
-    kb.add(InlineKeyboardButton("🔙 Back to Main", callback_data="back_menu", style="danger"))
-    return kb
-
-# ========== BREVISTAY SUB-MENU ==========
-def brevistay_menu_text(user_id: int, balance: int = 15, status: str = "ACTIVE", cost: int = 1) -> str:
-    return (
-        f"🏨 <b>BREVISTAY REFERRAL AUTOMATION</b>\n\n"
-        f"Status: <b>{status}</b>\n"
-        f"Balance: <b>{balance} Credits</b>\n"
-        f"Run Cost: <b>{cost} Credit(s) / referral</b>\n\n"
-        f"Click <b>Start Referral</b> to begin.\n"
-        f"Bot will:\n"
-        f"• Generate random Indian name & email\n"
-        f"• Send OTP to your phone\n"
-        f"• Complete registration with your referral code\n"
-        f"• Verify email automatically\n\n"
-        f"⚠️ Make sure you have a Brevistay account!"
-    )
-
-def brevistay_menu_keyboard():
-    kb = InlineKeyboardMarkup(row_width=1)
-    kb.add(InlineKeyboardButton("▶️ Start Referral", callback_data="brevistay_start", style="success"))
-    kb.add(InlineKeyboardButton("❓ How To Use", callback_data="brevistay_howto", style="primary"))
-    kb.add(InlineKeyboardButton("🔙 Back to Main", callback_data="back_menu", style="danger"))
-    return kb
-
 # ========== SHOPSY SUB-MENU ==========
 def shopsy_menu_text(user_id: int, balance: int = 15, status: str = "ACTIVE", cost: int = 1) -> str:
     return (
@@ -105,7 +50,7 @@ def shopsy_menu_keyboard():
     kb.add(InlineKeyboardButton("🔙 Back to Main", callback_data="back_menu", style="danger"))
     return kb
 
-# ========== FIREBASE EXTRACTOR SUB-MENU ==========
+# ========== FIREBASE EXTRACTOR ==========
 def firebase_menu_text(user_id: int, balance: int = 15, status: str = "ACTIVE", cost: int = 2) -> str:
     return (
         f"🔥 <b>FIREBASE EXTRACTOR</b>\n\n"
@@ -130,7 +75,7 @@ def firebase_menu_keyboard():
     kb.add(InlineKeyboardButton("🔙 Back to Main", callback_data="back_menu", style="danger"))
     return kb
 
-# ========== TEMP GENERATOR SUB-MENU ==========
+# ========== TEMP GENERATOR ==========
 def temp_menu_text(user_id: int) -> str:
     return (
         f"📧 <b>TEMP MAIL</b>\n\n"
@@ -152,7 +97,7 @@ def temp_menu_keyboard():
     kb.add(InlineKeyboardButton("🔙 Back to Main", callback_data="back_menu", style="danger"))
     return kb
 
-# ========== FLIPKART CHECKER SUB-MENU ==========
+# ========== FLIPKART CHECKER ==========
 def flipkart_menu_text(user_id: int, balance: int = 15, status: str = "ACTIVE", cost: int = 1) -> str:
     return (
         f"📱 <b>FLIPKART NUMBER CHECKER</b>\n\n"
@@ -167,7 +112,7 @@ def flipkart_menu_keyboard():
     kb.add(InlineKeyboardButton("🔙 Back to Main", callback_data="back_menu", style="danger"))
     return kb
 
-# ========== INSTAGRAM DOWNLOADER SUB-MENU ==========
+# ========== INSTAGRAM DOWNLOADER ==========
 def instagram_menu_text(user_id: int, balance: int = 15, status: str = "ACTIVE", cost: int = 1) -> str:
     return (
         f"📥 <b>INSTAGRAM DOWNLOADER</b>\n\n"
@@ -187,7 +132,7 @@ def instagram_menu_keyboard():
     kb.add(InlineKeyboardButton("🔙 Back to Main", callback_data="back_menu", style="danger"))
     return kb
 
-# ========== SESSION EXTRACTOR SUB-MENU ==========
+# ========== SESSION EXTRACTOR ==========
 def session_menu_text(user_id: int, balance: int = 15, status: str = "ACTIVE", cost: int = 1) -> str:
     return (
         f"🔐 <b>SESSION EXTRACTOR</b>\n\n"
@@ -205,12 +150,12 @@ def session_menu_keyboard():
     return kb
 
 # ========== MUSIC SUB-MENU ==========
-def music_menu_text(user_id: int, balance: int = 15, status: str = "ACTIVE", cost: int = 1) -> str:
+def music_menu_text(user_id: int, balance: int = 15, status: str = "ACTIVE", cost: int = 0) -> str:
     return (
         f"🎵 <b>MUSIC DOWNLOADER</b>\n\n"
         f"Status: <b>{status}</b>\n"
         f"Balance: <b>{balance} Credits</b>\n"
-        f"Cost: <b>{cost} Credit(s) / song</b>\n\n"
+        f"Cost: <b>FREE</b> – unlimited downloads!\n\n"
         f"Send a song name or artist name to search and download."
     )
 
@@ -245,7 +190,7 @@ def referral_menu_keyboard():
     kb.add(InlineKeyboardButton("🔙 Back to Main", callback_data="back_menu", style="danger"))
     return kb
 
-# ========== ADMIN PANEL SUB-MENU ==========
+# ========== ADMIN PANEL ==========
 def admin_panel_text() -> str:
     return (
         f"👑 <b>ADMIN PANEL</b>\n\n"
@@ -267,5 +212,28 @@ def admin_panel_keyboard():
         InlineKeyboardButton("📢 Broadcast", callback_data="admin_broadcast", style="primary"),
         InlineKeyboardButton("⚙️ Set Costs", callback_data="admin_costs", style="primary")
     )
+    kb.add(InlineKeyboardButton("🔙 Back to Main", callback_data="back_menu", style="danger"))
+    return kb
+
+# ========== BREVISTAY SUB-MENU ==========
+def brevistay_menu_text(user_id: int, balance: int = 15, status: str = "ACTIVE", cost: int = 1) -> str:
+    return (
+        f"🏨 <b>BREVISTAY REFERRAL AUTOMATION</b>\n\n"
+        f"Status: <b>{status}</b>\n"
+        f"Balance: <b>{balance} Credits</b>\n"
+        f"Run Cost: <b>{cost} Credit(s) / referral</b>\n\n"
+        f"Click <b>Start Referral</b> to begin.\n"
+        f"Bot will:\n"
+        f"• Generate random Indian name & email\n"
+        f"• Send OTP to your phone\n"
+        f"• Complete registration with your referral code\n"
+        f"• Verify email automatically\n\n"
+        f"⚠️ Make sure you have a Brevistay account!"
+    )
+
+def brevistay_menu_keyboard():
+    kb = InlineKeyboardMarkup(row_width=1)
+    kb.add(InlineKeyboardButton("▶️ Start Referral", callback_data="brevistay_start", style="success"))
+    kb.add(InlineKeyboardButton("❓ How To Use", callback_data="brevistay_howto", style="primary"))
     kb.add(InlineKeyboardButton("🔙 Back to Main", callback_data="back_menu", style="danger"))
     return kb
