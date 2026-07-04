@@ -18,7 +18,11 @@ import hashlib
 import zipfile
 import sqlite3
 import asyncio
+import concurrent.futures
 from datetime import datetime, timedelta
+from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
+
+# ---- Import menu functions ----
 from menu import (
     main_menu_text, main_menu_keyboard,
     shopsy_menu_text, shopsy_menu_keyboard,
@@ -32,11 +36,9 @@ from menu import (
     session_menu_text, session_menu_keyboard,
     music_menu_text, music_menu_keyboard
 )
-from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 # ---- Import modules ----
 import shopsy
-from brevistay_client import BrevistayClient
 
 # ==================== CONFIG ====================
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
@@ -308,15 +310,103 @@ user_firebase_state = {}
 pending_purchases = {}
 user_buy_state = {}
 user_music_state = {}
-user_shopsy_state = {}   # user_id -> "waiting_phone" / "waiting_otp" / None
-shopsy_temp_data = {}    # user_id -> { 'phone': ..., 'session_data': ..., 'mining_thread': ... }
+user_shopsy_state = {}
+shopsy_temp_data = {}
+user_session_state = {}
+session_temp_data = {}
+user_brevistay_state = {}
+brevistay_temp_data = {}
 
-user_session_state = {}      # user_id -> "waiting_phone" / "waiting_otp" / None
-session_temp_data = {}       # user_id -> { 'phone': ..., 'session_data': ..., 'req_id': ... }
+# NEW Swiggy states
+user_swiggy_state = {}
+user_swiggy_cache = {}
 
-# Brevistay states
-user_brevistay_state = {}    # user_id -> "waiting_phone" / "waiting_otp" / None
-brevistay_temp_data = {}     # user_id -> { 'phone': ..., 'client': ..., 'is_registered': ... }
+# ==================== BREVISTAY CLIENT (EMBEDDED) ====================
+class BrevistayClient:
+    def __init__(self):
+        self.base_url = "https://cst.brevistay.com"
+        self.web_url = "https://www.brevistay.com"
+        self.api_holida = "https://api.holida.com"
+        self.session = requests.Session()
+        self.token = None
+        self.cuid = None
+        self.user_id = None
+        self.user_name = None
+        self.user_last_name = None
+        self.user_email = None
+        self.user_mobile = None
+        self.default_headers = {
+            "User-Agent": "okhttp/4.12.0",
+            "Accept-Encoding": "gzip",
+            "brevi-channel": "ANDROID",
+            "brevi-channel-version": "6.0.8"
+        }
+        self.web_headers = {
+            "User-Agent": "Mozilla/5.0 (Linux; Android 10; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.77 Mobile Safari/537.36",
+            "Accept": "application/json, text/plain, */*",
+            "X-Requested-With": "com.brevistay.customer",
+            "Referer": "https://www.brevistay.com/"
+        }
+
+    def generate_random_name(self):
+        first_names = ["Arjun","Aarav","Vihaan","Vivaan","Ananya","Diya","Aadhya","Sai","Rohan","Siddharth","Kunal","Rahul","Priya","Neha","Pooja","Anjali","Raj","Amit","Vikram","Tarun","Meera","Kavya","Ishita","Tanvi","Aditya","Karthik","Varun","Dhruv","Shreya","Riya","Sanya","Navya"]
+        last_names = ["Sharma","Verma","Patel","Kumar","Singh","Reddy","Gupta","Joshi","Nair","Menon","Shetty","Rao","Desai","Mehta","Choudhury","Malhotra","Khanna","Kapoor","Sinha","Thakur","Yadav","Mishra","Tripathi","Dwivedi"]
+        return random.choice(first_names), random.choice(last_names)
+
+    def generate_random_email(self, first_name, last_name, mobile):
+        domains = ["gmail.com","yahoo.com","outlook.com","protonmail.com","hotmail.com"]
+        return f"{first_name.lower()}.{last_name.lower()}{mobile[-4:]}{random.randint(100,999)}@{random.choice(domains)}"
+
+    def send_login_otp(self, mobile):
+        url = f"{self.base_url}/app-api/login"
+        payload = {"is_otp":1,"is_password":0,"mobile":mobile,"otp":123456,"password":""}
+        resp = self.session.post(url, json=payload, headers={**self.default_headers, "Content-Type":"application/json; charset=UTF-8"})
+        return resp.json()
+
+    def login_existing_user(self, mobile, otp):
+        url = f"{self.base_url}/app-api/verify-user"
+        payload = {"channel":"MOBILE","is_otp":1,"is_password":0,"mobile":mobile,"otp":int(otp),"ref_code":""}
+        resp = self.session.post(url, json=payload, headers={**self.default_headers, "Content-Type":"application/json; charset=UTF-8"})
+        data = resp.json()
+        if data.get("token"):
+            self.token = data["token"]
+            self.cuid = data.get("cuid")
+            self.user_id = data.get("userId")
+            self.user_name = data.get("user_first_name")
+            self.user_last_name = data.get("user_last_name")
+            self.user_email = data.get("user_email_id")
+            self.user_mobile = data.get("user_mobile_number")
+            self.web_headers["authorization"] = f"Bearer {self.token}"
+            self.default_headers["authorization"] = f"Bearer {self.token}"
+        return data
+
+    def register_new_user(self, email, mobile, name, last_name, otp, ref_code, password="12345"):
+        url = f"{self.base_url}/app-api/verify-user"
+        payload = {"channel":"MOBILE","email":email,"is_otp":1,"is_password":0,"lastName":last_name,"mobile":mobile,"name":name,"otp":otp,"password":password,"ref_code":ref_code}
+        resp = self.session.post(url, json=payload, headers={**self.default_headers, "Content-Type":"application/json; charset=UTF-8"})
+        data = resp.json()
+        if data.get("token"):
+            self.token = data["token"]
+            self.cuid = data.get("cuid")
+            self.user_id = data.get("userId")
+            self.user_name = name
+            self.user_last_name = last_name
+            self.user_email = email
+            self.user_mobile = mobile
+            self.web_headers["authorization"] = f"Bearer {self.token}"
+            self.default_headers["authorization"] = f"Bearer {self.token}"
+        return data
+
+    def get_user_profile(self):
+        url = f"{self.base_url}/app-api/user-profile"
+        resp = self.session.post(url, headers={**self.default_headers, "Content-Length":"0"}, data="")
+        return resp.json()
+
+    def resend_email_verification(self):
+        url = f"{self.web_url}/cst/app-api/resend_email_verification"
+        headers = {**self.web_headers, "authorization": f"Bearer {self.token}"}
+        resp = self.session.get(url, headers=headers)
+        return resp.json()
 
 # ==================== MUSIC API FUNCTIONS ====================
 MUSIC_API_BASE = "https://jiosavanapiryden.vercel.app/api"
@@ -763,6 +853,107 @@ def format_results(results, apk_path, file_size, num_dex_strings):
     out.append("⚠️ <i>DO NOT test without owner permission</i>")
     return "\n".join(out)
 
+# ==================== SWIGGY OFFER FINDER ====================
+CITIES = {
+    "mumbai": {"display": "Mumbai", "points": [(19.0760,72.8777),(19.0330,72.8654),(18.9388,72.8354),(19.1136,72.8697)]},
+    "delhi": {"display": "Delhi", "points": [(28.6139,77.2090),(28.5355,77.2090),(28.5733,77.2194),(28.6448,77.2167)]},
+    "bangalore": {"display": "Bangalore", "points": [(12.9716,77.5946),(12.9352,77.6245),(12.9279,77.5784),(13.0358,77.5970)]},
+    "hyderabad": {"display": "Hyderabad", "points": [(17.3850,78.4867),(17.4401,78.4800),(17.3616,78.4747),(17.4239,78.5601)]},
+    "chennai": {"display": "Chennai", "points": [(13.0827,80.2707),(12.9698,80.2408),(13.1067,80.2996),(13.0569,80.1936)]},
+    "kolkata": {"display": "Kolkata", "points": [(22.5726,88.3639),(22.5177,88.3581),(22.5958,88.2636),(22.6514,88.4341)]},
+    "pune": {"display": "Pune", "points": [(18.5204,73.8567),(18.5523,73.9143),(18.5314,73.8480),(18.4529,73.8496)]},
+    "ahmedabad": {"display": "Ahmedabad", "points": [(23.0225,72.5714),(23.0469,72.5340),(22.9977,72.5969),(23.0733,72.5114)]},
+    "jaipur": {"display": "Jaipur", "points": [(26.9124,75.7873),(26.8800,75.8000),(26.9400,75.7500),(26.9000,75.8200)]},
+    "lucknow": {"display": "Lucknow", "points": [(26.8467,80.9462),(26.8700,80.9700),(26.8200,80.9200),(26.8900,80.9100)]},
+    "noida": {"display": "Noida", "points": [(28.5355,77.3910),(28.5700,77.3210),(28.5200,77.4000),(28.5900,77.3600)]},
+    "gurgaon": {"display": "Gurgaon", "points": [(28.4595,77.0266),(28.4830,77.0890),(28.4207,77.0213),(28.5020,77.0500)]},
+    "chandigarh": {"display": "Chandigarh", "points": [(30.7333,76.7794),(30.7550,76.8100),(30.7050,76.7500),(30.7700,76.7600)]},
+    "kochi": {"display": "Kochi", "points": [(9.9312,76.2673),(9.9600,76.2900),(9.9000,76.2400),(9.9800,76.2200)]},
+    "indore": {"display": "Indore", "points": [(22.7196,75.8577),(22.7500,75.8800),(22.6900,75.8300),(22.7400,75.8200)]},
+    "nagpur": {"display": "Nagpur", "points": [(21.1458,79.0882),(21.1700,79.1100),(21.1200,79.0600),(21.1800,79.0500)]},
+    "surat": {"display": "Surat", "points": [(21.1702,72.8311),(21.2000,72.8500),(21.1400,72.8100),(21.1900,72.7900)]},
+    "ranchi": {"display": "Ranchi", "points": [(23.3441,85.3096),(23.3700,85.3300),(23.3200,85.2900),(23.3600,85.2700)]},
+    "patna": {"display": "Patna", "points": [(25.5941,85.1376),(25.6200,85.1600),(25.5700,85.1100),(25.6000,85.0900)]},
+    "bhopal": {"display": "Bhopal", "points": [(23.2599,77.4126),(23.2900,77.4300),(23.2300,77.3900),(23.2700,77.3700)]},
+}
+
+def resolve_city_key(key: str) -> str:
+    key = key.lower().strip()
+    if key in CITIES: return key
+    for k, v in CITIES.items():
+        if v["display"].lower() == key: return k
+    for k in CITIES:
+        if k.startswith(key) or key in k: return k
+    return None
+
+# Dummy fetch – replace with real Swiggy API logic from swiggyoffferfinder.py
+def _fetch_raw(city_key):
+    key = resolve_city_key(city_key)
+    if not key: return []
+    # TODO: Replace with actual multi-point fetch & discount parsing
+    return []
+
+def _srt(lst): return sorted(lst, key=lambda r: -r.get("score", 0))
+
+def process_city(chat_id, user_id, city_name):
+    def fetch():
+        city_key = resolve_city_key(city_name)
+        if not city_key:
+            bot.send_message(chat_id, "❌ City not found.")
+            return
+        all_rest = _fetch_raw(city_key)
+        offers = [r for r in all_rest if r.get("offer")]
+        if not offers:
+            bot.send_message(chat_id, f"😕 No offers in {city_name.title()}.")
+            return
+        user_swiggy_cache[user_id] = {"offers": offers, "city": city_name.title(), "total": len(all_rest)}
+        send_offers_page(chat_id, user_id, page=0)
+    threading.Thread(target=fetch).start()
+
+def process_pincode(chat_id, user_id, pincode):
+    bot.send_message(chat_id, "📮 PIN code support coming soon. Use city name.")
+
+def process_location(chat_id, user_id, lat, lng):
+    bot.send_message(chat_id, "📍 Location support coming soon. Use city name.")
+
+def send_offers_page(chat_id, user_id, page):
+    data = user_swiggy_cache.get(user_id)
+    if not data: return
+    offers = data["offers"]
+    city = data["city"]
+    per_page = 10
+    total_pages = (len(offers) + per_page - 1) // per_page
+    start = page * per_page
+    end = min(start + per_page, len(offers))
+    chunk = offers[start:end]
+    lines = [f"🍽️ <b>Swiggy Offers – {city}</b>", f"📊 Page {page+1}/{total_pages}  |  {len(offers)} deals"]
+    for i, r in enumerate(chunk, start+1):
+        lines.append(f"{i}. {r.get('name', 'Unknown')} – {r.get('offer', 'No deal')}")
+    text = "\n".join(lines)
+    kb = InlineKeyboardMarkup(row_width=2)
+    if page > 0: kb.add(InlineKeyboardButton("⬅️ Prev", callback_data=f"swiggy_page_{page-1}"))
+    if page < total_pages - 1: kb.add(InlineKeyboardButton("Next ➡️", callback_data=f"swiggy_page_{page+1}"))
+    bot.send_message(chat_id, text, reply_markup=kb, parse_mode="HTML")
+
+def send_offers_page_update(chat_id, msg_id, user_id, page):
+    data = user_swiggy_cache.get(user_id)
+    if not data: return
+    offers = data["offers"]
+    city = data["city"]
+    per_page = 10
+    total_pages = (len(offers) + per_page - 1) // per_page
+    start = page * per_page
+    end = min(start + per_page, len(offers))
+    chunk = offers[start:end]
+    lines = [f"🍽️ <b>Swiggy Offers – {city}</b>", f"📊 Page {page+1}/{total_pages}  |  {len(offers)} deals"]
+    for i, r in enumerate(chunk, start+1):
+        lines.append(f"{i}. {r.get('name', 'Unknown')} – {r.get('offer', 'No deal')}")
+    text = "\n".join(lines)
+    kb = InlineKeyboardMarkup(row_width=2)
+    if page > 0: kb.add(InlineKeyboardButton("⬅️ Prev", callback_data=f"swiggy_page_{page-1}"))
+    if page < total_pages - 1: kb.add(InlineKeyboardButton("Next ➡️", callback_data=f"swiggy_page_{page+1}"))
+    bot.edit_message_text(text, chat_id=chat_id, message_id=msg_id, reply_markup=kb, parse_mode="HTML")
+
 # ==================== HANDLERS ====================
 
 @bot.message_handler(commands=['start'])
@@ -903,7 +1094,7 @@ def handle_module_callback(call):
             "🎵 <b>MUSIC DOWNLOADER</b>\n\n"
             "Send me a song name or artist name.\n"
             "I'll search and provide high-quality audio (320kbps).\n\n"
-            "💡 Cost: <b>1 Credit</b> per song\n"
+            "💡 Cost: FREE – unlimited downloads!\n"
             "📝 Example: <i>Believer</i> or <i>Arijit Singh</i>\n\n"
             "Send <code>/cancel</code> to cancel."
         )
@@ -936,12 +1127,27 @@ def handle_module_callback(call):
         )
         bot.answer_callback_query(call.id)
 
-    # ---------- Brevistay module ----------
     elif module == "brevistay":
         bot.delete_message(call.message.chat.id, call.message.message_id)
-        cost = 1  # You can make this configurable
+        cost = 1
         text = brevistay_menu_text(user_id, balance, "ACTIVE", cost)
         bot.send_message(call.message.chat.id, text, reply_markup=brevistay_menu_keyboard(), parse_mode="HTML")
+        bot.answer_callback_query(call.id)
+
+    elif module == "swiggy":
+        bot.delete_message(call.message.chat.id, call.message.message_id)
+        text = (
+            "🍽️ <b>Swiggy Offer Finder</b>\n\n"
+            "Find the best deals near you – <b>FREE</b>, no credits needed!\n\n"
+            "Send me:\n"
+            "• 🏙️ City name (e.g. <code>Mumbai</code>)\n"
+            "• 📮 PIN code (6 digits, e.g. <code>400001</code>)\n"
+            "• 📡 Your live location (tap the 📎 button and send Location)\n\n"
+            "I'll scan and show all active offers.\n"
+            "You can use this feature unlimited times."
+        )
+        bot.send_message(call.message.chat.id, text, parse_mode="HTML")
+        user_swiggy_state[user_id] = "waiting_input"
         bot.answer_callback_query(call.id)
 
 # ==================== Referral callbacks ====================
@@ -1333,9 +1539,7 @@ def handle_session_otp(message):
                 update_user_balance(user_id, -1)
                 json_str = json.dumps(verified_session, indent=2, ensure_ascii=False)
 
-                # ✅ Send JSON directly as text in chat
                 if len(json_str) > 4000:
-                    # Split into chunks
                     chunks = [json_str[i:i+4000] for i in range(0, len(json_str), 4000)]
                     for idx, chunk in enumerate(chunks):
                         caption = f"✅ Session JSON for +91{phone} (Part {idx+1}/{len(chunks)}):\n\n```json\n{chunk}\n```"
@@ -1435,7 +1639,6 @@ def handle_brevistay_phone(message):
             response = client.send_login_otp(phone)
             logger.info(f"Brevistay OTP response: {response}")
             
-            # Check if OTP sent – handle both string and int responses
             otp_sent = response.get("is_otp_sent")
             if otp_sent in (1, "1", True):
                 is_registered = response.get("is_user_registered") in (1, "1", True)
@@ -1511,7 +1714,6 @@ def handle_brevistay_otp(message):
     def verify_otp_thread():
         try:
             cost = 1
-            # Get referral code from config
             REFERRAL_CODE = get_config("brevistay_referral_code", "")
             if not REFERRAL_CODE:
                 bot.edit_message_text(
@@ -1540,9 +1742,7 @@ def handle_brevistay_otp(message):
             
             logger.info(f"Brevistay verification response: {response}")
             
-            # Check success – API may return "status": "SUCCESS" or "success": True
             if response and (response.get("status") == "SUCCESS" or response.get("success") == True):
-                # Charge credits
                 update_user_balance(user_id, -cost)
                 
                 try:
@@ -1804,13 +2004,13 @@ def handle_flipkart_callback(call):
 def handle_phone_number(message):
     user_id = message.from_user.id
 
-    # Skip if user is in any active state (Shopsy, Buy, Firebase, Music, Session, Brevistay)
     if (user_shopsy_state.get(user_id) or 
         user_buy_state.get(user_id) or 
         user_firebase_state.get(user_id) or 
         user_music_state.get(user_id) or
         user_session_state.get(user_id) or
-        user_brevistay_state.get(user_id)):
+        user_brevistay_state.get(user_id) or
+        user_swiggy_state.get(user_id)):
         return
 
     balance = get_user_balance(user_id)
@@ -2052,7 +2252,7 @@ def handle_buy_check(call):
     except Exception as e:
         bot.answer_callback_query(call.id, f"❌ Error: {str(e)[:50]}")
 
-# ---------- Music Handlers ----------
+# ---------- Music Handlers (UNLIMITED) ----------
 @bot.message_handler(func=lambda message: user_music_state.get(message.from_user.id) == "waiting_for_search")
 def handle_music_search(message):
     user_id = message.from_user.id
@@ -2089,7 +2289,7 @@ def handle_music_search(message):
         button_text = f"{idx}. {title[:30]} - {artist_names[:20]} [{dur_str}]"
         keyboard.add(InlineKeyboardButton(button_text, callback_data=f"music_song_{song.get('id')}"))
     
-    bot.edit_message_text(f"🎵 <b>Search Results for</b>: {query}\n\nSelect a song to download (1 Credit):",
+    bot.edit_message_text(f"🎵 <b>Search Results for</b>: {query}\n\nSelect a song to download (FREE):",
                           chat_id=message.chat.id, message_id=searching_msg.message_id,
                           reply_markup=keyboard, parse_mode="HTML")
     
@@ -2102,19 +2302,12 @@ def handle_music_song_callback(call):
     song_id = call.data.replace("music_song_", "")
     bot.answer_callback_query(call.id, "🔄 Fetching song...")
     
-    balance = get_user_balance(user_id)
-    if balance < 1:
-        bot.edit_message_text("❌ Insufficient credits! You need 1 credit to download a song.",
-                              chat_id=call.message.chat.id, message_id=call.message.message_id)
-        return
-    
-    update_user_balance(user_id, -1)
+    # No credit check – free download
     processing_msg = bot.send_message(call.message.chat.id, "⏳ Downloading high-quality audio...")
     
     try:
         song_details = get_song_details(song_id)
         if not song_details or not song_details.get("url"):
-            update_user_balance(user_id, 1)
             bot.edit_message_text("❌ Failed to get download link. Please try again.",
                                   chat_id=call.message.chat.id, message_id=processing_msg.message_id)
             return
@@ -2129,7 +2322,6 @@ def handle_music_song_callback(call):
         
         audio_resp = requests.get(download_url, timeout=45)
         if audio_resp.status_code != 200:
-            update_user_balance(user_id, 1)
             bot.edit_message_text("❌ Download failed. Server error.",
                                   chat_id=call.message.chat.id, message_id=processing_msg.message_id)
             return
@@ -2172,7 +2364,6 @@ def handle_music_song_callback(call):
         
     except Exception as e:
         logger.error(f"Music download error: {e}")
-        update_user_balance(user_id, 1)
         bot.edit_message_text(f"❌ Error: {str(e)[:200]}", chat_id=call.message.chat.id, message_id=processing_msg.message_id)
 
 @bot.callback_query_handler(func=lambda call: call.data == "music_new_search")
@@ -2298,7 +2489,6 @@ def setcost_cmd(message):
     except Exception as e:
         bot.reply_to(message, f"❌ Error: {str(e)}")
 
-# ---------- NEW: Admin command to set Brevistay referral code ----------
 @bot.message_handler(commands=['setbrevistayref'])
 def set_brevistay_ref_cmd(message):
     if message.from_user.id != ADMIN_ID:
@@ -2350,6 +2540,44 @@ def check_referrals_cmd(message):
     except Exception as e:
         bot.reply_to(message, f"❌ Error: {str(e)}")
 
+# ==================== SWIGGY INPUT HANDLERS ====================
+@bot.message_handler(func=lambda message: user_swiggy_state.get(message.from_user.id) == "waiting_input")
+def handle_swiggy_input(message):
+    user_id = message.from_user.id
+    text = message.text.strip()
+    chat_id = message.chat.id
+    
+    if text.isdigit() and len(text) == 6:
+        process_pincode(chat_id, user_id, text)
+    elif text and any(c.isalpha() for c in text):
+        process_city(chat_id, user_id, text)
+    else:
+        bot.reply_to(message, "❌ Please send a valid city name or 6‑digit PIN code.")
+
+@bot.message_handler(content_types=['location'])
+def handle_swiggy_location(message):
+    user_id = message.from_user.id
+    if user_swiggy_state.get(user_id) != "waiting_input":
+        return
+    lat = message.location.latitude
+    lng = message.location.longitude
+    chat_id = message.chat.id
+    process_location(chat_id, user_id, lat, lng)
+
+# ==================== SWIGGY PAGINATION ====================
+@bot.callback_query_handler(func=lambda call: call.data.startswith("swiggy_page_"))
+def swiggy_page_callback(call):
+    page = int(call.data.split("_")[2])
+    user_id = call.from_user.id
+    chat_id = call.message.chat.id
+    msg_id = call.message.message_id
+    data = user_swiggy_cache.get(user_id)
+    if not data:
+        bot.answer_callback_query(call.id, "❌ Session expired. Start again.")
+        return
+    send_offers_page_update(chat_id, msg_id, user_id, page)
+    bot.answer_callback_query(call.id)
+
 # ==================== Back to menu ====================
 @bot.callback_query_handler(func=lambda call: call.data == "back_menu")
 def back_to_menu(call):
@@ -2382,7 +2610,7 @@ if __name__ == "__main__":
     init_db()
     task_thread = threading.Thread(target=run_scheduled_tasks, daemon=True)
     task_thread.start()
-    logger.info("🤖 Bot is starting with all features integrated (including Brevistay)...")
+    logger.info("🤖 Bot is starting with all features integrated (including Swiggy & Brevistay)...")
     try:
         bot.remove_webhook()
         time.sleep(5)
