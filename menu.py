@@ -24,11 +24,13 @@ def main_menu_keyboard(is_admin: bool = False):
     kb.add(InlineKeyboardButton("🔐 Session Extractor", callback_data="module_session", style="primary"))
     kb.add(InlineKeyboardButton("🏨 Brevistay", callback_data="module_brevistay", style="primary"))
     kb.add(InlineKeyboardButton("🎵 Music", callback_data="module_music", style="primary"))
+    kb.add(InlineKeyboardButton("🍽️ Swiggy Offers", callback_data="module_swiggy", style="primary"))   # NEW
     kb.add(InlineKeyboardButton("🔗 Referral", callback_data="module_referral", style="primary"))
     if is_admin:
         kb.add(InlineKeyboardButton("👑 Admin Panel", callback_data="module_admin", style="danger"))
     return kb
 
+# … (other menus unchanged, keep them as they are)
 # ========== YOGA SUB-MENU ==========
 def yoga_menu_text(user_id: int, balance: int = 15, status: str = "ACTIVE", cost: int = 1) -> str:
     return (
