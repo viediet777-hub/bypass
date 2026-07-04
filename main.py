@@ -34,8 +34,7 @@ from menu import (
     admin_panel_text, admin_panel_keyboard,
     brevistay_menu_text, brevistay_menu_keyboard,
     session_menu_text, session_menu_keyboard,
-    music_menu_text, music_menu_keyboard,
-    rewardsphere_menu_text, rewardsphere_menu_keyboard
+    music_menu_text, music_menu_keyboard
 )
 
 # ---- Import modules ----
@@ -49,7 +48,7 @@ if not BOT_TOKEN:
 
 ADMIN_ID = int(os.environ.get("ADMIN_ID", 1364476174))
 CHANNEL_USERNAME = "viedietlooters"
-# GROUP_USERNAME removed – only channel required
+GROUP_USERNAME = "viedietlooterschat"
 REFERRAL_BONUS = 1
 NEW_USER_BONUS = 2
 MIN_ACCOUNT_AGE_DAYS = 7
@@ -82,11 +81,7 @@ def init_db():
         is_valid INTEGER DEFAULT 1,
         ip_address TEXT DEFAULT NULL,
         last_check TEXT DEFAULT NULL,
-        shopsy_balance INTEGER DEFAULT 0,
-        rewardsphere_token TEXT,
-        rewardsphere_phone TEXT,
-        rewardsphere_is_logged_in INTEGER DEFAULT 0,
-        rewardsphere_profile TEXT
+        shopsy_balance INTEGER DEFAULT 0
     )''')
     c.execute('''CREATE TABLE IF NOT EXISTS referrals (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -116,7 +111,7 @@ def init_db():
     )''')
     conn.commit()
     conn.close()
-    logger.info("Database initialized with RewardSphere columns.")
+    logger.info("Database initialized.")
 
 init_db()
 
@@ -128,11 +123,14 @@ def get_user(user_id):
     row = c.fetchone()
     conn.close()
     if row:
-        cols = ['user_id','username','first_name','balance','status','registered_at','last_used',
-                'referred_by','referral_code','account_age_days','is_valid','ip_address','last_check',
-                'shopsy_balance','rewardsphere_token','rewardsphere_phone','rewardsphere_is_logged_in',
-                'rewardsphere_profile']
-        return dict(zip(cols, row))
+        return {
+            'user_id': row[0], 'username': row[1], 'first_name': row[2],
+            'balance': row[3], 'status': row[4], 'registered_at': row[5],
+            'last_used': row[6], 'referred_by': row[7], 'referral_code': row[8],
+            'account_age_days': row[9], 'is_valid': row[10], 'ip_address': row[11],
+            'last_check': row[12],
+            'shopsy_balance': row[13] if len(row) > 13 else 0
+        }
     return None
 
 def create_user(user_id, username, first_name, referred_by=None, ip_address=None):
@@ -211,7 +209,9 @@ def check_and_award_referrals():
         if (now - join_time) >= timedelta(hours=REFERRAL_STAY_HOURS):
             try:
                 channel_member = bot.get_chat_member(f"@{CHANNEL_USERNAME}", referred_id)
-                if channel_member.status in ['member', 'administrator', 'creator']:
+                group_member = bot.get_chat_member(f"@{GROUP_USERNAME}", referred_id)
+                if channel_member.status in ['member', 'administrator', 'creator'] and \
+                   group_member.status in ['member', 'administrator', 'creator']:
                     update_user_balance(referrer_id, REFERRAL_BONUS)
                     c.execute('INSERT INTO referrals (referrer_id, referred_id, join_timestamp, points_awarded, is_valid) VALUES (?, ?, ?, ?, 1)',
                               (referrer_id, referred_id, join_ts, REFERRAL_BONUS))
@@ -286,7 +286,6 @@ def set_config(key, value):
     conn.commit()
     conn.close()
 
-# ==================== MEMBERSHIP (ONLY CHANNEL) ====================
 def is_channel_member(user_id):
     try:
         member = bot.get_chat_member(f"@{CHANNEL_USERNAME}", user_id)
@@ -294,8 +293,15 @@ def is_channel_member(user_id):
     except:
         return False
 
+def is_group_member(user_id):
+    try:
+        member = bot.get_chat_member(f"@{GROUP_USERNAME}", user_id)
+        return member.status in ['member', 'administrator', 'creator']
+    except:
+        return False
+
 def check_membership(user_id):
-    return is_channel_member(user_id)
+    return is_channel_member(user_id) and is_group_member(user_id)
 
 # ==================== GLOBAL STATES ====================
 user_temp_sessions = {}
@@ -310,14 +316,12 @@ user_session_state = {}
 session_temp_data = {}
 user_brevistay_state = {}
 brevistay_temp_data = {}
+
+# Swiggy states
 user_swiggy_state = {}
 user_swiggy_cache = {}
 
-# RewardSphere states
-user_rewardsphere_state = {}   # "waiting_phone", "waiting_otp", None
-rewardsphere_temp = {}         # phone, is_login, profile
-
-# ==================== BREVISTAY CLIENT ====================
+# ==================== BREVISTAY CLIENT (EMBEDDED) ====================
 class BrevistayClient:
     def __init__(self):
         self.base_url = "https://cst.brevistay.com"
@@ -892,146 +896,6 @@ def format_results(results, apk_path, file_size, num_dex_strings):
     out.append("⚠️ <i>DO NOT test without owner permission</i>")
     return "\n".join(out)
 
-# ==================== REWARDSPHERE API ====================
-RS_BASE = "https://rewardssphere.com"
-INDIAN_MALE = ["Rakesh","Mukesh","Amit","Vijay","Suresh","Rajesh","Deepak","Sanjay","Anil","Rahul","Rohit","Manish","Vikram","Aditya","Arun","Nitin","Pradeep","Karan","Rohan","Ajay","Vivek","Sachin","Gaurav","Harsh"]
-INDIAN_FEMALE = ["Anita","Priya","Neha","Pooja","Sunita","Rekha","Kavita","Shweta","Divya","Nisha","Anisha","Ritu","Sangeeta","Manisha","Rashmi","Swati","Preeti","Geeta","Seema","Deepika","Laxmi","Meena","Radha","Anjali"]
-INDIAN_LAST = ["Kumar","Singh","Sharma","Verma","Gupta","Patel","Reddy","Joshi","Mishra","Pandey","Raj","Choudhary","Saha","Das","Bose","Sen","Ghosh","Nair","Rao","Jain"]
-FIXED_PIN = "303706"
-rs_session = requests.Session()
-rs_session.headers.update({
-    "User-Agent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Mobile Safari/537.36",
-    "Content-Type": "application/json",
-    "Accept": "*/*",
-    "Origin": RS_BASE,
-    "Referer": f"{RS_BASE}/",
-})
-
-def rs_req(method, path, json_data=None, headers=None, files=None):
-    url = f"{RS_BASE}{path}"
-    h = headers or {}
-    for _ in range(3):
-        try:
-            r = rs_session.request(method, url, json=json_data, headers=h, files=files, timeout=30)
-            return r
-        except:
-            time.sleep(2)
-    return None
-
-def rs_api(method, path, json_data=None, headers=None, files=None):
-    r = rs_req(method, path, json_data, headers, files)
-    if r is None: return None
-    try:
-        return r.json()
-    except:
-        return {"raw": r.text[:200], "status_code": r.status_code}
-
-def rs_check_user_exists(phone):
-    resp = rs_api("GET", f"/api/v1/auth/user/exists?phone={phone}")
-    return resp.get("exists", False) if resp else False
-
-def rs_send_otp(phone):
-    resp = rs_api("POST", "/api/v1/auth/signup/otp/request", {"phone": phone})
-    if resp and resp.get("success"): return True
-    if resp and "already" in str(resp).lower(): return True
-    return False
-
-def rs_verify_otp(phone, otp):
-    resp = rs_api("POST", "/api/v1/auth/signup/otp/verify", {
-        "phone": phone, "otp": otp, "accepted_terms": True, "accepted_privacy": True
-    })
-    if resp and resp.get("success"):
-        return resp.get("token"), resp.get("user", {})
-    if resp and "already" in str(resp).lower():
-        return "EXISTS", {}
-    return None, None
-
-def rs_login_send_otp(phone):
-    resp = rs_api("POST", "/api/v1/auth/otp/request", {"phone": phone})
-    if resp and resp.get("success"): return True
-    return False
-
-def rs_login_verify_otp(phone, otp):
-    resp = rs_api("POST", "/api/v1/auth/otp/verify", {"phone": phone, "otp": otp})
-    if resp and resp.get("success"):
-        return resp.get("token"), resp.get("user", {})
-    return None, None
-
-def rs_fetch_user_me(tok):
-    h = {"Authorization": f"Bearer {tok}"}
-    resp = rs_api("GET", "/api/v1/user/me", headers=h)
-    return resp
-
-def rs_register_full_signup(phone, otp, referral_code, profile):
-    payload = {
-        "phone": phone, "otp": otp, "referral_code": referral_code or "",
-        "accepted_terms": True, "accepted_privacy": True,
-        "email": profile["email"], "dob": profile["dob_iso"],
-        "pin_code": profile["pin_code"], "gender": profile["gender"],
-    }
-    resp = rs_api("POST", "/api/v1/auth/signup/otp/verify", payload)
-    if resp and resp.get("success"):
-        return resp.get("token"), resp.get("user", {})
-    return None, None
-
-def rs_upload_receipt(tok, file_path):
-    url = f"{RS_BASE}/api/v1/receipts/upload?payment_method=upi"
-    headers = {"Authorization": f"Bearer {tok}"}
-    try:
-        with open(file_path, "rb") as f:
-            files = {"receipt": (os.path.basename(file_path), f, "image/jpeg")}
-            r = rs_session.post(url, files=files, headers=headers, timeout=120)
-        if r.status_code == 200:
-            return r.json()
-    except:
-        pass
-    return None
-
-def rs_download_photo(bot_token, file_id):
-    try:
-        fur = f"https://api.telegram.org/bot{bot_token}/getFile?file_id={file_id}"
-        fr = requests.get(fur, timeout=15)
-        fd = fr.json()
-        if not fd.get("ok"): return None
-        fp = fd["result"]["file_path"]
-        ext = os.path.splitext(fp)[1] or ".jpg"
-        tmp = tempfile.mkdtemp(prefix="rsp_")
-        save = os.path.join(tmp, f"receipt{ext}")
-        dr = requests.get(f"https://api.telegram.org/file/bot{bot_token}/{fp}", timeout=30)
-        with open(save, "wb") as f: f.write(dr.content)
-        return save
-    except:
-        return None
-
-def rs_generate_profile():
-    gender = random.choice(["male","female"])
-    first = random.choice(INDIAN_MALE if gender=="male" else INDIAN_FEMALE)
-    last = random.choice(INDIAN_LAST)
-    rand = random.randint(10000,99999)
-    email = f"{first.lower()}{rand}@gmail.com"
-    today = datetime.now()
-    max_dob = today - timedelta(days=20*365+1)
-    min_dob = today - timedelta(days=55*365)
-    dob = min_dob + timedelta(seconds=random.randint(0, int((max_dob-min_dob).total_seconds())))
-    return {"first_name":first,"full_name":f"{first} {last}","gender":gender,"email":email,"dob_iso":dob.strftime("%Y-%m-%d"),"pin_code":FIXED_PIN}
-
-def update_rewardsphere(user_id, token, phone, profile_json=None):
-    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
-    c = conn.cursor()
-    c.execute('''UPDATE users SET rewardsphere_token=?, rewardsphere_phone=?, rewardsphere_is_logged_in=1,
-                 rewardsphere_profile=? WHERE user_id=?''',
-              (token, phone, profile_json or "{}", user_id))
-    conn.commit()
-    conn.close()
-
-def clear_rewardsphere(user_id):
-    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
-    c = conn.cursor()
-    c.execute('''UPDATE users SET rewardsphere_token=NULL, rewardsphere_phone=NULL,
-                 rewardsphere_is_logged_in=0, rewardsphere_profile=NULL WHERE user_id=?''', (user_id,))
-    conn.commit()
-    conn.close()
-
 # ==================== SWIGGY OFFER FINDER ====================
 POPULAR_CITIES = [
     "Mumbai", "Delhi", "Bangalore", "Hyderabad",
@@ -1165,14 +1029,16 @@ def start_cmd(message):
     if not check_membership(user_id):
         text = (
             f"🔐 <b>Access Denied</b> 😞!\n\n"
-            f"You must join our community to use this bot.\n\n"
-            f"📢 <b>Required Channel:</b>\n"
-            f"• Channel: <a href='https://t.me/{CHANNEL_USERNAME}'>{CHANNEL_USERNAME}</a>\n\n"
+            f"You must join our communities to use this bot.\n\n"
+            f"📢 <b>Required Channels:</b>\n"
+            f"• Channel: <a href='https://t.me/{CHANNEL_USERNAME}'>{CHANNEL_USERNAME}</a>\n"
+            f"• Group: <a href='https://t.me/{GROUP_USERNAME}'>{GROUP_USERNAME}</a>\n\n"
             f"⚠️ After joining, click <b>VERIFY</b> button."
         )
         keyboard = InlineKeyboardMarkup(row_width=1)
         keyboard.add(
-            InlineKeyboardButton("📢 Join Channel", url=f"https://t.me/{CHANNEL_USERNAME}")
+            InlineKeyboardButton("📢 Join Channel", url=f"https://t.me/{CHANNEL_USERNAME}"),
+            InlineKeyboardButton("💬 Join Group", url=f"https://t.me/{GROUP_USERNAME}")
         )
         keyboard.add(InlineKeyboardButton("✅ VERIFY MEMBERSHIP ✅", callback_data="verify_membership", style="success"))
         bot.send_message(message.chat.id, text, reply_markup=keyboard, parse_mode="HTML", disable_web_page_preview=True)
@@ -1187,7 +1053,7 @@ def start_cmd(message):
 def buy_cmd(message):
     user_id = message.from_user.id
     if not check_membership(user_id):
-        bot.reply_to(message, "❌ Please join channel first!")
+        bot.reply_to(message, "❌ Please join channel and group first!")
         return
     user_buy_state[user_id] = "waiting_amount"
     text = (
@@ -1209,7 +1075,7 @@ def verify_membership_callback(call):
         text = main_menu_text(user_id, user.first_name, balance, "ACTIVE")
         bot.edit_message_text(text, call.message.chat.id, call.message.message_id, reply_markup=main_menu_keyboard(is_admin), parse_mode="HTML")
     else:
-        bot.answer_callback_query(call.id, "❌ Please join the channel first!", show_alert=True)
+        bot.answer_callback_query(call.id, "❌ Please join both channel and group first!", show_alert=True)
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("module_"))
 def handle_module_callback(call):
@@ -1217,11 +1083,9 @@ def handle_module_callback(call):
     user_id = call.from_user.id
     balance = get_user_balance(user_id)
 
-    # Exempt referral, admin, buy, music, rewardsphere from membership check? Actually they need channel.
-    # We'll check channel for all except maybe buy? But we already check in buy command.
-    if module not in ["referral", "admin", "buy", "music", "rewardsphere"]:
+    if module not in ["referral", "admin", "buy", "music"]:
         if not check_membership(user_id):
-            bot.answer_callback_query(call.id, "❌ Please join channel first!", show_alert=True)
+            bot.answer_callback_query(call.id, "❌ Please join channel and group first!", show_alert=True)
             return
 
     if module == "shopsy":
@@ -1326,7 +1190,7 @@ def handle_module_callback(call):
         # Create inline keyboard with popular cities
         kb = InlineKeyboardMarkup(row_width=3)
         buttons = []
-        for city in POPULAR_CITIES[:15]:
+        for city in POPULAR_CITIES[:15]:  # first 15
             buttons.append(InlineKeyboardButton(city, callback_data=f"swiggy_city_{city}"))
         kb.add(*buttons)
         # Also add "📍 Share Location" button using reply keyboard
@@ -1341,20 +1205,9 @@ def handle_module_callback(call):
             "(You can also type a city name or PIN code)"
         )
         bot.send_message(call.message.chat.id, text, reply_markup=location_kb, parse_mode="HTML")
+        # Send the city buttons as a separate message with inline keyboard
         bot.send_message(call.message.chat.id, "🏙️ <b>Popular Cities:</b>", reply_markup=kb, parse_mode="HTML")
         user_swiggy_state[user_id] = "waiting_input"
-        bot.answer_callback_query(call.id)
-
-    elif module == "rewardsphere":
-        bot.delete_message(call.message.chat.id, call.message.message_id)
-        if not check_membership(user_id):
-            bot.answer_callback_query(call.id, "❌ Please join channel first!", show_alert=True)
-            return
-        if get_user_balance(user_id) < 1:
-            bot.answer_callback_query(call.id, "❌ Insufficient credits! Need 1 credit.", show_alert=True)
-            return
-        text = rewardsphere_menu_text(user_id, get_user_balance(user_id), "ACTIVE", 1)
-        bot.send_message(call.message.chat.id, text, reply_markup=rewardsphere_menu_keyboard(), parse_mode="HTML")
         bot.answer_callback_query(call.id)
 
 # ==================== Referral callbacks ====================
@@ -1366,7 +1219,7 @@ def handle_referral_callback(call):
 
     if call.data == "referral_get_link":
         if not check_membership(user_id):
-            bot.answer_callback_query(call.id, "❌ Please join channel first!", show_alert=True)
+            bot.answer_callback_query(call.id, "❌ Please join channel and group first!", show_alert=True)
             return
         link = get_referral_link(user_id)
         bot.answer_callback_query(call.id, "🔗 Link copied! Share it with friends.")
@@ -1375,7 +1228,7 @@ def handle_referral_callback(call):
             f"📤 Share this link with your friends!\n"
             f"🎁 You get <b>+{REFERRAL_BONUS} Credits</b> per referral (after 24h).\n"
             f"🎁 Your friend gets <b>+{NEW_USER_BONUS} Credits</b> on joining.\n\n"
-            f"⚠️ Make sure your friend joins the channel!",
+            f"⚠️ Make sure your friend joins both channel and group!",
             chat_id=chat_id, message_id=msg_id,
             reply_markup=referral_menu_keyboard(), parse_mode="HTML"
         )
@@ -2242,8 +2095,7 @@ def handle_phone_number(message):
         user_music_state.get(user_id) or
         user_session_state.get(user_id) or
         user_brevistay_state.get(user_id) or
-        user_swiggy_state.get(user_id) or
-        user_rewardsphere_state.get(user_id)):
+        user_swiggy_state.get(user_id)):
         return
 
     balance = get_user_balance(user_id)
@@ -2818,190 +2670,6 @@ def swiggy_page_callback(call):
     send_offers_page_update(chat_id, msg_id, user_id, page)
     bot.answer_callback_query(call.id)
 
-# ==================== REWARDSPHERE HANDLERS ====================
-@bot.callback_query_handler(func=lambda call: call.data.startswith("rewardsphere_"))
-def handle_rewardsphere_callback(call):
-    action = call.data.split("_")[1]
-    user_id = call.from_user.id
-    chat_id = call.message.chat.id
-    msg_id = call.message.message_id
-    user = get_user(user_id)
-
-    if action == "start":
-        if not check_membership(user_id):
-            bot.answer_callback_query(call.id, "❌ Please join channel first!", show_alert=True)
-            return
-        if get_user_balance(user_id) < 1:
-            bot.answer_callback_query(call.id, "❌ Insufficient credits! Need 1 credit.", show_alert=True)
-            return
-        if user and user.get("rewardsphere_is_logged_in"):
-            bot.edit_message_text("✅ You are already logged in to RewardSphere.", chat_id, msg_id, reply_markup=rewardsphere_menu_keyboard())
-            bot.answer_callback_query(call.id)
-            return
-        user_rewardsphere_state[user_id] = "waiting_phone"
-        bot.edit_message_text(
-            "🏆 RewardSphere Registration/Login\n\n"
-            "Enter your 10-digit mobile number:",
-            chat_id, msg_id, reply_markup=None
-        )
-        bot.answer_callback_query(call.id)
-
-    elif action == "upload":
-        if not user or not user.get("rewardsphere_is_logged_in") or not user.get("rewardsphere_token"):
-            bot.answer_callback_query(call.id, "❌ Please login first using 'Start'.", show_alert=True)
-            return
-        bot.edit_message_text(
-            "📸 Send your receipt photo.\n\n"
-            "Unlimited uploads — each earns you points!",
-            chat_id, msg_id, reply_markup=rewardsphere_menu_keyboard()
-        )
-        bot.answer_callback_query(call.id)
-
-    elif action == "points":
-        if not user or not user.get("rewardsphere_is_logged_in") or not user.get("rewardsphere_token"):
-            bot.answer_callback_query(call.id, "❌ Please login first.", show_alert=True)
-            return
-        tok = user["rewardsphere_token"]
-        me = rs_fetch_user_me(tok)
-        bal = me.get("balance", 0) if me else 0
-        bot.edit_message_text(
-            f"💰 Your Wallet\n\n"
-            f"⭐ Points: {bal}\n\n"
-            "Upload receipts to earn more!",
-            chat_id, msg_id, reply_markup=rewardsphere_menu_keyboard()
-        )
-        bot.answer_callback_query(call.id)
-
-    elif action == "rewards":
-        bot.edit_message_text(
-            "🎁 Rewards coming soon!\n\n"
-            "Stay tuned for gift cards and more.",
-            chat_id, msg_id, reply_markup=rewardsphere_menu_keyboard()
-        )
-        bot.answer_callback_query(call.id)
-
-    elif action == "logout":
-        clear_rewardsphere(user_id)
-        bot.edit_message_text(
-            "✅ Logged out from RewardSphere.",
-            chat_id, msg_id, reply_markup=rewardsphere_menu_keyboard()
-        )
-        bot.answer_callback_query(call.id)
-
-# ---- RewardSphere phone input ----
-@bot.message_handler(func=lambda message: user_rewardsphere_state.get(message.from_user.id) == "waiting_phone")
-def handle_rewardsphere_phone(message):
-    user_id = message.from_user.id
-    phone = re.sub(r"[^0-9]", "", message.text.strip())
-    if len(phone) != 10:
-        bot.reply_to(message, "❌ Invalid number! Enter exactly 10 digits:")
-        return
-    user = get_user(user_id)
-    if user and user.get("rewardsphere_is_logged_in"):
-        bot.reply_to(message, "✅ You are already logged in.")
-        user_rewardsphere_state[user_id] = None
-        return
-    if get_user_balance(user_id) < 1:
-        bot.reply_to(message, "❌ Insufficient credits! Need 1 credit.")
-        user_rewardsphere_state[user_id] = None
-        return
-    update_user_balance(user_id, -1)  # deduct upfront
-    rewardsphere_temp[user_id] = {"phone": phone, "is_login": False, "profile": rs_generate_profile()}
-    exists = rs_check_user_exists(phone)
-    if exists:
-        bot.reply_to(message, "📤 Sending OTP for login...")
-        ok = rs_login_send_otp(phone)
-        if not ok:
-            update_user_balance(user_id, 1)  # refund
-            bot.reply_to(message, "❌ Failed to send OTP. Try again.")
-            user_rewardsphere_state[user_id] = None
-            return
-        rewardsphere_temp[user_id]["is_login"] = True
-        bot.reply_to(message, "✅ OTP sent.\n\nEnter the 6-digit OTP:")
-        user_rewardsphere_state[user_id] = "waiting_otp"
-    else:
-        profile = rewardsphere_temp[user_id]["profile"]
-        bot.reply_to(message,
-            f"👤 Profile: {profile['full_name']} ({profile['gender']})\n"
-            f"📧 Email: {profile['email']}\n\n"
-            "⏳ Sending OTP..."
-        )
-        ok = rs_send_otp(phone)
-        if not ok:
-            update_user_balance(user_id, 1)  # refund
-            bot.reply_to(message, "❌ Failed to send OTP. Try again.")
-            user_rewardsphere_state[user_id] = None
-            return
-        bot.reply_to(message, "✅ OTP sent.\n\nEnter the 6-digit OTP:")
-        user_rewardsphere_state[user_id] = "waiting_otp"
-
-# ---- RewardSphere OTP handler ----
-@bot.message_handler(func=lambda message: user_rewardsphere_state.get(message.from_user.id) == "waiting_otp")
-def handle_rewardsphere_otp(message):
-    user_id = message.from_user.id
-    otp = re.sub(r"[^0-9]", "", message.text.strip())
-    if len(otp) < 4:
-        bot.reply_to(message, "❌ Invalid OTP! Enter digits only:")
-        return
-    data = rewardsphere_temp.get(user_id, {})
-    phone = data.get("phone")
-    is_login = data.get("is_login", False)
-    if not phone:
-        bot.reply_to(message, "❌ Session expired. Please start again.")
-        user_rewardsphere_state[user_id] = None
-        return
-    bot.reply_to(message, "🔍 Verifying OTP...")
-    if is_login:
-        token, user_data = rs_login_verify_otp(phone, otp)
-    else:
-        profile = data.get("profile", {})
-        token, user_data = rs_register_full_signup(phone, otp, "", profile)
-        if token is None:
-            token, user_data = rs_login_verify_otp(phone, otp)
-    if token is None:
-        update_user_balance(user_id, 1)  # refund
-        bot.reply_to(message, "❌ OTP verification failed! Try again.")
-        user_rewardsphere_state[user_id] = None
-        return
-    update_rewardsphere(user_id, token, phone, json.dumps(user_data))
-    bal = user_data.get("balance", 0)
-    bot.reply_to(message,
-        f"✅ {'Login' if is_login else 'Registration'} Successful!\n\n"
-        f"💰 Balance: {bal} points\n\n"
-        f"You can now upload receipts to earn more!",
-        reply_markup=rewardsphere_menu_keyboard()
-    )
-    user_rewardsphere_state[user_id] = None
-
-# ---- Photo handler for RewardSphere receipt upload ----
-@bot.message_handler(content_types=['photo'])
-def handle_rewardsphere_photo(message):
-    user_id = message.from_user.id
-    user = get_user(user_id)
-    if not user or not user.get("rewardsphere_is_logged_in") or not user.get("rewardsphere_token"):
-        # Not in RewardSphere mode – ignore
-        return
-    # Check if user is in RewardSphere state (or we can allow anytime)
-    file_id = message.photo[-1].file_id
-    bot_token = bot.token
-    bot.reply_to(message, "⬆️ Uploading receipt...")
-    path = rs_download_photo(bot_token, file_id)
-    if not path:
-        bot.reply_to(message, "❌ Failed to download photo. Try again.")
-        return
-    result = rs_upload_receipt(user["rewardsphere_token"], path)
-    if result:
-        bot.reply_to(message, "✅ Receipt uploaded successfully!\n\n⏳ Processing...")
-        me = rs_fetch_user_me(user["rewardsphere_token"])
-        if me:
-            bot.reply_to(message, f"💰 New balance: {me.get('balance', 0)} points")
-    else:
-        bot.reply_to(message, "❌ Upload failed. Try again.")
-    try:
-        os.unlink(path)
-    except:
-        pass
-
 # ==================== Back to menu ====================
 @bot.callback_query_handler(func=lambda call: call.data == "back_menu")
 def back_to_menu(call):
@@ -3034,7 +2702,7 @@ if __name__ == "__main__":
     init_db()
     task_thread = threading.Thread(target=run_scheduled_tasks, daemon=True)
     task_thread.start()
-    logger.info("🤖 Bot is starting with all features integrated (including Swiggy, Brevistay, RewardSphere)...")
+    logger.info("🤖 Bot is starting with all features integrated (including Swiggy & Brevistay)...")
     try:
         bot.remove_webhook()
         time.sleep(5)
