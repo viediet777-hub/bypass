@@ -20,7 +20,7 @@ import sqlite3
 import asyncio
 import concurrent.futures
 from datetime import datetime, timedelta
-from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
+from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton
 
 # ---- Import menu functions ----
 from menu import (
@@ -317,7 +317,7 @@ session_temp_data = {}
 user_brevistay_state = {}
 brevistay_temp_data = {}
 
-# NEW Swiggy states
+# Swiggy states
 user_swiggy_state = {}
 user_swiggy_cache = {}
 
@@ -360,53 +360,96 @@ class BrevistayClient:
     def send_login_otp(self, mobile):
         url = f"{self.base_url}/app-api/login"
         payload = {"is_otp":1,"is_password":0,"mobile":mobile,"otp":123456,"password":""}
-        resp = self.session.post(url, json=payload, headers={**self.default_headers, "Content-Type":"application/json; charset=UTF-8"})
-        return resp.json()
+        try:
+            resp = self.session.post(url, json=payload, headers={**self.default_headers, "Content-Type":"application/json; charset=UTF-8"}, timeout=15)
+            if resp.status_code == 200:
+                try:
+                    return resp.json()
+                except json.JSONDecodeError:
+                    return {"error": "non_json", "raw": resp.text[:200]}
+            else:
+                return {"error": f"HTTP {resp.status_code}", "raw": resp.text[:200]}
+        except requests.exceptions.RequestException as e:
+            return {"error": str(e)}
 
     def login_existing_user(self, mobile, otp):
         url = f"{self.base_url}/app-api/verify-user"
         payload = {"channel":"MOBILE","is_otp":1,"is_password":0,"mobile":mobile,"otp":int(otp),"ref_code":""}
-        resp = self.session.post(url, json=payload, headers={**self.default_headers, "Content-Type":"application/json; charset=UTF-8"})
-        data = resp.json()
-        if data.get("token"):
-            self.token = data["token"]
-            self.cuid = data.get("cuid")
-            self.user_id = data.get("userId")
-            self.user_name = data.get("user_first_name")
-            self.user_last_name = data.get("user_last_name")
-            self.user_email = data.get("user_email_id")
-            self.user_mobile = data.get("user_mobile_number")
-            self.web_headers["authorization"] = f"Bearer {self.token}"
-            self.default_headers["authorization"] = f"Bearer {self.token}"
-        return data
+        try:
+            resp = self.session.post(url, json=payload, headers={**self.default_headers, "Content-Type":"application/json; charset=UTF-8"}, timeout=15)
+            if resp.status_code == 200:
+                try:
+                    data = resp.json()
+                    if data.get("token"):
+                        self.token = data["token"]
+                        self.cuid = data.get("cuid")
+                        self.user_id = data.get("userId")
+                        self.user_name = data.get("user_first_name")
+                        self.user_last_name = data.get("user_last_name")
+                        self.user_email = data.get("user_email_id")
+                        self.user_mobile = data.get("user_mobile_number")
+                        self.web_headers["authorization"] = f"Bearer {self.token}"
+                        self.default_headers["authorization"] = f"Bearer {self.token}"
+                    return data
+                except json.JSONDecodeError:
+                    return {"error": "non_json", "raw": resp.text[:200]}
+            else:
+                return {"error": f"HTTP {resp.status_code}", "raw": resp.text[:200]}
+        except requests.exceptions.RequestException as e:
+            return {"error": str(e)}
 
     def register_new_user(self, email, mobile, name, last_name, otp, ref_code, password="12345"):
         url = f"{self.base_url}/app-api/verify-user"
         payload = {"channel":"MOBILE","email":email,"is_otp":1,"is_password":0,"lastName":last_name,"mobile":mobile,"name":name,"otp":otp,"password":password,"ref_code":ref_code}
-        resp = self.session.post(url, json=payload, headers={**self.default_headers, "Content-Type":"application/json; charset=UTF-8"})
-        data = resp.json()
-        if data.get("token"):
-            self.token = data["token"]
-            self.cuid = data.get("cuid")
-            self.user_id = data.get("userId")
-            self.user_name = name
-            self.user_last_name = last_name
-            self.user_email = email
-            self.user_mobile = mobile
-            self.web_headers["authorization"] = f"Bearer {self.token}"
-            self.default_headers["authorization"] = f"Bearer {self.token}"
-        return data
+        try:
+            resp = self.session.post(url, json=payload, headers={**self.default_headers, "Content-Type":"application/json; charset=UTF-8"}, timeout=15)
+            if resp.status_code == 200:
+                try:
+                    data = resp.json()
+                    if data.get("token"):
+                        self.token = data["token"]
+                        self.cuid = data.get("cuid")
+                        self.user_id = data.get("userId")
+                        self.user_name = name
+                        self.user_last_name = last_name
+                        self.user_email = email
+                        self.user_mobile = mobile
+                        self.web_headers["authorization"] = f"Bearer {self.token}"
+                        self.default_headers["authorization"] = f"Bearer {self.token}"
+                    return data
+                except json.JSONDecodeError:
+                    return {"error": "non_json", "raw": resp.text[:200]}
+            else:
+                return {"error": f"HTTP {resp.status_code}", "raw": resp.text[:200]}
+        except requests.exceptions.RequestException as e:
+            return {"error": str(e)}
 
     def get_user_profile(self):
         url = f"{self.base_url}/app-api/user-profile"
-        resp = self.session.post(url, headers={**self.default_headers, "Content-Length":"0"}, data="")
-        return resp.json()
+        try:
+            resp = self.session.post(url, headers={**self.default_headers, "Content-Length":"0"}, data="", timeout=15)
+            if resp.status_code == 200:
+                try:
+                    return resp.json()
+                except:
+                    return {"error": "non_json"}
+            return {"error": f"HTTP {resp.status_code}"}
+        except:
+            return {"error": "timeout"}
 
     def resend_email_verification(self):
         url = f"{self.web_url}/cst/app-api/resend_email_verification"
         headers = {**self.web_headers, "authorization": f"Bearer {self.token}"}
-        resp = self.session.get(url, headers=headers)
-        return resp.json()
+        try:
+            resp = self.session.get(url, headers=headers, timeout=15)
+            if resp.status_code == 200:
+                try:
+                    return resp.json()
+                except:
+                    return {"error": "non_json"}
+            return {"error": f"HTTP {resp.status_code}"}
+        except:
+            return {"error": "timeout"}
 
 # ==================== MUSIC API FUNCTIONS ====================
 MUSIC_API_BASE = "https://jiosavanapiryden.vercel.app/api"
@@ -854,6 +897,14 @@ def format_results(results, apk_path, file_size, num_dex_strings):
     return "\n".join(out)
 
 # ==================== SWIGGY OFFER FINDER ====================
+POPULAR_CITIES = [
+    "Mumbai", "Delhi", "Bangalore", "Hyderabad",
+    "Chennai", "Kolkata", "Pune", "Ahmedabad",
+    "Jaipur", "Lucknow", "Noida", "Gurgaon",
+    "Chandigarh", "Kochi", "Indore", "Nagpur",
+    "Surat", "Ranchi", "Patna", "Bhopal"
+]
+
 CITIES = {
     "mumbai": {"display": "Mumbai", "points": [(19.0760,72.8777),(19.0330,72.8654),(18.9388,72.8354),(19.1136,72.8697)]},
     "delhi": {"display": "Delhi", "points": [(28.6139,77.2090),(28.5355,77.2090),(28.5733,77.2194),(28.6448,77.2167)]},
@@ -911,7 +962,7 @@ def process_city(chat_id, user_id, city_name):
     threading.Thread(target=fetch).start()
 
 def process_pincode(chat_id, user_id, pincode):
-    bot.send_message(chat_id, "📮 PIN code support coming soon. Use city name.")
+    bot.send_message(chat_id, "📮 PIN code support coming soon. Use city name or location.")
 
 def process_location(chat_id, user_id, lat, lng):
     bot.send_message(chat_id, "📍 Location support coming soon. Use city name.")
@@ -1136,17 +1187,26 @@ def handle_module_callback(call):
 
     elif module == "swiggy":
         bot.delete_message(call.message.chat.id, call.message.message_id)
+        # Create inline keyboard with popular cities
+        kb = InlineKeyboardMarkup(row_width=3)
+        buttons = []
+        for city in POPULAR_CITIES[:15]:  # first 15
+            buttons.append(InlineKeyboardButton(city, callback_data=f"swiggy_city_{city}"))
+        kb.add(*buttons)
+        # Also add "📍 Share Location" button using reply keyboard
+        location_kb = ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
+        location_kb.add(KeyboardButton("📍 Share Location", request_location=True))
+        location_kb.add(KeyboardButton("🔙 Back to Main"))
+        
         text = (
             "🍽️ <b>Swiggy Offer Finder</b>\n\n"
-            "Find the best deals near you – <b>FREE</b>, no credits needed!\n\n"
-            "Send me:\n"
-            "• 🏙️ City name (e.g. <code>Mumbai</code>)\n"
-            "• 📮 PIN code (6 digits, e.g. <code>400001</code>)\n"
-            "• 📡 Your live location (tap the 📎 button and send Location)\n\n"
-            "I'll scan and show all active offers.\n"
-            "You can use this feature unlimited times."
+            "Find the best deals near you – <b>FREE</b>, no credits!\n\n"
+            "👇 <b>Select your city</b> or <b>share your location</b>:\n"
+            "(You can also type a city name or PIN code)"
         )
-        bot.send_message(call.message.chat.id, text, parse_mode="HTML")
+        bot.send_message(call.message.chat.id, text, reply_markup=location_kb, parse_mode="HTML")
+        # Send the city buttons as a separate message with inline keyboard
+        bot.send_message(call.message.chat.id, "🏙️ <b>Popular Cities:</b>", reply_markup=kb, parse_mode="HTML")
         user_swiggy_state[user_id] = "waiting_input"
         bot.answer_callback_query(call.id)
 
@@ -1187,6 +1247,15 @@ def handle_referral_callback(call):
             chat_id=chat_id, message_id=msg_id,
             reply_markup=referral_menu_keyboard(), parse_mode="HTML"
         )
+
+# ==================== Swiggy city callback ====================
+@bot.callback_query_handler(func=lambda call: call.data.startswith("swiggy_city_"))
+def swiggy_city_callback(call):
+    city_name = call.data.replace("swiggy_city_", "")
+    user_id = call.from_user.id
+    chat_id = call.message.chat.id
+    process_city(chat_id, user_id, city_name)
+    bot.answer_callback_query(call.id, f"🔍 Fetching offers for {city_name}...")
 
 # ==================== Firebase callbacks ====================
 @bot.callback_query_handler(func=lambda call: call.data.startswith("firebase_"))
@@ -1639,6 +1708,28 @@ def handle_brevistay_phone(message):
             response = client.send_login_otp(phone)
             logger.info(f"Brevistay OTP response: {response}")
             
+            # Handle non-JSON or error
+            if "error" in response:
+                if response.get("error") == "non_json":
+                    bot.edit_message_text(
+                        f"❌ Brevistay API error: The server returned an invalid response.\n\n"
+                        f"Raw response: <code>{response.get('raw', '')[:200]}</code>\n\n"
+                        "💡 The service might be temporarily down. Please try again later.",
+                        chat_id=message.chat.id,
+                        message_id=processing_msg.message_id,
+                        parse_mode="HTML"
+                    )
+                else:
+                    bot.edit_message_text(
+                        f"❌ Brevistay API error: {response.get('error')}\n\n"
+                        "Please try again later.",
+                        chat_id=message.chat.id,
+                        message_id=processing_msg.message_id
+                    )
+                user_brevistay_state[user_id] = None
+                brevistay_temp_data.pop(user_id, None)
+                return
+            
             otp_sent = response.get("is_otp_sent")
             if otp_sent in (1, "1", True):
                 is_registered = response.get("is_user_registered") in (1, "1", True)
@@ -1660,17 +1751,6 @@ def handle_brevistay_phone(message):
                 )
                 user_brevistay_state[user_id] = None
                 brevistay_temp_data.pop(user_id, None)
-        except ValueError as e:
-            logger.error(f"Brevistay API error: {e}")
-            bot.edit_message_text(
-                f"❌ Brevistay API error: {str(e)}\n\n"
-                "The service might be temporarily unavailable.\n"
-                "Please try again later.",
-                chat_id=message.chat.id,
-                message_id=processing_msg.message_id
-            )
-            user_brevistay_state[user_id] = None
-            brevistay_temp_data.pop(user_id, None)
         except Exception as e:
             logger.error(f"Brevistay unexpected error: {e}")
             bot.edit_message_text(
@@ -1742,7 +1822,28 @@ def handle_brevistay_otp(message):
             
             logger.info(f"Brevistay verification response: {response}")
             
-            if response and (response.get("status") == "SUCCESS" or response.get("success") == True):
+            # Handle errors
+            if "error" in response:
+                if response.get("error") == "non_json":
+                    bot.edit_message_text(
+                        f"❌ Brevistay API error: Invalid server response.\n\n"
+                        f"Raw: <code>{response.get('raw', '')[:200]}</code>\n\n"
+                        "Try again later.",
+                        chat_id=message.chat.id,
+                        message_id=processing_msg.message_id,
+                        parse_mode="HTML"
+                    )
+                else:
+                    bot.edit_message_text(
+                        f"❌ Brevistay API error: {response.get('error')}",
+                        chat_id=message.chat.id,
+                        message_id=processing_msg.message_id
+                    )
+                user_brevistay_state[user_id] = None
+                brevistay_temp_data.pop(user_id, None)
+                return
+
+            if response.get("status") == "SUCCESS" or response.get("success") == True:
                 update_user_balance(user_id, -cost)
                 
                 try:
@@ -1776,22 +1877,6 @@ def handle_brevistay_otp(message):
                     chat_id=message.chat.id,
                     message_id=processing_msg.message_id
                 )
-        except json.JSONDecodeError:
-            bot.edit_message_text(
-                f"❌ Brevistay API error: Invalid JSON response.\n\n"
-                "The service might be temporarily unavailable.\n"
-                "Please try again later.",
-                chat_id=message.chat.id,
-                message_id=processing_msg.message_id
-            )
-        except ValueError as e:
-            bot.edit_message_text(
-                f"❌ Brevistay API error: {str(e)}\n\n"
-                "The service might be temporarily unavailable or your referral code may be invalid.\n"
-                "Please try again later.",
-                chat_id=message.chat.id,
-                message_id=processing_msg.message_id
-            )
         except Exception as e:
             logger.error(f"Brevistay verification unexpected error: {e}")
             bot.edit_message_text(
@@ -2547,6 +2632,12 @@ def handle_swiggy_input(message):
     text = message.text.strip()
     chat_id = message.chat.id
     
+    # Check if user clicked "Back to Main"
+    if text == "🔙 Back to Main":
+        user_swiggy_state[user_id] = None
+        bot.send_message(chat_id, "Main menu:", reply_markup=main_menu_keyboard(is_admin=(user_id==ADMIN_ID)))
+        return
+    
     if text.isdigit() and len(text) == 6:
         process_pincode(chat_id, user_id, text)
     elif text and any(c.isalpha() for c in text):
@@ -2563,6 +2654,7 @@ def handle_swiggy_location(message):
     lng = message.location.longitude
     chat_id = message.chat.id
     process_location(chat_id, user_id, lat, lng)
+    # After handling, keep state but user can continue
 
 # ==================== SWIGGY PAGINATION ====================
 @bot.callback_query_handler(func=lambda call: call.data.startswith("swiggy_page_"))
