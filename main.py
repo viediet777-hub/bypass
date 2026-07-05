@@ -49,10 +49,10 @@ if not BOT_TOKEN:
 ADMIN_ID = int(os.environ.get("ADMIN_ID", 1364476174))
 CHANNEL_USERNAME = "viedietlooters"
 GROUP_USERNAME = "viedietlooterschat"
-REFERRAL_BONUS = 1
-NEW_USER_BONUS = 2
+REFERRAL_BONUS = 3
+NEW_USER_BONUS = 5
 MIN_ACCOUNT_AGE_DAYS = 7
-REFERRAL_STAY_HOURS = 0
+REFERRAL_STAY_HOURS = 1
 
 logging.basicConfig(
     level=logging.INFO,
@@ -209,8 +209,8 @@ def check_and_award_referrals():
         if (now - join_time) >= timedelta(hours=REFERRAL_STAY_HOURS):
             try:
                 channel_member = bot.get_chat_member(f"@{CHANNEL_USERNAME}", referred_id)
-                group_member = bot.get_chat_member(f"@{GROUP_USERNAME}", referred_id)
-                if channel_member.status in ['member', 'administrator', 'creator'] and \
+                if channel_member.status in ['member', 'administrator', 'creator']:
+                # ... award referral
                    group_member.status in ['member', 'administrator', 'creator']:
                     update_user_balance(referrer_id, REFERRAL_BONUS)
                     c.execute('INSERT INTO referrals (referrer_id, referred_id, join_timestamp, points_awarded, is_valid) VALUES (?, ?, ?, ?, 1)',
@@ -301,7 +301,7 @@ def is_group_member(user_id):
         return False
 
 def check_membership(user_id):
-    return is_channel_member(user_id) and is_group_member(user_id)
+    return is_channel_member(user_id)   # group check hatao
 
 # ==================== GLOBAL STATES ====================
 user_temp_sessions = {}
@@ -1028,21 +1028,17 @@ def start_cmd(message):
     
     if not check_membership(user_id):
         text = (
-            f"🔐 <b>Access Denied</b> 😞!\n\n"
-            f"You must join our communities to use this bot.\n\n"
-            f"📢 <b>Required Channels:</b>\n"
-            f"• Channel: <a href='https://t.me/{CHANNEL_USERNAME}'>{CHANNEL_USERNAME}</a>\n"
-            f"• Group: <a href='https://t.me/{GROUP_USERNAME}'>{GROUP_USERNAME}</a>\n\n"
-            f"⚠️ After joining, click <b>VERIFY</b> button."
-        )
-        keyboard = InlineKeyboardMarkup(row_width=1)
-        keyboard.add(
-            InlineKeyboardButton("📢 Join Channel", url=f"https://t.me/{CHANNEL_USERNAME}"),
-            InlineKeyboardButton("💬 Join Group", url=f"https://t.me/{GROUP_USERNAME}")
-        )
-        keyboard.add(InlineKeyboardButton("✅ VERIFY MEMBERSHIP ✅", callback_data="verify_membership", style="success"))
-        bot.send_message(message.chat.id, text, reply_markup=keyboard, parse_mode="HTML", disable_web_page_preview=True)
-        return
+    f"🔐 <b>Access Denied</b> 😞!\n\n"
+    f"You must join our channel to use this bot.\n\n"
+    f"📢 <b>Required Channel:</b>\n"
+    f"• Channel: <a href='https://t.me/{CHANNEL_USERNAME}'>{CHANNEL_USERNAME}</a>\n\n"
+    f"⚠️ After joining, click <b>VERIFY</b> button."
+)
+keyboard = InlineKeyboardMarkup(row_width=1)
+keyboard.add(
+    InlineKeyboardButton("📢 Join Channel", url=f"https://t.me/{CHANNEL_USERNAME}")
+)
+keyboard.add(InlineKeyboardButton("✅ VERIFY MEMBERSHIP ✅", callback_data="verify_membership", style="success"))
     
     balance = get_user_balance(user_id)
     is_admin = (user_id == ADMIN_ID)
@@ -1075,7 +1071,7 @@ def verify_membership_callback(call):
         text = main_menu_text(user_id, user.first_name, balance, "ACTIVE")
         bot.edit_message_text(text, call.message.chat.id, call.message.message_id, reply_markup=main_menu_keyboard(is_admin), parse_mode="HTML")
     else:
-        bot.answer_callback_query(call.id, "❌ Please join both channel and group first!", show_alert=True)
+        bot.answer_callback_query(call.id, "❌ Please join the channel first!", show_alert=True)
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("module_"))
 def handle_module_callback(call):
@@ -1085,7 +1081,7 @@ def handle_module_callback(call):
 
     if module not in ["referral", "admin", "buy", "music"]:
         if not check_membership(user_id):
-            bot.answer_callback_query(call.id, "❌ Please join channel and group first!", show_alert=True)
+            bot.answer_callback_query(call.id, "❌ Please join the channel first!", show_alert=True)
             return
 
     if module == "shopsy":
@@ -1219,7 +1215,7 @@ def handle_referral_callback(call):
 
     if call.data == "referral_get_link":
         if not check_membership(user_id):
-            bot.answer_callback_query(call.id, "❌ Please join channel and group first!", show_alert=True)
+            bot.answer_callback_query(call.id, "❌ Please join the channel first!", show_alert=True)
             return
         link = get_referral_link(user_id)
         bot.answer_callback_query(call.id, "🔗 Link copied! Share it with friends.")
@@ -1228,7 +1224,7 @@ def handle_referral_callback(call):
             f"📤 Share this link with your friends!\n"
             f"🎁 You get <b>+{REFERRAL_BONUS} Credits</b> per referral (after 24h).\n"
             f"🎁 Your friend gets <b>+{NEW_USER_BONUS} Credits</b> on joining.\n\n"
-            f"⚠️ Make sure your friend joins both channel and group!",
+            f"⚠️ Make sure your friend joins both channel!",
             chat_id=chat_id, message_id=msg_id,
             reply_markup=referral_menu_keyboard(), parse_mode="HTML"
         )
