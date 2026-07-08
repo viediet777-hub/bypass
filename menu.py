@@ -22,32 +22,10 @@ def main_menu_keyboard(is_admin: bool = False):
     kb.add(InlineKeyboardButton("📱 Flipkart Checker", callback_data="module_flipkart", style="primary"))
     kb.add(InlineKeyboardButton("📥 Instagram Downloader", callback_data="module_instagram", style="primary"))
     kb.add(InlineKeyboardButton("🔐 Session Extractor", callback_data="module_session", style="primary"))
-    kb.add(InlineKeyboardButton("🏨 Brevistay", callback_data="module_brevistay", style="primary"))
     kb.add(InlineKeyboardButton("🎵 Music", callback_data="module_music", style="primary"))
-    kb.add(InlineKeyboardButton("🍽️ Swiggy Offers", callback_data="module_swiggy", style="primary"))
     kb.add(InlineKeyboardButton("🔗 Referral", callback_data="module_referral", style="primary"))
     if is_admin:
         kb.add(InlineKeyboardButton("👑 Admin Panel", callback_data="module_admin", style="danger"))
-    return kb
-
-# ========== SHOPSY ==========
-def shopsy_menu_text(user_id: int, balance: int = 15, status: str = "ACTIVE", cost: int = 1) -> str:
-    return (
-        f"🎯 <b>SHOPSY AUTO-MINE</b>\n\n"
-        f"Status: <b>{status}</b>\n"
-        f"Balance: <b>{balance} Credits</b>\n"
-        f"Run Cost: <b>{cost} Credit(s) / run</b>\n\n"
-        f"Select an operation below:"
-    )
-
-def shopsy_menu_keyboard():
-    kb = InlineKeyboardMarkup(row_width=1)
-    kb.row(
-        InlineKeyboardButton("▶️ Start New Task", callback_data="shopsy_start", style="success"),
-        InlineKeyboardButton("📁 My Accounts", callback_data="shopsy_accounts", style="primary")
-    )
-    kb.add(InlineKeyboardButton("❓ How To Use", callback_data="shopsy_howto", style="primary"))
-    kb.add(InlineKeyboardButton("🔙 Back to Main", callback_data="back_menu", style="danger"))
     return kb
 
 # ========== FIREBASE ==========
@@ -212,51 +190,5 @@ def admin_panel_keyboard():
         InlineKeyboardButton("📢 Broadcast", callback_data="admin_broadcast", style="primary"),
         InlineKeyboardButton("⚙️ Set Costs", callback_data="admin_costs", style="primary")
     )
-    kb.add(InlineKeyboardButton("🔙 Back to Main", callback_data="back_menu", style="danger"))
-    return kb
-
-# ========== BREVISTAY ==========
-def brevistay_menu_text(user_id: int, balance: int = 15, status: str = "ACTIVE", cost: int = 1) -> str:
-    return (
-        f"🏨 <b>BREVISTAY REFERRAL AUTOMATION</b>\n\n"
-        f"Status: <b>{status}</b>\n"
-        f"Balance: <b>{balance} Credits</b>\n"
-        f"Run Cost: <b>{cost} Credit(s) / referral</b>\n\n"
-        f"Click <b>Start Referral</b> to begin.\n"
-        f"Bot will:\n"
-        f"• Generate random Indian name & email\n"
-        f"• Send OTP to your phone\n"
-        f"• Complete registration with your referral code\n"
-        f"• Verify email automatically\n\n"
-        f"⚠️ Make sure you have a Brevistay account!"
-    )
-
-def brevistay_menu_keyboard():
-    kb = InlineKeyboardMarkup(row_width=1)
-    kb.add(InlineKeyboardButton("▶️ Start Referral", callback_data="brevistay_start", style="success"))
-    kb.add(InlineKeyboardButton("❓ How To Use", callback_data="brevistay_howto", style="primary"))
-    kb.add(InlineKeyboardButton("🔙 Back to Main", callback_data="back_menu", style="danger"))
-    return kb
-
-# ========== REWARDSPHERE ==========
-def rewardsphere_menu_text(user_id: int, balance: int = 15, status: str = "ACTIVE", cost: int = 1) -> str:
-    return (
-        f"🏆 <b>REWARDSPHERE</b>\n\n"
-        f"Status: <b>{status}</b>\n"
-        f"Balance: <b>{balance} Credits</b>\n"
-        f"Run Cost: <b>{cost} Credit(s)</b> (per registration/login)\n\n"
-        f"Earn real rewards by uploading receipts!\n"
-        f"Click <b>Start</b> to register/login.\n"
-        f"Then use <b>Upload Receipt</b> to earn points.\n\n"
-        f"💡 You can upload unlimited receipts!"
-    )
-
-def rewardsphere_menu_keyboard():
-    kb = InlineKeyboardMarkup(row_width=1)
-    kb.add(InlineKeyboardButton("▶️ Start", callback_data="rewardsphere_start", style="success"))
-    kb.add(InlineKeyboardButton("📸 Upload Receipt", callback_data="rewardsphere_upload", style="primary"))
-    kb.add(InlineKeyboardButton("💰 My Points", callback_data="rewardsphere_points", style="primary"))
-    kb.add(InlineKeyboardButton("🎁 Rewards", callback_data="rewardsphere_rewards", style="primary"))
-    kb.add(InlineKeyboardButton("🚪 Logout", callback_data="rewardsphere_logout", style="danger"))
     kb.add(InlineKeyboardButton("🔙 Back to Main", callback_data="back_menu", style="danger"))
     return kb
