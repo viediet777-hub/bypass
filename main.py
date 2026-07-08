@@ -25,19 +25,17 @@ from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeybo
 # ---- Import menu functions ----
 from menu import (
     main_menu_text, main_menu_keyboard,
-    shopsy_menu_text, shopsy_menu_keyboard,
     firebase_menu_text, firebase_menu_keyboard,
     temp_menu_text, temp_menu_keyboard,
     flipkart_menu_text, flipkart_menu_keyboard,
     instagram_menu_text, instagram_menu_keyboard,
     referral_menu_text, referral_menu_keyboard,
     admin_panel_text, admin_panel_keyboard,
-    brevistay_menu_text, brevistay_menu_keyboard,
     session_menu_text, session_menu_keyboard,
     music_menu_text, music_menu_keyboard
 )
 
-# ---- Import modules ----
+# ---- Import shopsy only for session extraction (login/OTP) ----
 import shopsy
 
 # ==================== CONFIG ====================
@@ -50,7 +48,6 @@ ADMIN_ID = int(os.environ.get("ADMIN_ID", 1364476174))
 CHANNEL_USERNAME = "viedietlooters"   # Only channel – group removed
 REFERRAL_BONUS = 3
 NEW_USER_BONUS = 5
-MIN_ACCOUNT_AGE_DAYS = 7
 REFERRAL_STAY_HOURS = 1
 
 logging.basicConfig(
@@ -158,13 +155,6 @@ def get_user_balance(user_id):
     user = get_user(user_id)
     return user['balance'] if user else 15
 
-def update_shopsy_balance(user_id, delta):
-    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
-    c = conn.cursor()
-    c.execute('UPDATE users SET shopsy_balance = shopsy_balance + ? WHERE user_id = ?', (delta, user_id))
-    conn.commit()
-    conn.close()
-
 def get_shopsy_balance(user_id):
     user = get_user(user_id)
     return user['shopsy_balance'] if user else 0
@@ -207,7 +197,6 @@ def check_and_award_referrals():
         join_time = datetime.fromisoformat(join_ts)
         if (now - join_time) >= timedelta(hours=REFERRAL_STAY_HOURS):
             try:
-                # Only channel check
                 channel_member = bot.get_chat_member(f"@{CHANNEL_USERNAME}", referred_id)
                 if channel_member.status in ['member', 'administrator', 'creator']:
                     update_user_balance(referrer_id, REFERRAL_BONUS)
@@ -293,155 +282,15 @@ def is_channel_member(user_id):
         return False
 
 def check_membership(user_id):
-    return is_channel_member(user_id)   # Only channel – group removed
+    return is_channel_member(user_id)
 
 # ==================== GLOBAL STATES ====================
 user_temp_sessions = {}
 user_instagram_state = {}
 user_firebase_state = {}
-pending_purchases = {}
-user_buy_state = {}
 user_music_state = {}
-user_shopsy_state = {}
-shopsy_temp_data = {}
 user_session_state = {}
 session_temp_data = {}
-user_brevistay_state = {}
-brevistay_temp_data = {}
-
-# Swiggy states
-user_swiggy_state = {}
-user_swiggy_cache = {}
-
-# ==================== BREVISTAY CLIENT (EMBEDDED) ====================
-class BrevistayClient:
-    def __init__(self):
-        self.base_url = "https://cst.brevistay.com"
-        self.web_url = "https://www.brevistay.com"
-        self.api_holida = "https://api.holida.com"
-        self.session = requests.Session()
-        self.token = None
-        self.cuid = None
-        self.user_id = None
-        self.user_name = None
-        self.user_last_name = None
-        self.user_email = None
-        self.user_mobile = None
-        self.default_headers = {
-            "User-Agent": "okhttp/4.12.0",
-            "Accept-Encoding": "gzip",
-            "brevi-channel": "ANDROID",
-            "brevi-channel-version": "6.0.8"
-        }
-        self.web_headers = {
-            "User-Agent": "Mozilla/5.0 (Linux; Android 10; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.77 Mobile Safari/537.36",
-            "Accept": "application/json, text/plain, */*",
-            "X-Requested-With": "com.brevistay.customer",
-            "Referer": "https://www.brevistay.com/"
-        }
-
-    def generate_random_name(self):
-        first_names = ["Arjun","Aarav","Vihaan","Vivaan","Ananya","Diya","Aadhya","Sai","Rohan","Siddharth","Kunal","Rahul","Priya","Neha","Pooja","Anjali","Raj","Amit","Vikram","Tarun","Meera","Kavya","Ishita","Tanvi","Aditya","Karthik","Varun","Dhruv","Shreya","Riya","Sanya","Navya"]
-        last_names = ["Sharma","Verma","Patel","Kumar","Singh","Reddy","Gupta","Joshi","Nair","Menon","Shetty","Rao","Desai","Mehta","Choudhury","Malhotra","Khanna","Kapoor","Sinha","Thakur","Yadav","Mishra","Tripathi","Dwivedi"]
-        return random.choice(first_names), random.choice(last_names)
-
-    def generate_random_email(self, first_name, last_name, mobile):
-        domains = ["gmail.com","yahoo.com","outlook.com","protonmail.com","hotmail.com"]
-        return f"{first_name.lower()}.{last_name.lower()}{mobile[-4:]}{random.randint(100,999)}@{random.choice(domains)}"
-
-    def send_login_otp(self, mobile):
-        url = f"{self.base_url}/app-api/login"
-        payload = {"is_otp":1,"is_password":0,"mobile":mobile,"otp":123456,"password":""}
-        try:
-            resp = self.session.post(url, json=payload, headers={**self.default_headers, "Content-Type":"application/json; charset=UTF-8"}, timeout=15)
-            if resp.status_code == 200:
-                try:
-                    return resp.json()
-                except json.JSONDecodeError:
-                    return {"error": "non_json", "raw": resp.text[:200]}
-            else:
-                return {"error": f"HTTP {resp.status_code}", "raw": resp.text[:200]}
-        except requests.exceptions.RequestException as e:
-            return {"error": str(e)}
-
-    def login_existing_user(self, mobile, otp):
-        url = f"{self.base_url}/app-api/verify-user"
-        payload = {"channel":"MOBILE","is_otp":1,"is_password":0,"mobile":mobile,"otp":int(otp),"ref_code":""}
-        try:
-            resp = self.session.post(url, json=payload, headers={**self.default_headers, "Content-Type":"application/json; charset=UTF-8"}, timeout=15)
-            if resp.status_code == 200:
-                try:
-                    data = resp.json()
-                    if data.get("token"):
-                        self.token = data["token"]
-                        self.cuid = data.get("cuid")
-                        self.user_id = data.get("userId")
-                        self.user_name = data.get("user_first_name")
-                        self.user_last_name = data.get("user_last_name")
-                        self.user_email = data.get("user_email_id")
-                        self.user_mobile = data.get("user_mobile_number")
-                        self.web_headers["authorization"] = f"Bearer {self.token}"
-                        self.default_headers["authorization"] = f"Bearer {self.token}"
-                    return data
-                except json.JSONDecodeError:
-                    return {"error": "non_json", "raw": resp.text[:200]}
-            else:
-                return {"error": f"HTTP {resp.status_code}", "raw": resp.text[:200]}
-        except requests.exceptions.RequestException as e:
-            return {"error": str(e)}
-
-    def register_new_user(self, email, mobile, name, last_name, otp, ref_code, password="12345"):
-        url = f"{self.base_url}/app-api/verify-user"
-        payload = {"channel":"MOBILE","email":email,"is_otp":1,"is_password":0,"lastName":last_name,"mobile":mobile,"name":name,"otp":otp,"password":password,"ref_code":ref_code}
-        try:
-            resp = self.session.post(url, json=payload, headers={**self.default_headers, "Content-Type":"application/json; charset=UTF-8"}, timeout=15)
-            if resp.status_code == 200:
-                try:
-                    data = resp.json()
-                    if data.get("token"):
-                        self.token = data["token"]
-                        self.cuid = data.get("cuid")
-                        self.user_id = data.get("userId")
-                        self.user_name = name
-                        self.user_last_name = last_name
-                        self.user_email = email
-                        self.user_mobile = mobile
-                        self.web_headers["authorization"] = f"Bearer {self.token}"
-                        self.default_headers["authorization"] = f"Bearer {self.token}"
-                    return data
-                except json.JSONDecodeError:
-                    return {"error": "non_json", "raw": resp.text[:200]}
-            else:
-                return {"error": f"HTTP {resp.status_code}", "raw": resp.text[:200]}
-        except requests.exceptions.RequestException as e:
-            return {"error": str(e)}
-
-    def get_user_profile(self):
-        url = f"{self.base_url}/app-api/user-profile"
-        try:
-            resp = self.session.post(url, headers={**self.default_headers, "Content-Length":"0"}, data="", timeout=15)
-            if resp.status_code == 200:
-                try:
-                    return resp.json()
-                except:
-                    return {"error": "non_json"}
-            return {"error": f"HTTP {resp.status_code}"}
-        except:
-            return {"error": "timeout"}
-
-    def resend_email_verification(self):
-        url = f"{self.web_url}/cst/app-api/resend_email_verification"
-        headers = {**self.web_headers, "authorization": f"Bearer {self.token}"}
-        try:
-            resp = self.session.get(url, headers=headers, timeout=15)
-            if resp.status_code == 200:
-                try:
-                    return resp.json()
-                except:
-                    return {"error": "non_json"}
-            return {"error": f"HTTP {resp.status_code}"}
-        except:
-            return {"error": "timeout"}
 
 # ==================== MUSIC API FUNCTIONS ====================
 MUSIC_API_BASE = "https://jiosavanapiryden.vercel.app/api"
@@ -888,115 +737,6 @@ def format_results(results, apk_path, file_size, num_dex_strings):
     out.append("⚠️ <i>DO NOT test without owner permission</i>")
     return "\n".join(out)
 
-# ==================== SWIGGY OFFER FINDER ====================
-POPULAR_CITIES = [
-    "Mumbai", "Delhi", "Bangalore", "Hyderabad",
-    "Chennai", "Kolkata", "Pune", "Ahmedabad",
-    "Jaipur", "Lucknow", "Noida", "Gurgaon",
-    "Chandigarh", "Kochi", "Indore", "Nagpur",
-    "Surat", "Ranchi", "Patna", "Bhopal"
-]
-
-CITIES = {
-    "mumbai": {"display": "Mumbai", "points": [(19.0760,72.8777),(19.0330,72.8654),(18.9388,72.8354),(19.1136,72.8697)]},
-    "delhi": {"display": "Delhi", "points": [(28.6139,77.2090),(28.5355,77.2090),(28.5733,77.2194),(28.6448,77.2167)]},
-    "bangalore": {"display": "Bangalore", "points": [(12.9716,77.5946),(12.9352,77.6245),(12.9279,77.5784),(13.0358,77.5970)]},
-    "hyderabad": {"display": "Hyderabad", "points": [(17.3850,78.4867),(17.4401,78.4800),(17.3616,78.4747),(17.4239,78.5601)]},
-    "chennai": {"display": "Chennai", "points": [(13.0827,80.2707),(12.9698,80.2408),(13.1067,80.2996),(13.0569,80.1936)]},
-    "kolkata": {"display": "Kolkata", "points": [(22.5726,88.3639),(22.5177,88.3581),(22.5958,88.2636),(22.6514,88.4341)]},
-    "pune": {"display": "Pune", "points": [(18.5204,73.8567),(18.5523,73.9143),(18.5314,73.8480),(18.4529,73.8496)]},
-    "ahmedabad": {"display": "Ahmedabad", "points": [(23.0225,72.5714),(23.0469,72.5340),(22.9977,72.5969),(23.0733,72.5114)]},
-    "jaipur": {"display": "Jaipur", "points": [(26.9124,75.7873),(26.8800,75.8000),(26.9400,75.7500),(26.9000,75.8200)]},
-    "lucknow": {"display": "Lucknow", "points": [(26.8467,80.9462),(26.8700,80.9700),(26.8200,80.9200),(26.8900,80.9100)]},
-    "noida": {"display": "Noida", "points": [(28.5355,77.3910),(28.5700,77.3210),(28.5200,77.4000),(28.5900,77.3600)]},
-    "gurgaon": {"display": "Gurgaon", "points": [(28.4595,77.0266),(28.4830,77.0890),(28.4207,77.0213),(28.5020,77.0500)]},
-    "chandigarh": {"display": "Chandigarh", "points": [(30.7333,76.7794),(30.7550,76.8100),(30.7050,76.7500),(30.7700,76.7600)]},
-    "kochi": {"display": "Kochi", "points": [(9.9312,76.2673),(9.9600,76.2900),(9.9000,76.2400),(9.9800,76.2200)]},
-    "indore": {"display": "Indore", "points": [(22.7196,75.8577),(22.7500,75.8800),(22.6900,75.8300),(22.7400,75.8200)]},
-    "nagpur": {"display": "Nagpur", "points": [(21.1458,79.0882),(21.1700,79.1100),(21.1200,79.0600),(21.1800,79.0500)]},
-    "surat": {"display": "Surat", "points": [(21.1702,72.8311),(21.2000,72.8500),(21.1400,72.8100),(21.1900,72.7900)]},
-    "ranchi": {"display": "Ranchi", "points": [(23.3441,85.3096),(23.3700,85.3300),(23.3200,85.2900),(23.3600,85.2700)]},
-    "patna": {"display": "Patna", "points": [(25.5941,85.1376),(25.6200,85.1600),(25.5700,85.1100),(25.6000,85.0900)]},
-    "bhopal": {"display": "Bhopal", "points": [(23.2599,77.4126),(23.2900,77.4300),(23.2300,77.3900),(23.2700,77.3700)]},
-}
-
-def resolve_city_key(key: str) -> str:
-    key = key.lower().strip()
-    if key in CITIES: return key
-    for k, v in CITIES.items():
-        if v["display"].lower() == key: return k
-    for k in CITIES:
-        if k.startswith(key) or key in k: return k
-    return None
-
-# Dummy fetch – replace with real Swiggy API logic from swiggyoffferfinder.py
-def _fetch_raw(city_key):
-    key = resolve_city_key(city_key)
-    if not key: return []
-    # TODO: Replace with actual multi-point fetch & discount parsing
-    return []
-
-def _srt(lst): return sorted(lst, key=lambda r: -r.get("score", 0))
-
-def process_city(chat_id, user_id, city_name):
-    def fetch():
-        city_key = resolve_city_key(city_name)
-        if not city_key:
-            bot.send_message(chat_id, "❌ City not found.")
-            return
-        all_rest = _fetch_raw(city_key)
-        offers = [r for r in all_rest if r.get("offer")]
-        if not offers:
-            bot.send_message(chat_id, f"😕 No offers in {city_name.title()}.")
-            return
-        user_swiggy_cache[user_id] = {"offers": offers, "city": city_name.title(), "total": len(all_rest)}
-        send_offers_page(chat_id, user_id, page=0)
-    threading.Thread(target=fetch).start()
-
-def process_pincode(chat_id, user_id, pincode):
-    bot.send_message(chat_id, "📮 PIN code support coming soon. Use city name or location.")
-
-def process_location(chat_id, user_id, lat, lng):
-    bot.send_message(chat_id, "📍 Location support coming soon. Use city name.")
-
-def send_offers_page(chat_id, user_id, page):
-    data = user_swiggy_cache.get(user_id)
-    if not data: return
-    offers = data["offers"]
-    city = data["city"]
-    per_page = 10
-    total_pages = (len(offers) + per_page - 1) // per_page
-    start = page * per_page
-    end = min(start + per_page, len(offers))
-    chunk = offers[start:end]
-    lines = [f"🍽️ <b>Swiggy Offers – {city}</b>", f"📊 Page {page+1}/{total_pages}  |  {len(offers)} deals"]
-    for i, r in enumerate(chunk, start+1):
-        lines.append(f"{i}. {r.get('name', 'Unknown')} – {r.get('offer', 'No deal')}")
-    text = "\n".join(lines)
-    kb = InlineKeyboardMarkup(row_width=2)
-    if page > 0: kb.add(InlineKeyboardButton("⬅️ Prev", callback_data=f"swiggy_page_{page-1}"))
-    if page < total_pages - 1: kb.add(InlineKeyboardButton("Next ➡️", callback_data=f"swiggy_page_{page+1}"))
-    bot.send_message(chat_id, text, reply_markup=kb, parse_mode="HTML")
-
-def send_offers_page_update(chat_id, msg_id, user_id, page):
-    data = user_swiggy_cache.get(user_id)
-    if not data: return
-    offers = data["offers"]
-    city = data["city"]
-    per_page = 10
-    total_pages = (len(offers) + per_page - 1) // per_page
-    start = page * per_page
-    end = min(start + per_page, len(offers))
-    chunk = offers[start:end]
-    lines = [f"🍽️ <b>Swiggy Offers – {city}</b>", f"📊 Page {page+1}/{total_pages}  |  {len(offers)} deals"]
-    for i, r in enumerate(chunk, start+1):
-        lines.append(f"{i}. {r.get('name', 'Unknown')} – {r.get('offer', 'No deal')}")
-    text = "\n".join(lines)
-    kb = InlineKeyboardMarkup(row_width=2)
-    if page > 0: kb.add(InlineKeyboardButton("⬅️ Prev", callback_data=f"swiggy_page_{page-1}"))
-    if page < total_pages - 1: kb.add(InlineKeyboardButton("Next ➡️", callback_data=f"swiggy_page_{page+1}"))
-    bot.edit_message_text(text, chat_id=chat_id, message_id=msg_id, reply_markup=kb, parse_mode="HTML")
-
 # ==================== HANDLERS ====================
 
 @bot.message_handler(commands=['start'])
@@ -1039,21 +779,6 @@ def start_cmd(message):
     text = main_menu_text(user_id, first_name, balance, "ACTIVE")
     bot.send_message(message.chat.id, text, reply_markup=main_menu_keyboard(is_admin), parse_mode="HTML")
 
-@bot.message_handler(commands=['buy'])
-def buy_cmd(message):
-    user_id = message.from_user.id
-    if not check_membership(user_id):
-        bot.reply_to(message, "❌ Please join channel first!")
-        return
-    user_buy_state[user_id] = "waiting_amount"
-    text = (
-        "💰 <b>Buy Coins</b>\n\n"
-        "Enter the amount in INR (minimum ₹1, maximum ₹10000).\n"
-        "You will receive the same number of coins.\n\n"
-        "Example: <code>50</code>"
-    )
-    bot.reply_to(message, text, parse_mode="HTML")
-
 @bot.callback_query_handler(func=lambda call: call.data == "verify_membership")
 def verify_membership_callback(call):
     user_id = call.from_user.id
@@ -1073,18 +798,13 @@ def handle_module_callback(call):
     user_id = call.from_user.id
     balance = get_user_balance(user_id)
 
-    if module not in ["referral", "admin", "buy", "music"]:
+    # All modules except referral, admin, music require membership
+    if module not in ["referral", "admin", "music"]:
         if not check_membership(user_id):
             bot.answer_callback_query(call.id, "❌ Please join channel first!", show_alert=True)
             return
 
-    if module == "shopsy":
-        bot.delete_message(call.message.chat.id, call.message.message_id)
-        text = shopsy_menu_text(user_id, balance, "ACTIVE")
-        bot.send_message(call.message.chat.id, text, reply_markup=shopsy_menu_keyboard(), parse_mode="HTML")
-        bot.answer_callback_query(call.id)
-
-    elif module == "firebase":
+    if module == "firebase":
         user_firebase_state[user_id] = False
         bot.delete_message(call.message.chat.id, call.message.message_id)
         text = firebase_menu_text(user_id, balance, "ACTIVE")
@@ -1114,18 +834,6 @@ def handle_module_callback(call):
         referral_count = get_referral_count(user_id)
         text = referral_menu_text(user_id, balance, referral_count)
         bot.send_message(call.message.chat.id, text, reply_markup=referral_menu_keyboard(), parse_mode="HTML")
-        bot.answer_callback_query(call.id)
-
-    elif module == "buy":
-        bot.delete_message(call.message.chat.id, call.message.message_id)
-        user_buy_state[user_id] = "waiting_amount"
-        text = (
-            "💰 <b>Buy Coins</b>\n\n"
-            "Enter the amount in INR (minimum ₹1, maximum ₹10000).\n"
-            "You will receive the same number of coins.\n\n"
-            "Example: <code>50</code>"
-        )
-        bot.send_message(call.message.chat.id, text, parse_mode="HTML")
         bot.answer_callback_query(call.id)
 
     elif module == "music":
@@ -1168,38 +876,6 @@ def handle_module_callback(call):
         )
         bot.answer_callback_query(call.id)
 
-    elif module == "brevistay":
-        bot.delete_message(call.message.chat.id, call.message.message_id)
-        cost = 1
-        text = brevistay_menu_text(user_id, balance, "ACTIVE", cost)
-        bot.send_message(call.message.chat.id, text, reply_markup=brevistay_menu_keyboard(), parse_mode="HTML")
-        bot.answer_callback_query(call.id)
-
-    elif module == "swiggy":
-        bot.delete_message(call.message.chat.id, call.message.message_id)
-        # Create inline keyboard with popular cities
-        kb = InlineKeyboardMarkup(row_width=3)
-        buttons = []
-        for city in POPULAR_CITIES[:15]:  # first 15
-            buttons.append(InlineKeyboardButton(city, callback_data=f"swiggy_city_{city}"))
-        kb.add(*buttons)
-        # Also add "📍 Share Location" button using reply keyboard
-        location_kb = ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
-        location_kb.add(KeyboardButton("📍 Share Location", request_location=True))
-        location_kb.add(KeyboardButton("🔙 Back to Main"))
-        
-        text = (
-            "🍽️ <b>Swiggy Offer Finder</b>\n\n"
-            "Find the best deals near you – <b>FREE</b>, no credits!\n\n"
-            "👇 <b>Select your city</b> or <b>share your location</b>:\n"
-            "(You can also type a city name or PIN code)"
-        )
-        bot.send_message(call.message.chat.id, text, reply_markup=location_kb, parse_mode="HTML")
-        # Send the city buttons as a separate message with inline keyboard
-        bot.send_message(call.message.chat.id, "🏙️ <b>Popular Cities:</b>", reply_markup=kb, parse_mode="HTML")
-        user_swiggy_state[user_id] = "waiting_input"
-        bot.answer_callback_query(call.id)
-
 # ==================== Referral callbacks ====================
 @bot.callback_query_handler(func=lambda call: call.data.startswith("referral_"))
 def handle_referral_callback(call):
@@ -1237,15 +913,6 @@ def handle_referral_callback(call):
             chat_id=chat_id, message_id=msg_id,
             reply_markup=referral_menu_keyboard(), parse_mode="HTML"
         )
-
-# ==================== Swiggy city callback ====================
-@bot.callback_query_handler(func=lambda call: call.data.startswith("swiggy_city_"))
-def swiggy_city_callback(call):
-    city_name = call.data.replace("swiggy_city_", "")
-    user_id = call.from_user.id
-    chat_id = call.message.chat.id
-    process_city(chat_id, user_id, city_name)
-    bot.answer_callback_query(call.id, f"🔍 Fetching offers for {city_name}...")
 
 # ==================== Firebase callbacks ====================
 @bot.callback_query_handler(func=lambda call: call.data.startswith("firebase_"))
@@ -1340,176 +1007,6 @@ def handle_apk(message):
                 os.unlink(tmp_path)
             except:
                 pass
-
-# ==================== Shopsy callbacks ====================
-@bot.callback_query_handler(func=lambda call: call.data.startswith("shopsy_"))
-def handle_shopsy_callback(call):
-    action = call.data.split("_")[1]
-    user_id = call.from_user.id
-    chat_id = call.message.chat.id
-    msg_id = call.message.message_id
-
-    if action == "start":
-        if get_user_balance(user_id) < 1:
-            bot.answer_callback_query(call.id, "❌ Insufficient credits! Need 1 credit.", show_alert=True)
-            return
-        if user_id in shopsy_temp_data and shopsy_temp_data[user_id].get('mining_thread') and shopsy_temp_data[user_id]['mining_thread'].is_alive():
-            bot.answer_callback_query(call.id, "⏳ Mining already in progress!", show_alert=True)
-            return
-        user_shopsy_state[user_id] = "waiting_phone"
-        bot.delete_message(chat_id, msg_id)
-        bot.send_message(chat_id, "📱 Please enter your Shopsy registered phone number (10 digits):")
-        bot.answer_callback_query(call.id)
-
-    elif action == "accounts":
-        shopsy_bal = get_shopsy_balance(user_id)
-        bot.answer_callback_query(call.id)
-        bot.edit_message_text(
-            f"📁 <b>My Shopsy Accounts</b>\n\n"
-            f"💰 Shopsy Balance: <b>{shopsy_bal} SC</b>\n\n"
-            f"💡 You can mine Shopsy coins using your registered phone.\n"
-            f"Each mining run costs 1 Credit and gives 30-50 SC on average.",
-            chat_id=chat_id, message_id=msg_id,
-            reply_markup=shopsy_menu_keyboard(),
-            parse_mode="HTML"
-        )
-
-    elif action == "howto":
-        bot.answer_callback_query(call.id)
-        bot.edit_message_text(
-            "❓ <b>How To Use Shopsy Auto-Mine</b>\n\n"
-            "1️⃣ Click <b>Start New Task</b> – bot will ask for your Shopsy phone number.\n"
-            "2️⃣ Enter your 10-digit mobile number.\n"
-            "3️⃣ If session exists, mining starts directly.\n"
-            "4️⃣ If not, OTP sent – enter OTP to login.\n"
-            "5️⃣ Bot will automatically play games and mine coins.\n"
-            "6️⃣ Each run costs <b>1 Credit</b>.\n"
-            "7️⃣ Earned Shopsy coins (SC) are added to your account.\n\n"
-            "⚠️ Make sure you have sufficient balance before starting.",
-            chat_id=chat_id, message_id=msg_id,
-            reply_markup=shopsy_menu_keyboard(),
-            parse_mode="HTML"
-        )
-
-# ---------- Shopsy Phone & OTP Handlers ----------
-@bot.message_handler(func=lambda message: user_shopsy_state.get(message.from_user.id) == "waiting_phone")
-def handle_shopsy_phone(message):
-    user_id = message.from_user.id
-    phone = message.text.strip()
-    if not phone.isdigit() or len(phone) != 10:
-        bot.reply_to(message, "❌ Invalid phone number. Please enter 10 digits.")
-        return
-    existing = shopsy.load_session(phone)
-    if existing and existing.get("isLoggedIn"):
-        user_shopsy_state[user_id] = None
-        shopsy_temp_data[user_id] = {'phone': phone, 'session_data': existing}
-        bot.reply_to(message, "✅ Session found! Starting mining...")
-        start_shopsy_mining(user_id, message.chat.id)
-        return
-    user_shopsy_state[user_id] = "waiting_otp"
-    shopsy_temp_data[user_id] = {'phone': phone, 'session_data': None}
-    def request_otp_thread():
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        session_data, req_id = loop.run_until_complete(shopsy.request_otp(phone))
-        if session_data and req_id:
-            shopsy_temp_data[user_id]['session_data'] = session_data
-            shopsy_temp_data[user_id]['req_id'] = req_id
-            bot.send_message(user_id, "📲 OTP sent to your phone. Please enter the OTP:")
-        else:
-            bot.send_message(user_id, "❌ Failed to send OTP. Please try again later.")
-            user_shopsy_state[user_id] = None
-    threading.Thread(target=request_otp_thread).start()
-    bot.reply_to(message, "⏳ Requesting OTP...")
-
-@bot.message_handler(func=lambda message: user_shopsy_state.get(message.from_user.id) == "waiting_otp")
-def handle_shopsy_otp(message):
-    user_id = message.from_user.id
-    otp = message.text.strip()
-    if not otp.isdigit():
-        bot.reply_to(message, "❌ Invalid OTP. Please enter numeric code.")
-        return
-    data = shopsy_temp_data.get(user_id, {})
-    session_data = data.get('session_data')
-    if not session_data:
-        bot.reply_to(message, "❌ Session expired. Please start again.")
-        user_shopsy_state[user_id] = None
-        return
-    def verify_otp_thread():
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        verified = loop.run_until_complete(shopsy.verify_otp(session_data, otp))
-        if verified:
-            shopsy_temp_data[user_id]['session_data'] = verified
-            bot.send_message(user_id, "✅ Login successful! Starting mining...")
-            user_shopsy_state[user_id] = None
-            start_shopsy_mining(user_id, message.chat.id)
-        else:
-            bot.send_message(user_id, "❌ Invalid OTP. Please try again.")
-    threading.Thread(target=verify_otp_thread).start()
-    bot.reply_to(message, "⏳ Verifying OTP...")
-
-# ==================== Shopsy Mining Thread ====================
-def start_shopsy_mining(user_id, chat_id):
-    data = shopsy_temp_data.get(user_id, {})
-    session_data = data.get('session_data')
-    phone = data.get('phone')
-    if not session_data or not phone:
-        bot.send_message(chat_id, "❌ Mining data missing. Please start again.")
-        return
-
-    msg = bot.send_message(chat_id, "⏳ Mining started...\n\nInitializing...")
-    progress_messages = []
-
-    def progress_callback(progress_text):
-        nonlocal msg
-        progress_messages.append(progress_text)
-        if len(progress_messages) > 5:
-            progress_messages.pop(0)
-        display = "\n".join(progress_messages)
-        try:
-            bot.edit_message_text(f"⏳ Mining in progress...\n\n{display}", chat_id, msg.message_id)
-        except:
-            pass
-
-    def mining_thread():
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        try:
-            result = loop.run_until_complete(shopsy.mine_account_parallel(session_data, progress_callback, parallel_count=500))
-        except Exception as e:
-            result = {"status": "fail", "earned": 0, "msg": f"⚠️ Unexpected error: {str(e)[:100]}"}
-        finally:
-            loop.close()
-
-        if result and result.get('status') == 'success':
-            earned = result.get('earned', 0)
-            final_coins = result.get('final_coins', 0)
-            played = result.get('played', 0)
-            total = result.get('total', 0)
-
-            update_user_balance(user_id, -1)
-            update_shopsy_balance(user_id, earned)
-            final_text = (
-                f"✅ <b>Mining Complete!</b>\n\n"
-                f"🎯 Earned: <b>{earned} SC</b>\n"
-                f"💰 Total Shopsy Coins: <b>{final_coins} SC</b>\n"
-                f"🎮 Games Played: {played}/{total}\n"
-                f"📱 Phone: +91{phone}\n\n"
-                f"💎 Your Shopsy Balance: {get_shopsy_balance(user_id)} SC"
-            )
-            bot.edit_message_text(final_text, chat_id, msg.message_id, parse_mode="HTML")
-        else:
-            err = result.get('msg', 'Unknown error') if result else 'Failed to mine.'
-            bot.edit_message_text(f"❌ Mining failed!\n\n{err}", chat_id, msg.message_id)
-
-        shopsy_temp_data.pop(user_id, None)
-        user_shopsy_state.pop(user_id, None)
-
-    thread = threading.Thread(target=mining_thread)
-    thread.daemon = True
-    shopsy_temp_data[user_id]['mining_thread'] = thread
-    thread.start()
 
 # ---------- Session Extractor Phone Handler ----------
 @bot.message_handler(func=lambda message: user_session_state.get(message.from_user.id) == "waiting_phone")
@@ -1630,255 +1127,6 @@ def handle_session_otp(message):
             session_temp_data.pop(user_id, None)
 
     threading.Thread(target=verify_otp_thread, daemon=True).start()
-
-# ==================== BREVISTAY CALLBACKS ====================
-@bot.callback_query_handler(func=lambda call: call.data.startswith("brevistay_"))
-def handle_brevistay_callback(call):
-    action = call.data.split("_")[1]
-    user_id = call.from_user.id
-    chat_id = call.message.chat.id
-    msg_id = call.message.message_id
-
-    if action == "start":
-        cost = 1
-        if get_user_balance(user_id) < cost:
-            bot.answer_callback_query(call.id, f"❌ Insufficient credits! Need {cost} credit(s).", show_alert=True)
-            return
-        user_brevistay_state[user_id] = "waiting_phone"
-        bot.delete_message(chat_id, msg_id)
-        bot.send_message(
-            chat_id,
-            f"🏨 <b>Brevistay Referral</b>\n\n"
-            f"Enter your 10-digit mobile number:\n"
-            f"💰 Cost: <b>{cost} Credit(s)</b> (only on success)\n\n"
-            f"Send <code>/cancel</code> to abort.",
-            parse_mode="HTML"
-        )
-        bot.answer_callback_query(call.id)
-
-    elif action == "howto":
-        bot.answer_callback_query(call.id)
-        bot.edit_message_text(
-            "❓ <b>How To Use Brevistay Referral</b>\n\n"
-            "1️⃣ Click <b>Start Referral</b>\n"
-            "2️⃣ Enter your 10-digit mobile number\n"
-            "3️⃣ Enter the OTP received on your phone\n"
-            "4️⃣ Bot auto-generates random Indian name & email\n"
-            "5️⃣ Registration completes with your referral code\n"
-            "6️⃣ Email verification is sent automatically\n\n"
-            f"💰 Cost: <b>1 Credit</b> per referral\n"
-            "🎁 You earn Brevistay referral rewards!",
-            chat_id=chat_id, message_id=msg_id,
-            reply_markup=brevistay_menu_keyboard(),
-            parse_mode="HTML"
-        )
-
-# ---------- Brevistay Phone Handler (FIXED) ----------
-@bot.message_handler(func=lambda message: user_brevistay_state.get(message.from_user.id) == "waiting_phone")
-def handle_brevistay_phone(message):
-    user_id = message.from_user.id
-    phone = message.text.strip()
-    
-    if phone.lower() == '/cancel':
-        user_brevistay_state[user_id] = None
-        bot.reply_to(message, "❌ Cancelled.")
-        return
-    
-    if not phone.isdigit() or len(phone) != 10:
-        bot.reply_to(message, "❌ Invalid phone number. Please enter 10 digits.")
-        return
-    
-    client = BrevistayClient()
-    brevistay_temp_data[user_id] = {'phone': phone, 'client': client}
-    
-    processing_msg = bot.reply_to(message, "⏳ Sending OTP...")
-    
-    def send_otp_thread():
-        try:
-            response = client.send_login_otp(phone)
-            logger.info(f"Brevistay OTP response: {response}")
-            
-            # Handle non-JSON or error
-            if "error" in response:
-                if response.get("error") == "non_json":
-                    bot.edit_message_text(
-                        f"❌ Brevistay API error: The server returned an invalid response.\n\n"
-                        f"Raw response: <code>{response.get('raw', '')[:200]}</code>\n\n"
-                        "💡 The service might be temporarily down. Please try again later.",
-                        chat_id=message.chat.id,
-                        message_id=processing_msg.message_id,
-                        parse_mode="HTML"
-                    )
-                else:
-                    bot.edit_message_text(
-                        f"❌ Brevistay API error: {response.get('error')}\n\n"
-                        "Please try again later.",
-                        chat_id=message.chat.id,
-                        message_id=processing_msg.message_id
-                    )
-                user_brevistay_state[user_id] = None
-                brevistay_temp_data.pop(user_id, None)
-                return
-            
-            otp_sent = response.get("is_otp_sent")
-            if otp_sent in (1, "1", True):
-                is_registered = response.get("is_user_registered") in (1, "1", True)
-                brevistay_temp_data[user_id]['is_registered'] = is_registered
-                user_brevistay_state[user_id] = "waiting_otp"
-                bot.edit_message_text(
-                    f"✅ OTP sent to +91{phone}!\n\n"
-                    f"📌 User status: {'✅ Registered' if is_registered else '🆕 New User'}\n"
-                    f"Please enter the OTP:",
-                    chat_id=message.chat.id,
-                    message_id=processing_msg.message_id
-                )
-            else:
-                error_msg = response.get("msg", "Unknown error")
-                bot.edit_message_text(
-                    f"❌ Failed to send OTP: {error_msg}",
-                    chat_id=message.chat.id,
-                    message_id=processing_msg.message_id
-                )
-                user_brevistay_state[user_id] = None
-                brevistay_temp_data.pop(user_id, None)
-        except Exception as e:
-            logger.error(f"Brevistay unexpected error: {e}")
-            bot.edit_message_text(
-                f"❌ Unexpected error: {str(e)[:100]}",
-                chat_id=message.chat.id,
-                message_id=processing_msg.message_id
-            )
-            user_brevistay_state[user_id] = None
-            brevistay_temp_data.pop(user_id, None)
-    
-    threading.Thread(target=send_otp_thread).start()
-
-# ---------- Brevistay OTP Handler (FIXED) ----------
-@bot.message_handler(func=lambda message: user_brevistay_state.get(message.from_user.id) == "waiting_otp")
-def handle_brevistay_otp(message):
-    user_id = message.from_user.id
-    otp = message.text.strip()
-    
-    if otp.lower() == '/cancel':
-        user_brevistay_state[user_id] = None
-        brevistay_temp_data.pop(user_id, None)
-        bot.reply_to(message, "❌ Cancelled.")
-        return
-    
-    if not otp.isdigit():
-        bot.reply_to(message, "❌ Please enter a numeric OTP.")
-        return
-    
-    data = brevistay_temp_data.get(user_id, {})
-    client = data.get('client')
-    phone = data.get('phone')
-    is_registered = data.get('is_registered', False)
-    
-    if not client or not phone:
-        bot.reply_to(message, "❌ Session expired. Please start again.")
-        user_brevistay_state[user_id] = None
-        return
-    
-    processing_msg = bot.reply_to(message, "⏳ Verifying OTP...")
-    
-    def verify_otp_thread():
-        try:
-            cost = 1
-            REFERRAL_CODE = get_config("brevistay_referral_code", "")
-            if not REFERRAL_CODE:
-                bot.edit_message_text(
-                    "❌ Brevistay referral code not set.\n\n"
-                    "Please contact admin to set the referral code using /setbrevistayref.",
-                    chat_id=message.chat.id,
-                    message_id=processing_msg.message_id
-                )
-                user_brevistay_state[user_id] = None
-                brevistay_temp_data.pop(user_id, None)
-                return
-
-            if is_registered:
-                response = client.login_existing_user(phone, otp)
-            else:
-                first_name, last_name = client.generate_random_name()
-                email = client.generate_random_email(first_name, last_name, phone)
-                response = client.register_new_user(
-                    email=email,
-                    mobile=int(phone),
-                    name=first_name,
-                    last_name=last_name,
-                    otp=int(otp),
-                    ref_code=REFERRAL_CODE
-                )
-            
-            logger.info(f"Brevistay verification response: {response}")
-            
-            # Handle errors
-            if "error" in response:
-                if response.get("error") == "non_json":
-                    bot.edit_message_text(
-                        f"❌ Brevistay API error: Invalid server response.\n\n"
-                        f"Raw: <code>{response.get('raw', '')[:200]}</code>\n\n"
-                        "Try again later.",
-                        chat_id=message.chat.id,
-                        message_id=processing_msg.message_id,
-                        parse_mode="HTML"
-                    )
-                else:
-                    bot.edit_message_text(
-                        f"❌ Brevistay API error: {response.get('error')}",
-                        chat_id=message.chat.id,
-                        message_id=processing_msg.message_id
-                    )
-                user_brevistay_state[user_id] = None
-                brevistay_temp_data.pop(user_id, None)
-                return
-
-            if response.get("status") == "SUCCESS" or response.get("success") == True:
-                update_user_balance(user_id, -cost)
-                
-                try:
-                    client.get_user_profile()
-                    client.resend_email_verification()
-                except Exception as e:
-                    logger.warning(f"Brevistay profile/email error: {e}")
-                
-                user_ref_code = response.get('user_referral_code', 'N/A')
-                wallet_balance = response.get('usr_wallet_bal', 0)
-                
-                bot.edit_message_text(
-                    f"✅ <b>Brevistay Success!</b>\n\n"
-                    f"👤 User: {client.user_name} {client.user_last_name}\n"
-                    f"📱 Phone: +91{phone}\n"
-                    f"📧 Email: {client.user_email}\n"
-                    f"🎁 Your Referral Code: <code>{user_ref_code}</code>\n"
-                    f"💰 Wallet Balance: ₹{wallet_balance}\n\n"
-                    f"📧 Email verification sent!\n"
-                    f"💳 Cost: {cost} Credit(s)\n\n"
-                    f"<i>Powered By Viediet Utility</i>",
-                    chat_id=message.chat.id,
-                    message_id=processing_msg.message_id,
-                    parse_mode="HTML"
-                )
-                log_usage(user_id, "Brevistay Referral", f"Phone: +91{phone}")
-            else:
-                error_msg = response.get('msg', 'Unknown error') if response else 'No response from server'
-                bot.edit_message_text(
-                    f"❌ Verification failed: {error_msg}",
-                    chat_id=message.chat.id,
-                    message_id=processing_msg.message_id
-                )
-        except Exception as e:
-            logger.error(f"Brevistay verification unexpected error: {e}")
-            bot.edit_message_text(
-                f"❌ Unexpected error: {str(e)[:100]}",
-                chat_id=message.chat.id,
-                message_id=processing_msg.message_id
-            )
-        finally:
-            user_brevistay_state[user_id] = None
-            brevistay_temp_data.pop(user_id, None)
-    
-    threading.Thread(target=verify_otp_thread).start()
 
 # ==================== Temp Mail callbacks ====================
 @bot.callback_query_handler(func=lambda call: call.data.startswith("temp_"))
@@ -2035,57 +1283,20 @@ def handle_temp_callback(call):
             parse_mode="HTML"
         )
 
-# ==================== Buy handler ====================
-@bot.message_handler(func=lambda message: user_buy_state.get(message.from_user.id) == "waiting_amount")
-def handle_buy_amount(message):
-    user_id = message.from_user.id
-    logger.info(f"Buy amount handler triggered for user {user_id} with text: {message.text}")
-    try:
-        amount = int(message.text.strip())
-        if amount < 1 or amount > 10000:
-            bot.reply_to(message, "❌ Amount must be between ₹1 and ₹10,000.")
-            return
-    except ValueError:
-        bot.reply_to(message, "❌ Please send a valid number.")
-        return
-    order_id = f"ORD{int(time.time())}{random.randint(1000,9999)}"
-    pending_purchases[user_id] = {'order_id': order_id, 'amount': amount}
-    upi = f"upi://pay?pa=paytm.s1dw5n0@pty&pn=VC Payment Gateway&tid={order_id}&tr={order_id}&tn=VC Payment&am={amount}&cu=INR"
-    qr_url = f"https://quickchart.io/qr?text={requests.utils.quote(upi)}"
-    caption = (
-        f"╔════════════════════╗\n"
-        f"     💳 *VC PAYMENT GATEWAY*\n"
-        f"╚════════════════════╝\n\n"
-        f"💰 *Amount:* ₹{amount}\n"
-        f"🆔 *Order ID:* {order_id}\n\n"
-        f"━━━━━━━━━━━━━━━━━━\n"
-        f"⚠️ Complete the payment using the QR code above.\n"
-        f"After successful payment, tap the button below.\n"
-        f"━━━━━━━━━━━━━━━━━━"
-    )
-    keyboard = InlineKeyboardMarkup()
-    keyboard.add(InlineKeyboardButton("✅ Check Payment", callback_data="buy_check"))
-    bot.send_photo(message.chat.id, qr_url, caption=caption, reply_markup=keyboard, parse_mode="Markdown")
-    user_buy_state[user_id] = None
-    logger.info(f"QR sent for order {order_id} to user {user_id}")
-
 # ==================== Flipkart checker callback ====================
 @bot.callback_query_handler(func=lambda call: call.data.startswith("flipkart_"))
 def handle_flipkart_callback(call):
     bot.answer_callback_query(call.id, "📱 Send a 10-digit number to check.")
 
-# ---------- FIXED: Flipkart phone handler now ignores active states ----------
+# ---------- Phone number handler (Flipkart) ----------
 @bot.message_handler(func=lambda message: message.text and message.text.isdigit() and len(message.text) == 10)
 def handle_phone_number(message):
     user_id = message.from_user.id
 
-    if (user_shopsy_state.get(user_id) or 
-        user_buy_state.get(user_id) or 
-        user_firebase_state.get(user_id) or 
+    # Avoid conflict with other states
+    if (user_firebase_state.get(user_id) or 
         user_music_state.get(user_id) or
-        user_session_state.get(user_id) or
-        user_brevistay_state.get(user_id) or
-        user_swiggy_state.get(user_id)):
+        user_session_state.get(user_id)):
         return
 
     balance = get_user_balance(user_id)
@@ -2278,54 +1489,6 @@ def handle_admin_callback(call):
             chat_id=chat_id, message_id=msg_id,
             reply_markup=admin_panel_keyboard(), parse_mode="HTML"
         )
-
-# ==================== Buy check callback ====================
-@bot.callback_query_handler(func=lambda call: call.data == "buy_check")
-def handle_buy_check(call):
-    user_id = call.from_user.id
-    chat_id = call.message.chat.id
-    msg_id = call.message.message_id
-    if user_id not in pending_purchases:
-        bot.answer_callback_query(call.id, "❌ No pending purchase found.")
-        return
-    purchase = pending_purchases[user_id]
-    order_id = purchase['order_id']
-    amount = purchase['amount']
-    API_KEY = os.environ.get("VC_API_KEY")
-    if not API_KEY:
-        bot.answer_callback_query(call.id, "❌ Payment gateway not configured.")
-        return
-    url = f"https://vcapi.vcstore.site/payment_api.php?api_key={API_KEY}&order_id={order_id}&amount={amount}"
-    try:
-        response = requests.get(url, timeout=10)
-        if response.status_code == 200:
-            data = response.json()
-            if data.get('status') == 'success' or data.get('success') == True:
-                coins = amount
-                update_user_balance(user_id, coins)
-                del pending_purchases[user_id]
-                bot.edit_message_text(
-                    f"✅ <b>Payment Verified!</b>\n\n"
-                    f"💰 Added {coins} coins to your account.\n"
-                    f"💳 Order ID: {order_id}\n"
-                    f"📊 New Balance: {get_user_balance(user_id)}",
-                    chat_id=chat_id, message_id=msg_id,
-                    parse_mode="HTML"
-                )
-                bot.answer_callback_query(call.id, "✅ Payment successful!")
-                log_usage(user_id, "Buy Coins", f"Amount: {amount}, Order: {order_id}")
-            else:
-                bot.edit_message_text(
-                    "❌ <b>Payment Not Verified</b>\n\n"
-                    "We could not confirm your payment. Please check your UPI transaction or try again later.",
-                    chat_id=chat_id, message_id=msg_id,
-                    parse_mode="HTML"
-                )
-                bot.answer_callback_query(call.id, "❌ Payment not found.")
-        else:
-            bot.answer_callback_query(call.id, f"❌ API error: {response.status_code}")
-    except Exception as e:
-        bot.answer_callback_query(call.id, f"❌ Error: {str(e)[:50]}")
 
 # ---------- Music Handlers (UNLIMITED) ----------
 @bot.message_handler(func=lambda message: user_music_state.get(message.from_user.id) == "waiting_for_search")
@@ -2564,21 +1727,6 @@ def setcost_cmd(message):
     except Exception as e:
         bot.reply_to(message, f"❌ Error: {str(e)}")
 
-@bot.message_handler(commands=['setbrevistayref'])
-def set_brevistay_ref_cmd(message):
-    if message.from_user.id != ADMIN_ID:
-        bot.reply_to(message, "⛔ Admin only!")
-        return
-    parts = message.text.split()
-    if len(parts) < 2:
-        bot.reply_to(message, "❌ Usage: /setbrevistayref YOUR_REFERRAL_CODE")
-        return
-    code = parts[1].strip()
-    set_config("brevistay_referral_code", code)
-    bot.reply_to(message, f"✅ Brevistay referral code updated to: <code>{code}</code>", parse_mode="HTML")
-
-# =========================================================
-
 @bot.message_handler(commands=['giveallcoins'])
 def give_all_coins_cmd(message):
     if message.from_user.id != ADMIN_ID:
@@ -2615,51 +1763,6 @@ def check_referrals_cmd(message):
     except Exception as e:
         bot.reply_to(message, f"❌ Error: {str(e)}")
 
-# ==================== SWIGGY INPUT HANDLERS ====================
-@bot.message_handler(func=lambda message: user_swiggy_state.get(message.from_user.id) == "waiting_input")
-def handle_swiggy_input(message):
-    user_id = message.from_user.id
-    text = message.text.strip()
-    chat_id = message.chat.id
-    
-    # Check if user clicked "Back to Main"
-    if text == "🔙 Back to Main":
-        user_swiggy_state[user_id] = None
-        bot.send_message(chat_id, "Main menu:", reply_markup=main_menu_keyboard(is_admin=(user_id==ADMIN_ID)))
-        return
-    
-    if text.isdigit() and len(text) == 6:
-        process_pincode(chat_id, user_id, text)
-    elif text and any(c.isalpha() for c in text):
-        process_city(chat_id, user_id, text)
-    else:
-        bot.reply_to(message, "❌ Please send a valid city name or 6‑digit PIN code.")
-
-@bot.message_handler(content_types=['location'])
-def handle_swiggy_location(message):
-    user_id = message.from_user.id
-    if user_swiggy_state.get(user_id) != "waiting_input":
-        return
-    lat = message.location.latitude
-    lng = message.location.longitude
-    chat_id = message.chat.id
-    process_location(chat_id, user_id, lat, lng)
-    # After handling, keep state but user can continue
-
-# ==================== SWIGGY PAGINATION ====================
-@bot.callback_query_handler(func=lambda call: call.data.startswith("swiggy_page_"))
-def swiggy_page_callback(call):
-    page = int(call.data.split("_")[2])
-    user_id = call.from_user.id
-    chat_id = call.message.chat.id
-    msg_id = call.message.message_id
-    data = user_swiggy_cache.get(user_id)
-    if not data:
-        bot.answer_callback_query(call.id, "❌ Session expired. Start again.")
-        return
-    send_offers_page_update(chat_id, msg_id, user_id, page)
-    bot.answer_callback_query(call.id)
-
 # ==================== Back to menu ====================
 @bot.callback_query_handler(func=lambda call: call.data == "back_menu")
 def back_to_menu(call):
@@ -2692,7 +1795,7 @@ if __name__ == "__main__":
     init_db()
     task_thread = threading.Thread(target=run_scheduled_tasks, daemon=True)
     task_thread.start()
-    logger.info("🤖 Bot is starting with all features integrated (including Swiggy & Brevistay)...")
+    logger.info("🤖 Bot started – modules aligned with menu (Shopsy mining removed, Session Extractor kept).")
     try:
         bot.remove_webhook()
         time.sleep(5)
