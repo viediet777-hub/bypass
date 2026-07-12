@@ -45,7 +45,7 @@ if not BOT_TOKEN:
 
 ADMIN_ID = int(os.environ.get("ADMIN_ID", 1364476174))
 CHANNEL_USERNAME = "viedietlooters"   # Only channel – group removed
-REFERRAL_BONUS = 4
+REFERRAL_BONUS = 3
 NEW_USER_BONUS = 5
 REFERRAL_STAY_HOURS = 1
 
@@ -1108,12 +1108,9 @@ def fetch_ig_data(username: str):
         )
         response.raise_for_status()
         data = response.json()
-        return {
-            "stories": data.get("stories", []),
-            "highlights": data.get("highlights", []),
-            "posts": data.get("posts", []),
-            "user_info": data.get("user_info", {})
-        }
+        # Debug: log keys to see what we get
+        logger.info(f"IG Viewer response keys: {list(data.keys())}")
+        return data
     except Exception as e:
         logger.error(f"IG Viewer API failed: {e}")
         return None
@@ -1151,6 +1148,32 @@ def build_caption_ig(item: dict, prefix: str = ""):
         else:
             caption = f"⏰ {taken_at}"
     return caption.strip()
+
+def extract_lists_from_response(data: dict):
+    """Scan response for any list that looks like a list of media items."""
+    lists = {}
+    for key, value in data.items():
+        if isinstance(value, list) and len(value) > 0:
+            # Check if first item looks like a media object
+            first = value[0]
+            if isinstance(first, dict):
+                # Heuristic: has 'source' or 'media_url' or 'url'
+                if any(k in first for k in ['source', 'media_url', 'url', 'src', 'link']):
+                    lists[key] = value
+    return lists
+
+def extract_user_info(data: dict):
+    """Search for user info in response."""
+    info_keys = ['user_info', 'user', 'profile', 'account']
+    for key in info_keys:
+        if key in data and isinstance(data[key], dict):
+            return data[key]
+    # If not found, look for any dict that has 'username', 'full_name', etc.
+    for key, value in data.items():
+        if isinstance(value, dict):
+            if 'username' in value or 'full_name' in value:
+                return value
+    return {}
 
 # ==================== HANDLERS ====================
 
@@ -1586,31 +1609,47 @@ def igviewer_username_handler(message):
         user_igviewer_state[user_id] = None
         return
 
-    # Store data for later use
+    # Extract lists dynamically
+    lists = extract_lists_from_response(data)
+    if not lists:
+        bot.edit_message_text("❌ No media found for this user.", chat_id=message.chat.id, message_id=processing.message_id)
+        user_igviewer_state[user_id] = None
+        return
+
+    # Extract user info
+    user_info = extract_user_info(data)
+    # Store data
     igviewer_data[user_id] = {
         "username": username,
         "data": data,
-        "current_list": [],
+        "lists": lists,           # dict of list_name -> list_items
+        "current_list_key": None,
         "current_page": 0,
-        "list_type": "",
         "sent_media_ids": []
     }
-    user_igviewer_state[user_id] = None  # not waiting anymore
+    user_igviewer_state[user_id] = None
 
-    # Show menu
-    keyboard = [
-        [
-            InlineKeyboardButton("📸 Stories", callback_data="igviewer_stories"),
-            InlineKeyboardButton("⭐ Highlights", callback_data="igviewer_highlights"),
-        ],
-        [
-            InlineKeyboardButton("📷 Posts", callback_data="igviewer_posts"),
-            InlineKeyboardButton("ℹ️ Info", callback_data="igviewer_info"),
-        ]
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
+    # Build menu with available lists
+    buttons = []
+    list_names = {
+        'stories': '📸 Stories',
+        'highlights': '⭐ Highlights',
+        'posts': '📷 Posts',
+        'user_stories': '📸 Stories',
+        'user_highlights': '⭐ Highlights',
+        'user_posts': '📷 Posts',
+    }
+    for key in lists.keys():
+        label = list_names.get(key, key.title())
+        buttons.append([InlineKeyboardButton(label, callback_data=f"igviewer_list_{key}")])
+    # Add Info button if user_info exists
+    if user_info:
+        buttons.append([InlineKeyboardButton("ℹ️ Info", callback_data="igviewer_info")])
+    buttons.append([InlineKeyboardButton("🔙 Back to Menu", callback_data="back_menu")])
+
+    reply_markup = InlineKeyboardMarkup(buttons)
     bot.edit_message_text(
-        f"📱 <b>@{username}</b> – choose what you want to see:",
+        f"📱 <b>@{username}</b> – choose what to view:",
         chat_id=message.chat.id,
         message_id=processing.message_id,
         reply_markup=reply_markup,
@@ -1620,50 +1659,26 @@ def igviewer_username_handler(message):
 @bot.callback_query_handler(func=lambda call: call.data.startswith("igviewer_"))
 def igviewer_callback(call):
     user_id = call.from_user.id
-    action = call.data.split("_")[1]  # stories, highlights, posts, info, prev, next, back
+    action = call.data.split("_", 1)[1]  # "list_stories", "info", etc.
 
-    # Handle back to menu
-    if action == "back":
-        data = igviewer_data.get(user_id)
-        if not data:
-            bot.answer_callback_query(call.id, "Session expired.")
-            return
-        username = data.get("username")
-        keyboard = [
-            [InlineKeyboardButton("📸 Stories", callback_data="igviewer_stories"),
-             InlineKeyboardButton("⭐ Highlights", callback_data="igviewer_highlights")],
-            [InlineKeyboardButton("📷 Posts", callback_data="igviewer_posts"),
-             InlineKeyboardButton("ℹ️ Info", callback_data="igviewer_info")]
-        ]
-        bot.edit_message_text(
-            f"📱 <b>@{username}</b> – choose what you want to see:",
-            chat_id=call.message.chat.id,
-            message_id=call.message.message_id,
-            reply_markup=InlineKeyboardMarkup(keyboard),
-            parse_mode="HTML"
-        )
-        # Clear sent media IDs
-        igviewer_data[user_id]["sent_media_ids"] = []
-        bot.answer_callback_query(call.id)
+    data = igviewer_data.get(user_id)
+    if not data:
+        bot.answer_callback_query(call.id, "Session expired.")
         return
 
     if action == "info":
-        data = igviewer_data.get(user_id)
-        if not data:
-            bot.answer_callback_query(call.id, "Session expired.")
-            return
-        info = data["data"].get("user_info", {})
-        if not info:
+        user_info = extract_user_info(data["data"])
+        if not user_info:
             bot.answer_callback_query(call.id, "No profile info available.")
             return
         text = (
             f"<b>👤 Profile Info</b>\n\n"
-            f"Username: @{info.get('username', 'N/A')}\n"
-            f"Full Name: {info.get('full_name', 'N/A')}\n"
-            f"Bio: {info.get('bio', 'N/A')}\n"
-            f"Followers: {info.get('follower_count', 0)}\n"
-            f"Following: {info.get('following_count', 0)}\n"
-            f"Posts: {info.get('media_count', 0)}"
+            f"Username: @{user_info.get('username', 'N/A')}\n"
+            f"Full Name: {user_info.get('full_name', 'N/A')}\n"
+            f"Bio: {user_info.get('bio', 'N/A')}\n"
+            f"Followers: {user_info.get('follower_count', 0)}\n"
+            f"Following: {user_info.get('following_count', 0)}\n"
+            f"Posts: {user_info.get('media_count', 0)}"
         )
         keyboard = [[InlineKeyboardButton("🔙 Back", callback_data="igviewer_back")]]
         bot.edit_message_text(
@@ -1676,25 +1691,64 @@ def igviewer_callback(call):
         bot.answer_callback_query(call.id)
         return
 
-    # stories, highlights, posts
-    data = igviewer_data.get(user_id)
-    if not data:
-        bot.answer_callback_query(call.id, "Session expired.")
+    if action == "back":
+        # Rebuild menu
+        lists = data.get("lists", {})
+        user_info = extract_user_info(data["data"])
+        buttons = []
+        list_names = {
+            'stories': '📸 Stories',
+            'highlights': '⭐ Highlights',
+            'posts': '📷 Posts',
+            'user_stories': '📸 Stories',
+            'user_highlights': '⭐ Highlights',
+            'user_posts': '📷 Posts',
+        }
+        for key in lists.keys():
+            label = list_names.get(key, key.title())
+            buttons.append([InlineKeyboardButton(label, callback_data=f"igviewer_list_{key}")])
+        if user_info:
+            buttons.append([InlineKeyboardButton("ℹ️ Info", callback_data="igviewer_info")])
+        buttons.append([InlineKeyboardButton("🔙 Back to Menu", callback_data="back_menu")])
+        reply_markup = InlineKeyboardMarkup(buttons)
+        bot.edit_message_text(
+            f"📱 <b>@{data['username']}</b> – choose what to view:",
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            reply_markup=reply_markup,
+            parse_mode="HTML"
+        )
+        # Clear sent media IDs
+        data["sent_media_ids"] = []
+        igviewer_data[user_id] = data
+        bot.answer_callback_query(call.id)
         return
 
-    items = data["data"].get(action, [])  # action = stories, highlights, posts
-    if not items:
-        bot.answer_callback_query(call.id, f"No {action} found.")
+    # List selection: action is "list_<key>"
+    if action.startswith("list_"):
+        list_key = action.split("_", 1)[1]
+        items = data["lists"].get(list_key, [])
+        if not items:
+            bot.answer_callback_query(call.id, "No items in this list.")
+            return
+        data["current_list_key"] = list_key
+        data["current_list"] = items
+        data["current_page"] = 0
+        igviewer_data[user_id] = data
+        send_igviewer_page(call.message.chat.id, user_id, call.message.message_id)
+        bot.answer_callback_query(call.id)
         return
 
-    # Store list info
-    data["current_list"] = items
-    data["current_page"] = 0
-    data["list_type"] = action
-    igviewer_data[user_id] = data
-
-    # Send first page
-    send_igviewer_page(call.message.chat.id, user_id, call.message.message_id)
+    # Pagination: prev/next
+    if action in ["prev", "next"]:
+        if action == "next":
+            data["current_page"] = data.get("current_page", 0) + 1
+        elif action == "prev":
+            data["current_page"] = max(0, data.get("current_page", 0) - 1)
+        igviewer_data[user_id] = data
+        send_igviewer_page(call.message.chat.id, user_id, call.message.message_id)
+        bot.answer_callback_query(call.id)
+        return
 
 def send_igviewer_page(chat_id, user_id, edit_msg_id=None):
     data = igviewer_data.get(user_id)
@@ -1702,13 +1756,11 @@ def send_igviewer_page(chat_id, user_id, edit_msg_id=None):
         return
     items = data["current_list"]
     page = data["current_page"]
-    list_type = data["list_type"]
     items_per_page = 3
     total = len(items)
     start = page * items_per_page
     end = min(start + items_per_page, total)
     if start >= total:
-        # Go to last page
         page = (total - 1) // items_per_page
         start = page * items_per_page
         end = min(start + items_per_page, total)
@@ -1725,7 +1777,6 @@ def send_igviewer_page(chat_id, user_id, edit_msg_id=None):
             pass
     new_sent_ids = []
 
-    # Send each media
     for item in page_items:
         media_url, media_type = extract_media_ig(item)
         if not media_url:
@@ -1739,7 +1790,6 @@ def send_igviewer_page(chat_id, user_id, edit_msg_id=None):
             new_sent_ids.append(msg.message_id)
         except Exception as e:
             logger.error(f"IG Viewer send failed: {e}")
-            # Fallback download
             try:
                 resp = requests.get(media_url, timeout=20)
                 resp.raise_for_status()
@@ -1754,7 +1804,6 @@ def send_igviewer_page(chat_id, user_id, edit_msg_id=None):
     data["sent_media_ids"] = new_sent_ids
     igviewer_data[user_id] = data
 
-    # Update navigation message
     nav_buttons = []
     if page > 0:
         nav_buttons.append(InlineKeyboardButton("◀️ Prev", callback_data="igviewer_prev"))
@@ -1763,34 +1812,23 @@ def send_igviewer_page(chat_id, user_id, edit_msg_id=None):
     nav_buttons.append(InlineKeyboardButton("🔙 Back", callback_data="igviewer_back"))
     nav_markup = InlineKeyboardMarkup([nav_buttons] if nav_buttons else [])
 
+    list_key = data.get("current_list_key", "")
     label_map = {
-        "stories": "📸 Stories",
-        "highlights": "⭐ Highlights",
-        "posts": "📷 Posts"
+        'stories': '📸 Stories',
+        'highlights': '⭐ Highlights',
+        'posts': '📷 Posts',
+        'user_stories': '📸 Stories',
+        'user_highlights': '⭐ Highlights',
+        'user_posts': '📷 Posts',
     }
-    label = label_map.get(list_type, "Items")
-    hub_text = f"📄 <b>{label}</b> – Page {page+1}/{ (total + items_per_page - 1)//items_per_page }\n\n(Showing {len(page_items)} items)"
+    label = label_map.get(list_key, list_key.title())
+    hub_text = f"📄 <b>{label}</b> – Page {page+1}/{(total + items_per_page - 1)//items_per_page}\n\n(Showing {len(page_items)} items)"
 
     if edit_msg_id:
         bot.edit_message_text(hub_text, chat_id=chat_id, message_id=edit_msg_id, reply_markup=nav_markup, parse_mode="HTML")
     else:
         # Should not happen
         pass
-
-@bot.callback_query_handler(func=lambda call: call.data in ["igviewer_prev", "igviewer_next"])
-def igviewer_nav_callback(call):
-    user_id = call.from_user.id
-    data = igviewer_data.get(user_id)
-    if not data:
-        bot.answer_callback_query(call.id, "Session expired.")
-        return
-    if call.data == "igviewer_next":
-        data["current_page"] = data.get("current_page", 0) + 1
-    elif call.data == "igviewer_prev":
-        data["current_page"] = max(0, data.get("current_page", 0) - 1)
-    igviewer_data[user_id] = data
-    send_igviewer_page(call.message.chat.id, user_id, call.message.message_id)
-    bot.answer_callback_query(call.id)
 
 # ==================== Temp Mail callbacks ====================
 @bot.callback_query_handler(func=lambda call: call.data.startswith("temp_"))
