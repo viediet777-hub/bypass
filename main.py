@@ -33,13 +33,9 @@ from menu import (
     instagram_menu_text, instagram_menu_keyboard,
     referral_menu_text, referral_menu_keyboard,
     admin_panel_text, admin_panel_keyboard,
-    session_menu_text, session_menu_keyboard,
     music_menu_text, music_menu_keyboard,
-    crownit_menu_text, crownit_menu_keyboard   # NEW
+    crownit_menu_text, crownit_menu_keyboard
 )
-
-# ---- Import shopsy only for session extraction (login/OTP) ----
-import shopsy
 
 # ==================== CONFIG ====================
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
@@ -49,8 +45,8 @@ if not BOT_TOKEN:
 
 ADMIN_ID = int(os.environ.get("ADMIN_ID", 1364476174))
 CHANNEL_USERNAME = "viedietlooters"   # Only channel – group removed
-REFERRAL_BONUS = 3
-NEW_USER_BONUS = 5
+REFERRAL_BONUS = 2
+NEW_USER_BONUS = 2
 REFERRAL_STAY_HOURS = 1
 
 logging.basicConfig(
@@ -292,13 +288,10 @@ user_temp_sessions = {}
 user_instagram_state = {}
 user_firebase_state = {}
 user_music_state = {}
-user_session_state = {}
-session_temp_data = {}
 user_crownit_state = {}      # "waiting_phone", "waiting_otp", "running"
 crownit_data = {}
 
 # ==================== CROWNIT BOT CLASS (SYNCHRONOUS, NO FIREBASE) ====================
-# ----- CrownitBot (simplified, synchronous version) -----
 class CrownitBot:
     """Crownit automation – uses manual OTP entry (no Firebase)."""
     def __init__(self, phone: str):
@@ -390,51 +383,6 @@ class CrownitBot:
                 self._set_auth(uid, sid)
                 return sid
         return None
-
-    # --- Full survey logic from original crownit_bot.py (copied) ---
-    # I'm including the complete survey-taking methods from the working script.
-    # Since the original was huge, we'll provide a simplified but functional version.
-    # For production, copy the exact methods from crownit_bot.py.
-
-    # Here we add a placeholder method that actually runs the survey and scratch.
-    def run_full_workflow(self, otp):
-        # 1. Register device
-        reg_id = self.register_device()
-        if not reg_id:
-            return None, "Device registration failed"
-        self.reg_id = reg_id
-        # 2. Create user & send OTP (already done before, but we'll redo to be safe)
-        uid = self.create_user_and_send_otp(reg_id)
-        if not uid:
-            return None, "Failed to create user / send OTP"
-        # 3. Verify OTP
-        sid = self.verify_otp(otp, uid, reg_id)
-        if not sid:
-            return None, "Invalid OTP"
-        # 4. Update city & milestone
-        self.update_city()
-        self.update_profile_milestone()
-        # 5. Get surveys
-        surveys = self.get_eligible_surveys()
-        if not surveys:
-            return None, "No surveys available"
-        # 6. Take first survey (simplified – we'll use the full smart survey)
-        # For brevity, we'll call the full method from crownit_bot.py
-        # We'll include a method `take_survey_complete` that mimics the exact logic.
-        taken = self.take_survey_complete(surveys[0])
-        if not taken:
-            return None, "Survey failed"
-        # 7. Scratch card
-        token = self.get_scratch_token()
-        if not token:
-            return None, "No scratch card available"
-        coupon = self.scratch_card(surveys[0].get("survey_id"), token)
-        if coupon:
-            return coupon, None
-        return None, "Scratch card claim failed"
-
-    # The following methods are taken from the original crownit_bot.py
-    # They handle smart surveys, container resolution, answer building, etc.
 
     def update_city(self):
         payloads = [{"city": "Bihar Sharif", "cityId": 1134}, {"cityName": "Bihar Sharif", "cityId": 1134}]
@@ -661,6 +609,40 @@ class CrownitBot:
             seq_no += 1
             time.sleep(random.uniform(4, 9))
         return answered > 0
+
+    def run_full_workflow(self, otp):
+        # 1. Register device
+        reg_id = self.register_device()
+        if not reg_id:
+            return None, "Device registration failed"
+        self.reg_id = reg_id
+        # 2. Create user & send OTP
+        uid = self.create_user_and_send_otp(reg_id)
+        if not uid:
+            return None, "Failed to create user / send OTP"
+        # 3. Verify OTP
+        sid = self.verify_otp(otp, uid, reg_id)
+        if not sid:
+            return None, "Invalid OTP"
+        # 4. Update city & milestone
+        self.update_city()
+        self.update_profile_milestone()
+        # 5. Get surveys
+        surveys = self.get_eligible_surveys()
+        if not surveys:
+            return None, "No surveys available"
+        # 6. Take first survey
+        taken = self.take_survey_complete(surveys[0])
+        if not taken:
+            return None, "Survey failed"
+        # 7. Scratch card
+        token = self.get_scratch_token()
+        if not token:
+            return None, "No scratch card available"
+        coupon = self.scratch_card(surveys[0].get("survey_id"), token)
+        if coupon:
+            return coupon, None
+        return None, "Scratch card claim failed"
 
 
 # ==================== MUSIC API FUNCTIONS ====================
@@ -1230,24 +1212,7 @@ def handle_module_callback(call):
         bot.send_message(call.message.chat.id, text, reply_markup=admin_panel_keyboard(), parse_mode="HTML")
         bot.answer_callback_query(call.id)
 
-    elif module == "session":
-        if balance < 1:
-            bot.answer_callback_query(call.id, "❌ Insufficient credits! Need 1 credit.", show_alert=True)
-            return
-        bot.delete_message(call.message.chat.id, call.message.message_id)
-        user_session_state[user_id] = "waiting_phone"
-        bot.send_message(
-            call.message.chat.id,
-            "🔐 <b>Flipkart/Shopsy Session Extractor</b>\n\n"
-            "Enter your 10‑digit mobile number.\n"
-            "I will request an OTP and extract your full session JSON.\n"
-            "💰 Cost: <b>1 Credit</b> (only on success).\n\n"
-            "Send <code>/cancel</code> to abort.",
-            parse_mode="HTML"
-        )
-        bot.answer_callback_query(call.id)
-
-    # ==================== NEW CROWNIT MODULE ====================
+    # ==================== CROWNIT MODULE ====================
     elif module == "crownit":
         if balance < 2:
             bot.answer_callback_query(call.id, "❌ You need 2 credits for Crownit automation.", show_alert=True)
@@ -1398,126 +1363,6 @@ def handle_apk(message):
                 os.unlink(tmp_path)
             except:
                 pass
-
-# ---------- Session Extractor Phone Handler ----------
-@bot.message_handler(func=lambda message: user_session_state.get(message.from_user.id) == "waiting_phone")
-def handle_session_phone(message):
-    user_id = message.from_user.id
-    phone = message.text.strip()
-    if not phone.isdigit() or len(phone) != 10:
-        bot.reply_to(message, "❌ Please enter a valid 10‑digit number (only digits).")
-        return
-
-    processing_msg = bot.reply_to(message, f"⏳ Requesting OTP for +91{phone}...")
-
-    def request_otp_thread():
-        try:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            session_data, req_id = loop.run_until_complete(shopsy.request_otp(phone))
-            if session_data and req_id:
-                session_temp_data[user_id] = {
-                    'phone': phone,
-                    'session_data': session_data,
-                    'req_id': req_id
-                }
-                user_session_state[user_id] = "waiting_otp"
-                bot.edit_message_text(
-                    f"✅ OTP sent to +91{phone}.\n\nPlease enter the OTP you received.",
-                    chat_id=message.chat.id,
-                    message_id=processing_msg.message_id
-                )
-            else:
-                bot.edit_message_text(
-                    "❌ Failed to send OTP. Please try again later.",
-                    chat_id=message.chat.id,
-                    message_id=processing_msg.message_id
-                )
-                user_session_state[user_id] = None
-                session_temp_data.pop(user_id, None)
-        except Exception as e:
-            logger.error(f"OTP request error: {e}")
-            bot.edit_message_text(
-                f"❌ Error requesting OTP: {str(e)[:100]}",
-                chat_id=message.chat.id,
-                message_id=processing_msg.message_id
-            )
-            user_session_state[user_id] = None
-            session_temp_data.pop(user_id, None)
-
-    threading.Thread(target=request_otp_thread, daemon=True).start()
-
-# ---------- Session Extractor OTP Handler ----------
-@bot.message_handler(func=lambda message: user_session_state.get(message.from_user.id) == "waiting_otp")
-def handle_session_otp(message):
-    user_id = message.from_user.id
-    otp = message.text.strip()
-    if not otp.isdigit():
-        bot.reply_to(message, "❌ Please enter a numeric OTP.")
-        return
-
-    data = session_temp_data.get(user_id, {})
-    session_data = data.get('session_data')
-    phone = data.get('phone')
-    if not session_data or not phone:
-        bot.reply_to(message, "❌ Session expired. Please start again.")
-        user_session_state[user_id] = None
-        return
-
-    processing_msg = bot.reply_to(message, "⏳ Verifying OTP...")
-
-    def verify_otp_thread():
-        try:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            verified_session = loop.run_until_complete(shopsy.verify_otp(session_data, otp))
-            if verified_session:
-                balance = get_user_balance(user_id)
-                if balance < 1:
-                    bot.edit_message_text(
-                        "❌ Insufficient credits! You need 1 Credit for this extraction.",
-                        chat_id=message.chat.id,
-                        message_id=processing_msg.message_id
-                    )
-                    user_session_state[user_id] = None
-                    session_temp_data.pop(user_id, None)
-                    return
-
-                update_user_balance(user_id, -1)
-                json_str = json.dumps(verified_session, indent=2, ensure_ascii=False)
-
-                if len(json_str) > 4000:
-                    chunks = [json_str[i:i+4000] for i in range(0, len(json_str), 4000)]
-                    for idx, chunk in enumerate(chunks):
-                        caption = f"✅ Session JSON for +91{phone} (Part {idx+1}/{len(chunks)}):\n\n```json\n{chunk}\n```"
-                        bot.send_message(message.chat.id, caption, parse_mode="Markdown")
-                    bot.delete_message(message.chat.id, processing_msg.message_id)
-                else:
-                    bot.edit_message_text(
-                        f"✅ Session JSON for +91{phone}:\n\n```json\n{json_str}\n```",
-                        chat_id=message.chat.id,
-                        message_id=processing_msg.message_id,
-                        parse_mode="Markdown"
-                    )
-                log_usage(user_id, "Session Extractor", f"Phone: +91{phone}")
-            else:
-                bot.edit_message_text(
-                    "❌ Invalid OTP or verification failed. Please try again.",
-                    chat_id=message.chat.id,
-                    message_id=processing_msg.message_id
-                )
-        except Exception as e:
-            logger.error(f"OTP verification error: {e}")
-            bot.edit_message_text(
-                f"❌ Error during verification: {str(e)[:100]}",
-                chat_id=message.chat.id,
-                message_id=processing_msg.message_id
-            )
-        finally:
-            user_session_state[user_id] = None
-            session_temp_data.pop(user_id, None)
-
-    threading.Thread(target=verify_otp_thread, daemon=True).start()
 
 # ==================== CROWNIT PHONE HANDLER ====================
 @bot.message_handler(func=lambda message: user_crownit_state.get(message.from_user.id) == "waiting_phone")
@@ -1785,7 +1630,6 @@ def handle_phone_number(message):
     # Avoid conflict with other states
     if (user_firebase_state.get(user_id) or 
         user_music_state.get(user_id) or
-        user_session_state.get(user_id) or
         user_crownit_state.get(user_id)):
         return
 
@@ -2273,10 +2117,6 @@ def cancel_cmd(message):
         user_crownit_state[user_id] = None
         crownit_data.pop(user_id, None)
         bot.reply_to(message, "❌ Crownit automation cancelled. Use /start to return.")
-    elif user_session_state.get(user_id):
-        user_session_state[user_id] = None
-        session_temp_data.pop(user_id, None)
-        bot.reply_to(message, "❌ Session extraction cancelled. Use /start to return.")
     elif user_music_state.get(user_id):
         user_music_state[user_id] = None
         bot.reply_to(message, "❌ Music search cancelled.")
@@ -2306,7 +2146,7 @@ if __name__ == "__main__":
     init_db()
     task_thread = threading.Thread(target=run_scheduled_tasks, daemon=True)
     task_thread.start()
-    logger.info("🤖 Bot started – Crownit Automation integrated.")
+    logger.info("🤖 Bot started – Crownit Automation integrated, Shopsy removed.")
     try:
         bot.remove_webhook()
         time.sleep(5)
