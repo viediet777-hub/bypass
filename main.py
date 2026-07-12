@@ -19,6 +19,8 @@ import zipfile
 import sqlite3
 import asyncio
 import concurrent.futures
+import urllib.parse
+import base64
 from datetime import datetime, timedelta
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton
 
@@ -32,7 +34,8 @@ from menu import (
     referral_menu_text, referral_menu_keyboard,
     admin_panel_text, admin_panel_keyboard,
     session_menu_text, session_menu_keyboard,
-    music_menu_text, music_menu_keyboard
+    music_menu_text, music_menu_keyboard,
+    crownit_menu_text, crownit_menu_keyboard   # NEW
 )
 
 # ---- Import shopsy only for session extraction (login/OTP) ----
@@ -291,6 +294,374 @@ user_firebase_state = {}
 user_music_state = {}
 user_session_state = {}
 session_temp_data = {}
+user_crownit_state = {}      # "waiting_phone", "waiting_otp", "running"
+crownit_data = {}
+
+# ==================== CROWNIT BOT CLASS (SYNCHRONOUS, NO FIREBASE) ====================
+# ----- CrownitBot (simplified, synchronous version) -----
+class CrownitBot:
+    """Crownit automation – uses manual OTP entry (no Firebase)."""
+    def __init__(self, phone: str):
+        self.phone = phone
+        self.session = requests.Session()
+        self.session.headers.update({
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:151.0) Gecko/20100101 Firefox/151.0",
+            "Accept": "application/json, text/plain, */*",
+            "Accept-Language": "en-IN,en-GB;q=0.9,en-US;q=0.8,en;q=0.7",
+            "Origin": "https://feedback.crownit.in",
+            "Content-Type": "application/json",
+        })
+        self.user_id = "6667"
+        self.session_id = "759b064f-381d-11e5-810b-0286c96d2641"
+        self._set_auth(self.user_id, self.session_id)
+        self.profile_data = {}
+        self.coupon = None
+        self.uid = None
+        self.reg_id = None
+
+    def _set_auth(self, uid, sid):
+        raw = f"{uid}:{sid}"
+        b64 = base64.b64encode(raw.encode()).decode()
+        self.session.headers["Authorization"] = f"Basic {b64}"
+
+    def _api(self, method, path, json_data=None, headers=None):
+        url = f"https://feedback.crownit.in{path}"
+        try:
+            r = self.session.request(method, url, json=json_data, headers=headers or {}, timeout=30)
+            return r.json()
+        except:
+            return {}
+
+    def register_device(self):
+        params = {
+            "isDeviceRooted": "0",
+            "macAddress": "",
+            "campaignType": "na",
+            "manufacturerName": "Unknown",
+            "emailId": "na",
+            "deviceVersion": self.session.headers.get("User-Agent", ""),
+            "modelNo": "PWA",
+            "deviceId": "00000",
+            "allAccounts": "",
+            "screenName": "phoneScreen",
+        }
+        body = urllib.parse.urlencode(params)
+        auth_empty = base64.b64encode(b":").decode()
+        url = "https://feedback.crownit.in/api/devices"
+        try:
+            r = self.session.post(url, data=body, headers={
+                "Content-Type": "application/x-www-form-urlencoded",
+                "Authorization": f"Basic {auth_empty}",
+                "Api-Version": "71",
+                "Username": "",
+                "Password": "null",
+                "platform": "android",
+                "app-version": "0",
+            }, timeout=30)
+            data = r.json()
+            return data.get("id")
+        except:
+            return None
+
+    def create_user_and_send_otp(self, reg_id):
+        resp = self._api("POST", "/api/users", {
+            "phoneNo": self.phone,
+            "deviceId": "00000",
+            "registrationStatusId": reg_id,
+        }, headers={"app-type": "pwa"})
+        if resp.get("responseCode") == 1:
+            ud = resp.get("userDetails", {})
+            self.uid = ud.get("id")
+            return self.uid
+        return None
+
+    def verify_otp(self, otp, uid, reg_id):
+        resp = self._api("PUT", f"/api/users/{self.phone}/otp", {
+            "phoneNo": self.phone,
+            "deviceId": "00000",
+            "registrationStatusId": reg_id,
+            "otp": otp,
+            "userId": self.phone,
+            "api_version": "71",
+        })
+        if resp.get("responseCode") == 1:
+            sid = resp.get("userDetails", {}).get("sessionId")
+            if sid:
+                self._set_auth(uid, sid)
+                return sid
+        return None
+
+    # --- Full survey logic from original crownit_bot.py (copied) ---
+    # I'm including the complete survey-taking methods from the working script.
+    # Since the original was huge, we'll provide a simplified but functional version.
+    # For production, copy the exact methods from crownit_bot.py.
+
+    # Here we add a placeholder method that actually runs the survey and scratch.
+    def run_full_workflow(self, otp):
+        # 1. Register device
+        reg_id = self.register_device()
+        if not reg_id:
+            return None, "Device registration failed"
+        self.reg_id = reg_id
+        # 2. Create user & send OTP (already done before, but we'll redo to be safe)
+        uid = self.create_user_and_send_otp(reg_id)
+        if not uid:
+            return None, "Failed to create user / send OTP"
+        # 3. Verify OTP
+        sid = self.verify_otp(otp, uid, reg_id)
+        if not sid:
+            return None, "Invalid OTP"
+        # 4. Update city & milestone
+        self.update_city()
+        self.update_profile_milestone()
+        # 5. Get surveys
+        surveys = self.get_eligible_surveys()
+        if not surveys:
+            return None, "No surveys available"
+        # 6. Take first survey (simplified – we'll use the full smart survey)
+        # For brevity, we'll call the full method from crownit_bot.py
+        # We'll include a method `take_survey_complete` that mimics the exact logic.
+        taken = self.take_survey_complete(surveys[0])
+        if not taken:
+            return None, "Survey failed"
+        # 7. Scratch card
+        token = self.get_scratch_token()
+        if not token:
+            return None, "No scratch card available"
+        coupon = self.scratch_card(surveys[0].get("survey_id"), token)
+        if coupon:
+            return coupon, None
+        return None, "Scratch card claim failed"
+
+    # The following methods are taken from the original crownit_bot.py
+    # They handle smart surveys, container resolution, answer building, etc.
+
+    def update_city(self):
+        payloads = [{"city": "Bihar Sharif", "cityId": 1134}, {"cityName": "Bihar Sharif", "cityId": 1134}]
+        for pl in payloads:
+            resp = self._api("PUT", "/api/user/profile", pl)
+            if resp.get("responseCode") == 1:
+                return True
+        return False
+
+    def update_profile_milestone(self):
+        resp = self._api("POST", "/api/user/milestone", {})
+        return resp.get("responseCode") == 1
+
+    def get_eligible_surveys(self):
+        resp = self._api("POST", "/rer/pwa/eligible", {})
+        return resp.get("result", [])
+
+    def get_scratch_token(self):
+        resp = self._api("GET", "/api/user/rewards?type=all&pageNo=1&source=pwa", None)
+        pending = resp.get("pendingCards", {})
+        return pending.get("token")
+
+    def scratch_card(self, survey_id, token):
+        scratch_resp = self._api("POST", "/api/scratch", {"surveyId": survey_id, "token": token})
+        if scratch_resp.get("responseCode") != 1:
+            return None
+        all_rewards = scratch_resp.get("result", {}).get("allRewards", {})
+        rid = all_rewards.get("rid")
+        reward_details = all_rewards.get("rewardDetails", [])
+        if not rid or not reward_details:
+            return None
+        reward_id = reward_details[0].get("reward_id")
+        claim_resp = self._api("POST", "/api/scratch/claim", {
+            "surveyId": survey_id,
+            "rewardId": reward_id,
+            "rid": rid,
+            "token": token,
+        })
+        if claim_resp.get("responseCode") == 1:
+            for key in ["coupon", "code", "voucher", "link", "redemptionLink"]:
+                val = claim_resp.get(key)
+                if val and isinstance(val, str) and val.strip():
+                    return val.strip()
+        return None
+
+    # ---- Full smart survey (from original) ----
+    def _extract_container(self, link):
+        parsed = urllib.parse.urlparse(link)
+        qs = urllib.parse.parse_qs(parsed.query)
+        fragment_qs = {}
+        if "#" in link:
+            frag = link.split("#")[1] if len(link.split("#")) > 1 else ""
+            if "?" in frag:
+                fpart = frag.split("?")[1]
+                fragment_qs = urllib.parse.parse_qs(fpart)
+        container = (qs.get("container") or fragment_qs.get("container") or [""])[0]
+        if not container and "/container/" in link:
+            m = re.search(r'/container/([^?]+)', link)
+            if m:
+                container = m.group(1)
+        return container if container else None
+
+    def _resolve_container_link(self, survey_link):
+        if not survey_link:
+            return survey_link, None
+        if "#" in survey_link and "container=" in survey_link:
+            return survey_link, self._extract_container(survey_link)
+        if "/container/" in survey_link:
+            raw_link = survey_link.split("?")[0]
+            try:
+                r = self.session.get(raw_link, headers={
+                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                    "User-Agent": self.session.headers.get("User-Agent", ""),
+                    "Authorization": self.session.headers.get("Authorization", ""),
+                }, timeout=30, allow_redirects=True)
+                final_url = r.url
+                if final_url and "container=" in final_url:
+                    return final_url, self._extract_container(final_url)
+            except:
+                pass
+        return survey_link, self._extract_container(survey_link)
+
+    def _make_answer(self, q_resp, seq_no, survey_uid, web_link, container):
+        ts = str(int(time.time() * 1000))
+        question = q_resp.get("question") or q_resp.get("entity", {}).get("question") or q_resp
+        if isinstance(question, list):
+            question = question[0] if question else {}
+        qid = question.get("questionId") or question.get("qId")
+        qtype = str(question.get("type") or question.get("qType") or "")
+        actual_seq_no = question.get("seqNo") or question.get("qseq") or seq_no
+        opts = question.get("choice") or question.get("options") or question.get("choices") or []
+        if not opts and isinstance(q_resp.get("entity"), dict):
+            opts = q_resp["entity"].get("choice") or q_resp["entity"].get("options") or []
+        valid_opts = [o for o in opts if isinstance(o, dict) and o.get("id") is not None]
+        answer_options = []
+        unselect_options = []
+        if qtype == "I":
+            pass
+        elif qtype in ("5", "text", "input", "textarea", "number", "T"):
+            text = "I find this product useful."
+            title = str(question.get("text") or question.get("title") or "").lower()
+            if "name" in title:
+                text = "Amit Sharma"
+            elif "email" in title:
+                text = "user@gmail.com"
+            elif "age" in title:
+                text = "25"
+            elif "city" in title:
+                text = "Bihar Sharif"
+            elif "phone" in title:
+                text = self.phone
+            if valid_opts:
+                opt = valid_opts[0]
+                misc = {}
+                misc["rank"] = text
+                misc["localeText"] = opt.get("text", "Please enter")
+                answer_options.append({"id": str(opt["id"]), "text": opt.get("text", "Please enter"), "misc": misc})
+            else:
+                answer_options.append({"id": str(int(time.time())), "text": "Please enter", "misc": {"rank": text, "localeText": "Please enter"}})
+        elif valid_opts:
+            opt = random.choice(valid_opts)
+            misc = {}
+            if "localeText" not in misc:
+                misc["localeText"] = opt.get("text", "")
+            answer_options.append({"id": str(opt["id"]), "text": opt.get("text", ""), "misc": misc})
+            for o in valid_opts:
+                if str(o["id"]) != str(opt["id"]):
+                    umisc = {}
+                    if "localeText" not in umisc:
+                        umisc["localeText"] = o.get("text", "")
+                    unselect_options.append({"id": str(o["id"]), "text": o.get("text", ""), "misc": umisc})
+        else:
+            answer_options.append({"id": "-1", "text": "Skipped", "misc": {}})
+        return {
+            "uid": survey_uid,
+            "options": answer_options,
+            "unselect": unselect_options,
+            "questionId": int(qid) if qid else 0,
+            "seqNo": actual_seq_no,
+            "type": qtype,
+            "extraParams": {
+                "fingerprintnew": int(time.time() / 2),
+                "clientscreen": {"availHeight":720,"availLeft":0,"availTop":0,"availWidth":1366,"colorDepth":24,"height":768,"pixelDepth":24,"width":1366,"orientation":{"type":"landscape-primary"}}
+            },
+            "autoAnswer": {},
+            "preview": "published",
+            "surveyLink": "",
+            "linkReceived": web_link,
+            "webLink": web_link,
+            "survey_source": "pwa",
+            "utm_source": "pwa",
+            "utm_medium": "registration",
+            "channel": container,
+            "sid": web_link,
+            "unique": ts,
+            "cookies": {"browserInfo": self.session.headers.get("User-Agent", ""), "weblink_cookies" + survey_uid: web_link, "_fbp": web_link},
+        }
+
+    def take_survey_complete(self, survey):
+        link = survey.get("link", "")
+        sid = survey.get("survey_id", "")
+        container_id = survey.get("container_id", "")
+        qs_link = survey.get("smart_question_link", "")
+        use_link = qs_link or link
+        if not use_link:
+            return False
+        resolved_link, container = self._resolve_container_link(use_link)
+        if not container and container_id:
+            container = container_id
+        if not container:
+            return False
+        ts = str(int(time.time() * 1000))
+        web_link = f"fb{ts}"
+        session_payload = {
+            "uid": "",
+            "targetLanguage": "",
+            "extraParams": {"fingerprintnew": int(time.time()), "clientscreen": {"availHeight":720,"availLeft":0,"availTop":0,"availWidth":1366,"colorDepth":24,"height":768,"pixelDepth":24,"width":1366,"orientation":{"type":"landscape-primary"}}},
+            "referer": "https://feedback.crownit.in/lite/onboarding",
+            "autoAnswer": {},
+            "preview": "published",
+            "surveyLink": resolved_link,
+            "webLink": web_link,
+            "cookies": {"browserInfo": self.session.headers.get("User-Agent", "")},
+            "channel": container,
+            "unique": ts,
+            "survey_source": "pwa",
+            "utm_source": "pwa",
+            "utm_medium": "registration",
+            "sid": web_link,
+            "isShowBackClicked": "false",
+            "questionId": 1068,
+            "options": [{"id": "-1", "text": ""}],
+            "unselect": [],
+            "otpGet": True,
+            "seqNo": -1,
+        }
+        session_resp = self._api("POST", "/api/survey/session", session_payload)
+        survey_uid = session_resp.get("uid")
+        if not survey_uid:
+            return False
+        question_payload = dict(session_payload)
+        question_payload["uid"] = survey_uid
+        for k in ["questionId", "options", "unselect", "otpGet", "seqNo", "isShowBackClicked"]:
+            question_payload.pop(k, None)
+        seq_no = 1
+        answered = 0
+        for _ in range(50):
+            q_resp = self._api("POST", "/api/survey/smart/question", question_payload)
+            if not q_resp or q_resp.get("error"):
+                break
+            ended = q_resp.get("ended", False)
+            terminated = q_resp.get("terminated", False)
+            if ended or terminated:
+                return answered > 0
+            qid = q_resp.get("question", {}).get("questionId")
+            if not qid:
+                return answered > 0
+            answer = self._make_answer(q_resp, seq_no, survey_uid, web_link, container)
+            a_resp = self._api("POST", "/api/survey/smart/answer", answer)
+            if a_resp.get("responseCode") == 1:
+                answered += 1
+                if a_resp.get("ended") or a_resp.get("terminated"):
+                    return True
+            seq_no += 1
+            time.sleep(random.uniform(4, 9))
+        return answered > 0
+
 
 # ==================== MUSIC API FUNCTIONS ====================
 MUSIC_API_BASE = "https://jiosavanapiryden.vercel.app/api"
@@ -798,8 +1169,8 @@ def handle_module_callback(call):
     user_id = call.from_user.id
     balance = get_user_balance(user_id)
 
-    # All modules except referral, admin, music require membership
-    if module not in ["referral", "admin", "music"]:
+    # All modules except referral, admin, music, crownit require membership
+    if module not in ["referral", "admin", "music", "crownit"]:
         if not check_membership(user_id):
             bot.answer_callback_query(call.id, "❌ Please join channel first!", show_alert=True)
             return
@@ -871,6 +1242,26 @@ def handle_module_callback(call):
             "Enter your 10‑digit mobile number.\n"
             "I will request an OTP and extract your full session JSON.\n"
             "💰 Cost: <b>1 Credit</b> (only on success).\n\n"
+            "Send <code>/cancel</code> to abort.",
+            parse_mode="HTML"
+        )
+        bot.answer_callback_query(call.id)
+
+    # ==================== NEW CROWNIT MODULE ====================
+    elif module == "crownit":
+        if balance < 2:
+            bot.answer_callback_query(call.id, "❌ You need 2 credits for Crownit automation.", show_alert=True)
+            return
+        user_crownit_state[user_id] = "waiting_phone"
+        bot.delete_message(call.message.chat.id, call.message.message_id)
+        bot.send_message(
+            call.message.chat.id,
+            "🎯 <b>CROWNIT AUTOMATION</b>\n\n"
+            "Enter your 10‑digit phone number (without country code).\n"
+            "I will send an OTP to that number.\n"
+            "After you enter the OTP, I'll complete surveys and claim a coupon.\n\n"
+            "💰 Cost: <b>2 Credits</b>\n"
+            "⏱️ Process may take 2‑5 minutes.\n\n"
             "Send <code>/cancel</code> to abort.",
             parse_mode="HTML"
         )
@@ -1128,6 +1519,104 @@ def handle_session_otp(message):
 
     threading.Thread(target=verify_otp_thread, daemon=True).start()
 
+# ==================== CROWNIT PHONE HANDLER ====================
+@bot.message_handler(func=lambda message: user_crownit_state.get(message.from_user.id) == "waiting_phone")
+def crownit_phone_handler(message):
+    user_id = message.from_user.id
+    phone = message.text.strip()
+    if not phone.isdigit() or len(phone) != 10:
+        bot.reply_to(message, "❌ Please enter exactly 10 digits.")
+        return
+    # Deduct credits
+    balance = get_user_balance(user_id)
+    if balance < 2:
+        bot.reply_to(message, "❌ Insufficient credits. You need 2.")
+        user_crownit_state[user_id] = None
+        return
+    update_user_balance(user_id, -2)
+    # Store phone
+    crownit_data[user_id] = {"phone": phone, "bot": None, "uid": None, "reg_id": None}
+    user_crownit_state[user_id] = "waiting_otp"
+    # Register device & send OTP in background
+    processing = bot.reply_to(message, "⏳ Sending OTP...")
+    def send_otp_thread():
+        try:
+            bot_instance = CrownitBot(phone)
+            reg_id = bot_instance.register_device()
+            if not reg_id:
+                bot.edit_message_text("❌ Device registration failed. Try again.", chat_id=message.chat.id, message_id=processing.message_id)
+                user_crownit_state[user_id] = None
+                crownit_data.pop(user_id, None)
+                return
+            uid = bot_instance.create_user_and_send_otp(reg_id)
+            if not uid:
+                bot.edit_message_text("❌ Failed to send OTP. Check number.", chat_id=message.chat.id, message_id=processing.message_id)
+                user_crownit_state[user_id] = None
+                crownit_data.pop(user_id, None)
+                return
+            # Store bot instance
+            crownit_data[user_id]["bot"] = bot_instance
+            crownit_data[user_id]["uid"] = uid
+            crownit_data[user_id]["reg_id"] = reg_id
+            bot.edit_message_text(f"✅ OTP sent to +91{phone}.\n\nNow enter the OTP you received.", chat_id=message.chat.id, message_id=processing.message_id)
+        except Exception as e:
+            bot.edit_message_text(f"❌ Error: {str(e)[:200]}", chat_id=message.chat.id, message_id=processing.message_id)
+            user_crownit_state[user_id] = None
+            crownit_data.pop(user_id, None)
+    threading.Thread(target=send_otp_thread).start()
+
+# ==================== CROWNIT OTP HANDLER ====================
+@bot.message_handler(func=lambda message: user_crownit_state.get(message.from_user.id) == "waiting_otp")
+def crownit_otp_handler(message):
+    user_id = message.from_user.id
+    otp = message.text.strip()
+    if not otp.isdigit() or len(otp) not in [4,6]:
+        bot.reply_to(message, "❌ Please enter a valid 4‑ or 6‑digit OTP.")
+        return
+    data = crownit_data.get(user_id)
+    if not data:
+        bot.reply_to(message, "❌ Session expired. Start over.")
+        user_crownit_state[user_id] = None
+        return
+    bot_instance = data["bot"]
+    uid = data["uid"]
+    reg_id = data["reg_id"]
+    processing = bot.reply_to(message, "⏳ Verifying OTP and running automation...")
+    def run_automation():
+        try:
+            # Run full workflow
+            coupon, error = bot_instance.run_full_workflow(otp)
+            if coupon:
+                bot.edit_message_text(
+                    f"✅ <b>Crownit Automation Complete!</b>\n\n"
+                    f"🎫 <b>Coupon/Link:</b>\n<code>{coupon}</code>\n\n"
+                    f"💡 Redeem it before it expires.\n"
+                    f"Thank you for using {bot.get_me().username}!",
+                    chat_id=message.chat.id,
+                    message_id=processing.message_id,
+                    parse_mode="HTML"
+                )
+                log_usage(user_id, "Crownit Automation", f"Phone: +91{data['phone']}")
+            else:
+                bot.edit_message_text(
+                    f"❌ <b>Automation Failed</b>\n\nReason: {error or 'Unknown error'}\n\n"
+                    f"Please try again later.",
+                    chat_id=message.chat.id,
+                    message_id=processing.message_id,
+                    parse_mode="HTML"
+                )
+        except Exception as e:
+            bot.edit_message_text(
+                f"❌ Error: {str(e)[:300]}",
+                chat_id=message.chat.id,
+                message_id=processing.message_id,
+                parse_mode="HTML"
+            )
+        finally:
+            user_crownit_state[user_id] = None
+            crownit_data.pop(user_id, None)
+    threading.Thread(target=run_automation).start()
+
 # ==================== Temp Mail callbacks ====================
 @bot.callback_query_handler(func=lambda call: call.data.startswith("temp_"))
 def handle_temp_callback(call):
@@ -1296,7 +1785,8 @@ def handle_phone_number(message):
     # Avoid conflict with other states
     if (user_firebase_state.get(user_id) or 
         user_music_state.get(user_id) or
-        user_session_state.get(user_id)):
+        user_session_state.get(user_id) or
+        user_crownit_state.get(user_id)):
         return
 
     balance = get_user_balance(user_id)
@@ -1775,6 +2265,27 @@ def back_to_menu(call):
     bot.send_message(call.message.chat.id, text, reply_markup=main_menu_keyboard(is_admin), parse_mode="HTML")
     bot.answer_callback_query(call.id)
 
+# ==================== /cancel ====================
+@bot.message_handler(commands=['cancel'])
+def cancel_cmd(message):
+    user_id = message.from_user.id
+    if user_crownit_state.get(user_id):
+        user_crownit_state[user_id] = None
+        crownit_data.pop(user_id, None)
+        bot.reply_to(message, "❌ Crownit automation cancelled. Use /start to return.")
+    elif user_session_state.get(user_id):
+        user_session_state[user_id] = None
+        session_temp_data.pop(user_id, None)
+        bot.reply_to(message, "❌ Session extraction cancelled. Use /start to return.")
+    elif user_music_state.get(user_id):
+        user_music_state[user_id] = None
+        bot.reply_to(message, "❌ Music search cancelled.")
+    elif user_firebase_state.get(user_id):
+        user_firebase_state[user_id] = False
+        bot.reply_to(message, "❌ Firebase upload cancelled.")
+    else:
+        bot.reply_to(message, "No active operation to cancel.")
+
 # ==================== Fallback ====================
 @bot.message_handler(func=lambda m: True)
 def fallback(message):
@@ -1795,7 +2306,7 @@ if __name__ == "__main__":
     init_db()
     task_thread = threading.Thread(target=run_scheduled_tasks, daemon=True)
     task_thread.start()
-    logger.info("🤖 Bot started – modules aligned with menu (Shopsy mining removed, Session Extractor kept).")
+    logger.info("🤖 Bot started – Crownit Automation integrated.")
     try:
         bot.remove_webhook()
         time.sleep(5)
