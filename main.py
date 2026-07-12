@@ -45,8 +45,8 @@ if not BOT_TOKEN:
 
 ADMIN_ID = int(os.environ.get("ADMIN_ID", 1364476174))
 CHANNEL_USERNAME = "viedietlooters"   # Only channel – group removed
-REFERRAL_BONUS = 2
-NEW_USER_BONUS = 2
+REFERRAL_BONUS = 4
+NEW_USER_BONUS = 5
 REFERRAL_STAY_HOURS = 1
 
 logging.basicConfig(
@@ -290,6 +290,10 @@ user_firebase_state = {}
 user_music_state = {}
 user_crownit_state = {}      # "waiting_phone", "waiting_otp", "running"
 crownit_data = {}
+
+# ---- Instagram Viewer (Free, no coins) ----
+user_igviewer_state = {}     # "waiting_username"
+igviewer_data = {}           # stores fetched data, current page, etc.
 
 # ==================== CROWNIT BOT CLASS (FIXED) ====================
 class CrownitBot:
@@ -1086,6 +1090,68 @@ def format_results(results, apk_path, file_size, num_dex_strings):
     out.append("⚠️ <i>DO NOT test without owner permission</i>")
     return "\n".join(out)
 
+# ==================== INSTAGRAM VIEWER (FREE) ====================
+IGVIEWER_API = "https://storyviewer.com/api/v1/web/profile"
+
+def fetch_ig_data(username: str):
+    try:
+        response = requests.post(
+            IGVIEWER_API,
+            json={
+                "username": username,
+                "user_info": True,
+                "user_stories": True,
+                "user_highlights": True,
+                "user_posts": True,
+            },
+            timeout=30
+        )
+        response.raise_for_status()
+        data = response.json()
+        return {
+            "stories": data.get("stories", []),
+            "highlights": data.get("highlights", []),
+            "posts": data.get("posts", []),
+            "user_info": data.get("user_info", {})
+        }
+    except Exception as e:
+        logger.error(f"IG Viewer API failed: {e}")
+        return None
+
+def extract_media_ig(item: dict):
+    media_url = item.get("source")
+    if not media_url:
+        for key in ["media_url", "url", "src", "link", "video", "image"]:
+            if key in item and item[key]:
+                media_url = item[key]
+                break
+    if not media_url:
+        return None, None
+    media_type = item.get("media_type", "image")
+    if media_type not in ["video", "image"]:
+        if media_url.lower().endswith((".mp4", ".mov", ".webm")):
+            media_type = "video"
+        else:
+            media_type = "image"
+    return media_url, media_type
+
+def build_caption_ig(item: dict, prefix: str = ""):
+    caption = prefix if prefix else ""
+    mentions = item.get("mentions", [])
+    if mentions:
+        mention_str = ", ".join(f"@{m}" for m in mentions)
+        if caption:
+            caption += f"\n👥 Mentions: {mention_str}"
+        else:
+            caption = f"👥 Mentions: {mention_str}"
+    taken_at = item.get("taken_at")
+    if taken_at:
+        if caption:
+            caption += f"\n⏰ {taken_at}"
+        else:
+            caption = f"⏰ {taken_at}"
+    return caption.strip()
+
 # ==================== HANDLERS ====================
 
 @bot.message_handler(commands=['start'])
@@ -1147,8 +1213,8 @@ def handle_module_callback(call):
     user_id = call.from_user.id
     balance = get_user_balance(user_id)
 
-    # All modules except referral, admin, music, crownit require membership
-    if module not in ["referral", "admin", "music", "crownit"]:
+    # All modules except referral, admin, music, crownit, igviewer require membership
+    if module not in ["referral", "admin", "music", "crownit", "igviewer"]:
         if not check_membership(user_id):
             bot.answer_callback_query(call.id, "❌ Please join channel first!", show_alert=True)
             return
@@ -1208,7 +1274,6 @@ def handle_module_callback(call):
         bot.send_message(call.message.chat.id, text, reply_markup=admin_panel_keyboard(), parse_mode="HTML")
         bot.answer_callback_query(call.id)
 
-    # ==================== CROWNIT MODULE ====================
     elif module == "crownit":
         if balance < 2:
             bot.answer_callback_query(call.id, "❌ You need 2 credits for Crownit automation.", show_alert=True)
@@ -1224,6 +1289,21 @@ def handle_module_callback(call):
             "💰 Cost: <b>2 Credits</b>\n"
             "⏱️ Process may take 2‑5 minutes.\n\n"
             "Send <code>/cancel</code> to abort.",
+            parse_mode="HTML"
+        )
+        bot.answer_callback_query(call.id)
+
+    # ==================== NEW: INSTAGRAM VIEWER (FREE) ====================
+    elif module == "igviewer":
+        # No coin check
+        bot.delete_message(call.message.chat.id, call.message.message_id)
+        user_igviewer_state[user_id] = "waiting_username"
+        bot.send_message(
+            call.message.chat.id,
+            "👁️ <b>Instagram Viewer</b>\n\n"
+            "Send me an Instagram username (without @).\n"
+            "Example: <code>realmadrid</code>\n\n"
+            "⚡ <b>Free & Unlimited</b> – no credits needed!",
             parse_mode="HTML"
         )
         bot.answer_callback_query(call.id)
@@ -1406,7 +1486,7 @@ def crownit_phone_handler(message):
             crownit_data.pop(user_id, None)
     threading.Thread(target=send_otp_thread).start()
 
-# ==================== CROWNIT OTP HANDLER (with retry logic) ====================
+# ==================== CROWNIT OTP HANDLER ====================
 @bot.message_handler(func=lambda message: user_crownit_state.get(message.from_user.id) == "waiting_otp")
 def crownit_otp_handler(message):
     user_id = message.from_user.id
@@ -1421,7 +1501,6 @@ def crownit_otp_handler(message):
         user_crownit_state[user_id] = None
         return
 
-    # Increment attempt counter
     attempts = data.get("attempts", 0) + 1
     data["attempts"] = attempts
     crownit_data[user_id] = data
@@ -1433,7 +1512,6 @@ def crownit_otp_handler(message):
 
     def run_automation():
         try:
-            # First, verify OTP
             sid = bot_instance.verify_otp(otp, uid, reg_id)
             if not sid:
                 if attempts >= 3:
@@ -1456,7 +1534,6 @@ def crownit_otp_handler(message):
                     )
                 return
 
-            # OTP verified – run full workflow (skip re-verification)
             coupon, error = bot_instance.run_full_workflow(otp, skip_verify=True)
             if coupon:
                 bot.edit_message_text(
@@ -1492,6 +1569,228 @@ def crownit_otp_handler(message):
             crownit_data.pop(user_id, None)
 
     threading.Thread(target=run_automation).start()
+
+# ==================== INSTAGRAM VIEWER HANDLERS ====================
+@bot.message_handler(func=lambda message: user_igviewer_state.get(message.from_user.id) == "waiting_username")
+def igviewer_username_handler(message):
+    user_id = message.from_user.id
+    username = message.text.strip().lstrip('@')
+    if not username or len(username) < 2:
+        bot.reply_to(message, "❌ Please enter a valid username (at least 2 characters).")
+        return
+
+    processing = bot.reply_to(message, f"🔍 Fetching data for <b>@{username}</b>...", parse_mode="HTML")
+    data = fetch_ig_data(username)
+    if not data:
+        bot.edit_message_text("❌ Failed to fetch profile. Please try again later.", chat_id=message.chat.id, message_id=processing.message_id)
+        user_igviewer_state[user_id] = None
+        return
+
+    # Store data for later use
+    igviewer_data[user_id] = {
+        "username": username,
+        "data": data,
+        "current_list": [],
+        "current_page": 0,
+        "list_type": "",
+        "sent_media_ids": []
+    }
+    user_igviewer_state[user_id] = None  # not waiting anymore
+
+    # Show menu
+    keyboard = [
+        [
+            InlineKeyboardButton("📸 Stories", callback_data="igviewer_stories"),
+            InlineKeyboardButton("⭐ Highlights", callback_data="igviewer_highlights"),
+        ],
+        [
+            InlineKeyboardButton("📷 Posts", callback_data="igviewer_posts"),
+            InlineKeyboardButton("ℹ️ Info", callback_data="igviewer_info"),
+        ]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    bot.edit_message_text(
+        f"📱 <b>@{username}</b> – choose what you want to see:",
+        chat_id=message.chat.id,
+        message_id=processing.message_id,
+        reply_markup=reply_markup,
+        parse_mode="HTML"
+    )
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith("igviewer_"))
+def igviewer_callback(call):
+    user_id = call.from_user.id
+    action = call.data.split("_")[1]  # stories, highlights, posts, info, prev, next, back
+
+    # Handle back to menu
+    if action == "back":
+        data = igviewer_data.get(user_id)
+        if not data:
+            bot.answer_callback_query(call.id, "Session expired.")
+            return
+        username = data.get("username")
+        keyboard = [
+            [InlineKeyboardButton("📸 Stories", callback_data="igviewer_stories"),
+             InlineKeyboardButton("⭐ Highlights", callback_data="igviewer_highlights")],
+            [InlineKeyboardButton("📷 Posts", callback_data="igviewer_posts"),
+             InlineKeyboardButton("ℹ️ Info", callback_data="igviewer_info")]
+        ]
+        bot.edit_message_text(
+            f"📱 <b>@{username}</b> – choose what you want to see:",
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode="HTML"
+        )
+        # Clear sent media IDs
+        igviewer_data[user_id]["sent_media_ids"] = []
+        bot.answer_callback_query(call.id)
+        return
+
+    if action == "info":
+        data = igviewer_data.get(user_id)
+        if not data:
+            bot.answer_callback_query(call.id, "Session expired.")
+            return
+        info = data["data"].get("user_info", {})
+        if not info:
+            bot.answer_callback_query(call.id, "No profile info available.")
+            return
+        text = (
+            f"<b>👤 Profile Info</b>\n\n"
+            f"Username: @{info.get('username', 'N/A')}\n"
+            f"Full Name: {info.get('full_name', 'N/A')}\n"
+            f"Bio: {info.get('bio', 'N/A')}\n"
+            f"Followers: {info.get('follower_count', 0)}\n"
+            f"Following: {info.get('following_count', 0)}\n"
+            f"Posts: {info.get('media_count', 0)}"
+        )
+        keyboard = [[InlineKeyboardButton("🔙 Back", callback_data="igviewer_back")]]
+        bot.edit_message_text(
+            text,
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode="HTML"
+        )
+        bot.answer_callback_query(call.id)
+        return
+
+    # stories, highlights, posts
+    data = igviewer_data.get(user_id)
+    if not data:
+        bot.answer_callback_query(call.id, "Session expired.")
+        return
+
+    items = data["data"].get(action, [])  # action = stories, highlights, posts
+    if not items:
+        bot.answer_callback_query(call.id, f"No {action} found.")
+        return
+
+    # Store list info
+    data["current_list"] = items
+    data["current_page"] = 0
+    data["list_type"] = action
+    igviewer_data[user_id] = data
+
+    # Send first page
+    send_igviewer_page(call.message.chat.id, user_id, call.message.message_id)
+
+def send_igviewer_page(chat_id, user_id, edit_msg_id=None):
+    data = igviewer_data.get(user_id)
+    if not data:
+        return
+    items = data["current_list"]
+    page = data["current_page"]
+    list_type = data["list_type"]
+    items_per_page = 3
+    total = len(items)
+    start = page * items_per_page
+    end = min(start + items_per_page, total)
+    if start >= total:
+        # Go to last page
+        page = (total - 1) // items_per_page
+        start = page * items_per_page
+        end = min(start + items_per_page, total)
+        data["current_page"] = page
+        igviewer_data[user_id] = data
+
+    page_items = items[start:end]
+    sent_ids = data.get("sent_media_ids", [])
+    # Delete previous media
+    for mid in sent_ids:
+        try:
+            bot.delete_message(chat_id, mid)
+        except:
+            pass
+    new_sent_ids = []
+
+    # Send each media
+    for item in page_items:
+        media_url, media_type = extract_media_ig(item)
+        if not media_url:
+            continue
+        caption = build_caption_ig(item)
+        try:
+            if media_type == "video":
+                msg = bot.send_video(chat_id, media_url, caption=caption)
+            else:
+                msg = bot.send_photo(chat_id, media_url, caption=caption)
+            new_sent_ids.append(msg.message_id)
+        except Exception as e:
+            logger.error(f"IG Viewer send failed: {e}")
+            # Fallback download
+            try:
+                resp = requests.get(media_url, timeout=20)
+                resp.raise_for_status()
+                if media_type == "video":
+                    msg = bot.send_video(chat_id, resp.content, caption=caption)
+                else:
+                    msg = bot.send_photo(chat_id, resp.content, caption=caption)
+                new_sent_ids.append(msg.message_id)
+            except Exception as e2:
+                logger.error(f"Fallback failed: {e2}")
+
+    data["sent_media_ids"] = new_sent_ids
+    igviewer_data[user_id] = data
+
+    # Update navigation message
+    nav_buttons = []
+    if page > 0:
+        nav_buttons.append(InlineKeyboardButton("◀️ Prev", callback_data="igviewer_prev"))
+    if end < total:
+        nav_buttons.append(InlineKeyboardButton("Next ▶️", callback_data="igviewer_next"))
+    nav_buttons.append(InlineKeyboardButton("🔙 Back", callback_data="igviewer_back"))
+    nav_markup = InlineKeyboardMarkup([nav_buttons] if nav_buttons else [])
+
+    label_map = {
+        "stories": "📸 Stories",
+        "highlights": "⭐ Highlights",
+        "posts": "📷 Posts"
+    }
+    label = label_map.get(list_type, "Items")
+    hub_text = f"📄 <b>{label}</b> – Page {page+1}/{ (total + items_per_page - 1)//items_per_page }\n\n(Showing {len(page_items)} items)"
+
+    if edit_msg_id:
+        bot.edit_message_text(hub_text, chat_id=chat_id, message_id=edit_msg_id, reply_markup=nav_markup, parse_mode="HTML")
+    else:
+        # Should not happen
+        pass
+
+@bot.callback_query_handler(func=lambda call: call.data in ["igviewer_prev", "igviewer_next"])
+def igviewer_nav_callback(call):
+    user_id = call.from_user.id
+    data = igviewer_data.get(user_id)
+    if not data:
+        bot.answer_callback_query(call.id, "Session expired.")
+        return
+    if call.data == "igviewer_next":
+        data["current_page"] = data.get("current_page", 0) + 1
+    elif call.data == "igviewer_prev":
+        data["current_page"] = max(0, data.get("current_page", 0) - 1)
+    igviewer_data[user_id] = data
+    send_igviewer_page(call.message.chat.id, user_id, call.message.message_id)
+    bot.answer_callback_query(call.id)
 
 # ==================== Temp Mail callbacks ====================
 @bot.callback_query_handler(func=lambda call: call.data.startswith("temp_"))
@@ -1661,7 +1960,8 @@ def handle_phone_number(message):
     # Avoid conflict with other states
     if (user_firebase_state.get(user_id) or 
         user_music_state.get(user_id) or
-        user_crownit_state.get(user_id)):
+        user_crownit_state.get(user_id) or
+        user_igviewer_state.get(user_id)):
         return
 
     balance = get_user_balance(user_id)
@@ -1682,7 +1982,7 @@ def handle_phone_number(message):
         log_usage(user_id, "Flipkart Checker", f"Number: {message.text}")
     threading.Thread(target=check_thread).start()
 
-# ==================== Instagram callbacks ====================
+# ==================== Instagram callbacks (Downloader) ====================
 @bot.callback_query_handler(func=lambda call: call.data.startswith("instagram_"))
 def handle_instagram_callback(call):
     action = call.data.split("_")[1]
@@ -2154,6 +2454,10 @@ def cancel_cmd(message):
     elif user_firebase_state.get(user_id):
         user_firebase_state[user_id] = False
         bot.reply_to(message, "❌ Firebase upload cancelled.")
+    elif user_igviewer_state.get(user_id):
+        user_igviewer_state[user_id] = None
+        igviewer_data.pop(user_id, None)
+        bot.reply_to(message, "❌ Instagram Viewer cancelled.")
     else:
         bot.reply_to(message, "No active operation to cancel.")
 
@@ -2177,7 +2481,7 @@ if __name__ == "__main__":
     init_db()
     task_thread = threading.Thread(target=run_scheduled_tasks, daemon=True)
     task_thread.start()
-    logger.info("🤖 Bot started – Crownit Automation integrated, Shopsy removed.")
+    logger.info("🤖 Bot started – Instagram Viewer (FREE) added.")
     try:
         bot.remove_webhook()
         time.sleep(5)
