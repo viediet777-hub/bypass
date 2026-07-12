@@ -291,9 +291,9 @@ user_music_state = {}
 user_crownit_state = {}      # "waiting_phone", "waiting_otp", "running"
 crownit_data = {}
 
-# ==================== CROWNIT BOT CLASS (SYNCHRONOUS, NO FIREBASE) ====================
+# ==================== CROWNIT BOT CLASS (FIXED) ====================
 class CrownitBot:
-    """Crownit automation – uses manual OTP entry (no Firebase)."""
+    """Crownit automation – uses manual OTP entry."""
     def __init__(self, phone: str):
         self.phone = phone
         self.session = requests.Session()
@@ -377,6 +377,7 @@ class CrownitBot:
             "userId": self.phone,
             "api_version": "71",
         })
+        logger.info(f"OTP verify response: {resp}")  # DEBUG
         if resp.get("responseCode") == 1:
             sid = resp.get("userDetails", {}).get("sessionId")
             if sid:
@@ -610,32 +611,27 @@ class CrownitBot:
             time.sleep(random.uniform(4, 9))
         return answered > 0
 
-    def run_full_workflow(self, otp):
-        # 1. Register device
-        reg_id = self.register_device()
-        if not reg_id:
-            return None, "Device registration failed"
-        self.reg_id = reg_id
-        # 2. Create user & send OTP
-        uid = self.create_user_and_send_otp(reg_id)
-        if not uid:
-            return None, "Failed to create user / send OTP"
-        # 3. Verify OTP
-        sid = self.verify_otp(otp, uid, reg_id)
-        if not sid:
-            return None, "Invalid OTP"
-        # 4. Update city & milestone
+    def run_full_workflow(self, otp, skip_verify=False):
+        if not skip_verify:
+            reg_id = self.register_device()
+            if not reg_id:
+                return None, "Device registration failed"
+            self.reg_id = reg_id
+            uid = self.create_user_and_send_otp(reg_id)
+            if not uid:
+                return None, "Failed to create user / send OTP"
+            sid = self.verify_otp(otp, uid, reg_id)
+            if not sid:
+                return None, "Invalid OTP"
+        # Proceed with post-OTP steps
         self.update_city()
         self.update_profile_milestone()
-        # 5. Get surveys
         surveys = self.get_eligible_surveys()
         if not surveys:
             return None, "No surveys available"
-        # 6. Take first survey
         taken = self.take_survey_complete(surveys[0])
         if not taken:
             return None, "Survey failed"
-        # 7. Scratch card
         token = self.get_scratch_token()
         if not token:
             return None, "No scratch card available"
@@ -1379,8 +1375,8 @@ def crownit_phone_handler(message):
         user_crownit_state[user_id] = None
         return
     update_user_balance(user_id, -2)
-    # Store phone
-    crownit_data[user_id] = {"phone": phone, "bot": None, "uid": None, "reg_id": None}
+    # Store phone and initialise attempts
+    crownit_data[user_id] = {"phone": phone, "bot": None, "uid": None, "reg_id": None, "attempts": 0}
     user_crownit_state[user_id] = "waiting_otp"
     # Register device & send OTP in background
     processing = bot.reply_to(message, "⏳ Sending OTP...")
@@ -1410,7 +1406,7 @@ def crownit_phone_handler(message):
             crownit_data.pop(user_id, None)
     threading.Thread(target=send_otp_thread).start()
 
-# ==================== CROWNIT OTP HANDLER ====================
+# ==================== CROWNIT OTP HANDLER (with retry logic) ====================
 @bot.message_handler(func=lambda message: user_crownit_state.get(message.from_user.id) == "waiting_otp")
 def crownit_otp_handler(message):
     user_id = message.from_user.id
@@ -1418,19 +1414,50 @@ def crownit_otp_handler(message):
     if not otp.isdigit() or len(otp) not in [4,6]:
         bot.reply_to(message, "❌ Please enter a valid 4‑ or 6‑digit OTP.")
         return
+
     data = crownit_data.get(user_id)
     if not data:
         bot.reply_to(message, "❌ Session expired. Start over.")
         user_crownit_state[user_id] = None
         return
+
+    # Increment attempt counter
+    attempts = data.get("attempts", 0) + 1
+    data["attempts"] = attempts
+    crownit_data[user_id] = data
+
     bot_instance = data["bot"]
     uid = data["uid"]
     reg_id = data["reg_id"]
-    processing = bot.reply_to(message, "⏳ Verifying OTP and running automation...")
+    processing = bot.reply_to(message, "⏳ Verifying OTP...")
+
     def run_automation():
         try:
-            # Run full workflow
-            coupon, error = bot_instance.run_full_workflow(otp)
+            # First, verify OTP
+            sid = bot_instance.verify_otp(otp, uid, reg_id)
+            if not sid:
+                if attempts >= 3:
+                    bot.edit_message_text(
+                        f"❌ <b>OTP verification failed 3 times.</b>\n\n"
+                        f"Please start over with /crownit (you will be charged again).",
+                        chat_id=message.chat.id,
+                        message_id=processing.message_id,
+                        parse_mode="HTML"
+                    )
+                    user_crownit_state[user_id] = None
+                    crownit_data.pop(user_id, None)
+                else:
+                    bot.edit_message_text(
+                        f"❌ <b>Invalid OTP</b> (attempt {attempts}/3).\n\n"
+                        f"Please enter the OTP again.",
+                        chat_id=message.chat.id,
+                        message_id=processing.message_id,
+                        parse_mode="HTML"
+                    )
+                return
+
+            # OTP verified – run full workflow (skip re-verification)
+            coupon, error = bot_instance.run_full_workflow(otp, skip_verify=True)
             if coupon:
                 bot.edit_message_text(
                     f"✅ <b>Crownit Automation Complete!</b>\n\n"
@@ -1442,6 +1469,8 @@ def crownit_otp_handler(message):
                     parse_mode="HTML"
                 )
                 log_usage(user_id, "Crownit Automation", f"Phone: +91{data['phone']}")
+                user_crownit_state[user_id] = None
+                crownit_data.pop(user_id, None)
             else:
                 bot.edit_message_text(
                     f"❌ <b>Automation Failed</b>\n\nReason: {error or 'Unknown error'}\n\n"
@@ -1450,6 +1479,8 @@ def crownit_otp_handler(message):
                     message_id=processing.message_id,
                     parse_mode="HTML"
                 )
+                user_crownit_state[user_id] = None
+                crownit_data.pop(user_id, None)
         except Exception as e:
             bot.edit_message_text(
                 f"❌ Error: {str(e)[:300]}",
@@ -1457,9 +1488,9 @@ def crownit_otp_handler(message):
                 message_id=processing.message_id,
                 parse_mode="HTML"
             )
-        finally:
             user_crownit_state[user_id] = None
             crownit_data.pop(user_id, None)
+
     threading.Thread(target=run_automation).start()
 
 # ==================== Temp Mail callbacks ====================
