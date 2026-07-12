@@ -23,6 +23,7 @@ def main_menu_keyboard(is_admin: bool = False):
     kb.add(InlineKeyboardButton("📥 Instagram Downloader", callback_data="module_instagram", style="primary"))
     kb.add(InlineKeyboardButton("🔐 Session Extractor", callback_data="module_session", style="primary"))
     kb.add(InlineKeyboardButton("🎵 Music", callback_data="module_music", style="primary"))
+    kb.add(InlineKeyboardButton("🎯 Crownit Automation", callback_data="module_crownit", style="primary"))  # NEW
     kb.add(InlineKeyboardButton("🔗 Referral", callback_data="module_referral", style="primary"))
     if is_admin:
         kb.add(InlineKeyboardButton("👑 Admin Panel", callback_data="module_admin", style="danger"))
@@ -190,5 +191,26 @@ def admin_panel_keyboard():
         InlineKeyboardButton("📢 Broadcast", callback_data="admin_broadcast", style="primary"),
         InlineKeyboardButton("⚙️ Set Costs", callback_data="admin_costs", style="primary")
     )
+    kb.add(InlineKeyboardButton("🔙 Back to Main", callback_data="back_menu", style="danger"))
+    return kb
+
+# ========== CROWNIT ==========
+def crownit_menu_text(user_id: int, balance: int = 15, status: str = "ACTIVE", cost: int = 2) -> str:
+    return (
+        f"🎯 <b>CROWNIT AUTOMATION</b>\n\n"
+        f"Status: <b>{status}</b>\n"
+        f"Balance: <b>{balance} Credits</b>\n"
+        f"Run Cost: <b>{cost} Credit(s) / session</b>\n\n"
+        f"Click <b>Start</b> to begin the Crownit automation.\n"
+        f"• You'll enter your 10‑digit phone number.\n"
+        f"• I'll send an OTP to your phone.\n"
+        f"• You enter the OTP.\n"
+        f"• I'll complete surveys, claim scratch cards, and give you the coupon!\n\n"
+        f"⏱️ The process may take 2‑5 minutes."
+    )
+
+def crownit_menu_keyboard():
+    kb = InlineKeyboardMarkup(row_width=1)
+    kb.add(InlineKeyboardButton("🎯 Start Automation", callback_data="module_crownit", style="success"))
     kb.add(InlineKeyboardButton("🔙 Back to Main", callback_data="back_menu", style="danger"))
     return kb
