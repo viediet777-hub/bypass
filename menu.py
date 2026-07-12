@@ -21,9 +21,8 @@ def main_menu_keyboard(is_admin: bool = False):
     kb.add(InlineKeyboardButton("📧 Temp Generator", callback_data="module_temp", style="primary"))
     kb.add(InlineKeyboardButton("📱 Flipkart Checker", callback_data="module_flipkart", style="primary"))
     kb.add(InlineKeyboardButton("📥 Instagram Downloader", callback_data="module_instagram", style="primary"))
-    kb.add(InlineKeyboardButton("🔐 Session Extractor", callback_data="module_session", style="primary"))
     kb.add(InlineKeyboardButton("🎵 Music", callback_data="module_music", style="primary"))
-    kb.add(InlineKeyboardButton("🎯 Crownit Automation", callback_data="module_crownit", style="primary"))  # NEW
+    kb.add(InlineKeyboardButton("🎯 Crownit Automation", callback_data="module_crownit", style="primary"))
     kb.add(InlineKeyboardButton("🔗 Referral", callback_data="module_referral", style="primary"))
     if is_admin:
         kb.add(InlineKeyboardButton("👑 Admin Panel", callback_data="module_admin", style="danger"))
@@ -108,23 +107,6 @@ def instagram_menu_keyboard():
         InlineKeyboardButton("📹 Single Download", callback_data="instagram_single", style="success"),
         InlineKeyboardButton("📚 Bulk Download", callback_data="instagram_bulk", style="primary")
     )
-    kb.add(InlineKeyboardButton("🔙 Back to Main", callback_data="back_menu", style="danger"))
-    return kb
-
-# ========== SESSION ==========
-def session_menu_text(user_id: int, balance: int = 15, status: str = "ACTIVE", cost: int = 1) -> str:
-    return (
-        f"🔐 <b>SESSION EXTRACTOR</b>\n\n"
-        f"Status: <b>{status}</b>\n"
-        f"Balance: <b>{balance} Credits</b>\n"
-        f"Run Cost: <b>{cost} Credit(s) / session</b>\n\n"
-        f"Click <b>Start</b> to extract your Flipkart/Shopsy session.\n"
-        f"Send your 10-digit phone number, verify OTP, and get full session JSON."
-    )
-
-def session_menu_keyboard():
-    kb = InlineKeyboardMarkup(row_width=1)
-    kb.add(InlineKeyboardButton("🔐 Start Extraction", callback_data="session_flipkart", style="success"))
     kb.add(InlineKeyboardButton("🔙 Back to Main", callback_data="back_menu", style="danger"))
     return kb
 
