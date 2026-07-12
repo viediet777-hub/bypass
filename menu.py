@@ -15,12 +15,18 @@ def main_menu_text(user_id: int, username: str = None, balance: int = 15, status
         f"👇 Choose a module to get started."
     )
 
+# menu.py (add Instagram Viewer button to main menu)
+from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
+
+# ... (all existing functions remain) ...
+
 def main_menu_keyboard(is_admin: bool = False):
     kb = InlineKeyboardMarkup(row_width=1)
     kb.add(InlineKeyboardButton("🔥 Firebase Extractor", callback_data="module_firebase", style="success"))
     kb.add(InlineKeyboardButton("📧 Temp Generator", callback_data="module_temp", style="primary"))
     kb.add(InlineKeyboardButton("📱 Flipkart Checker", callback_data="module_flipkart", style="primary"))
     kb.add(InlineKeyboardButton("📥 Instagram Downloader", callback_data="module_instagram", style="primary"))
+    kb.add(InlineKeyboardButton("👁️ Instagram Viewer", callback_data="module_igviewer", style="primary"))   # NEW
     kb.add(InlineKeyboardButton("🎵 Music", callback_data="module_music", style="primary"))
     kb.add(InlineKeyboardButton("🎯 Crownit Automation", callback_data="module_crownit", style="primary"))
     kb.add(InlineKeyboardButton("🔗 Referral", callback_data="module_referral", style="primary"))
@@ -28,6 +34,7 @@ def main_menu_keyboard(is_admin: bool = False):
         kb.add(InlineKeyboardButton("👑 Admin Panel", callback_data="module_admin", style="danger"))
     return kb
 
+# (other menu functions unchanged)
 # ========== FIREBASE ==========
 def firebase_menu_text(user_id: int, balance: int = 15, status: str = "ACTIVE", cost: int = 2) -> str:
     return (
