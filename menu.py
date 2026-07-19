@@ -15,26 +15,21 @@ def main_menu_text(user_id: int, username: str = None, balance: int = 15, status
         f"👇 Choose a module to get started."
     )
 
-# menu.py (add Instagram Viewer button to main menu)
-from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
-
-# ... (all existing functions remain) ...
-
 def main_menu_keyboard(is_admin: bool = False):
     kb = InlineKeyboardMarkup(row_width=1)
     kb.add(InlineKeyboardButton("🔥 Firebase Extractor", callback_data="module_firebase", style="success"))
     kb.add(InlineKeyboardButton("📧 Temp Generator", callback_data="module_temp", style="primary"))
     kb.add(InlineKeyboardButton("📱 Flipkart Checker", callback_data="module_flipkart", style="primary"))
     kb.add(InlineKeyboardButton("📥 Instagram Downloader", callback_data="module_instagram", style="primary"))
-    kb.add(InlineKeyboardButton("👁️ Instagram Viewer", callback_data="module_igviewer", style="primary"))   # NEW
+    kb.add(InlineKeyboardButton("👁️ Instagram Viewer", callback_data="module_igviewer", style="primary"))
     kb.add(InlineKeyboardButton("🎵 Music", callback_data="module_music", style="primary"))
     kb.add(InlineKeyboardButton("🎯 Crownit Automation", callback_data="module_crownit", style="primary"))
+    kb.add(InlineKeyboardButton("⛏️ Shopsy Mining", callback_data="module_shopsy", style="primary"))    # NEW
     kb.add(InlineKeyboardButton("🔗 Referral", callback_data="module_referral", style="primary"))
     if is_admin:
         kb.add(InlineKeyboardButton("👑 Admin Panel", callback_data="module_admin", style="danger"))
     return kb
 
-# (other menu functions unchanged)
 # ========== FIREBASE ==========
 def firebase_menu_text(user_id: int, balance: int = 15, status: str = "ACTIVE", cost: int = 2) -> str:
     return (
@@ -201,5 +196,30 @@ def crownit_menu_text(user_id: int, balance: int = 15, status: str = "ACTIVE", c
 def crownit_menu_keyboard():
     kb = InlineKeyboardMarkup(row_width=1)
     kb.add(InlineKeyboardButton("🎯 Start Automation", callback_data="module_crownit", style="success"))
+    kb.add(InlineKeyboardButton("🔙 Back to Main", callback_data="back_menu", style="danger"))
+    return kb
+
+# ========== SHOPSY (NEW) ==========
+def shopsy_menu_text(user_id: int, balance: int = 15, status: str = "ACTIVE", shopsy_balance: int = 0) -> str:
+    return (
+        f"⛏️ <b>SHOPSY MINING</b>\n\n"
+        f"Status: <b>{status}</b>\n"
+        f"Balance: <b>{balance} Credits</b>\n"
+        f"💰 Shopsy Points: <b>{shopsy_balance}</b>\n"
+        f"💡 Cost: <b>2 Credits</b> per run\n\n"
+        f"Click <b>Start Mining</b> to begin.\n"
+        f"• You'll enter your 10‑digit phone number\n"
+        f"• OTP will be sent to your number\n"
+        f"• I'll complete games and earn coins\n"
+        f"• You get points based on coins earned!\n\n"
+        f"⏱️ Process takes 1-2 minutes."
+    )
+
+def shopsy_menu_keyboard():
+    kb = InlineKeyboardMarkup(row_width=1)
+    kb.row(
+        InlineKeyboardButton("⛏️ Start Mining", callback_data="shopsy_start", style="success"),
+        InlineKeyboardButton("📊 My Stats", callback_data="shopsy_stats", style="primary")
+    )
     kb.add(InlineKeyboardButton("🔙 Back to Main", callback_data="back_menu", style="danger"))
     return kb
