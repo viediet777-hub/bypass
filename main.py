@@ -52,7 +52,17 @@ ADMIN_ID = int(os.environ.get("ADMIN_ID", 1364476174))
 CHANNEL_USERNAME = "viedietlooters"
 REFERRAL_BONUS = 3
 NEW_USER_BONUS = 5
-REFERRAL_STAY_HOURS = 0
+REFERRAL_STAY_HOURS = 1
+
+# Default costs (admin can change via /setcost)
+DEFAULT_COSTS = {
+    "firebase": 2,
+    "flipkart": 1,
+    "instagram_single": 1,
+    "instagram_bulk": 1,
+    "crownit": 2,
+    "shopsy": 1,  # Changed to 1 credit
+}
 
 logging.basicConfig(
     level=logging.INFO,
@@ -303,6 +313,13 @@ def set_config(key, value):
     conn.commit()
     conn.close()
 
+def get_module_cost(module):
+    """Get cost for a module (admin configurable)"""
+    cost = get_config(f"{module}_cost")
+    if cost:
+        return int(cost)
+    return DEFAULT_COSTS.get(module, 1)
+
 # ==================== SHOPSY SESSION FUNCTIONS ====================
 def save_shopsy_session(user_id, phone, session_data):
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
@@ -322,7 +339,7 @@ def get_shopsy_session(user_id):
         return row[0], json.loads(row[1])
     return None, None
 
-# ==================== MEMBERSHIP (ONLY CHANNEL) ====================
+# ==================== MEMBERSHIP ====================
 def is_channel_member(user_id):
     try:
         member = bot.get_chat_member(f"@{CHANNEL_USERNAME}", user_id)
@@ -670,6 +687,16 @@ def shopsy_phone_handler(message):
         bot.reply_to(message, "❌ Please enter exactly 10 digits.")
         return
     
+    # Check balance
+    cost = get_module_cost("shopsy")
+    balance = get_user_balance(user_id)
+    if balance < cost:
+        bot.reply_to(message, f"❌ Insufficient credits! You need {cost} credits. Your balance: {balance}")
+        return
+    
+    # Deduct credits
+    update_user_balance(user_id, -cost)
+    
     status_msg = bot.reply_to(message, f"📱 Sending OTP to +91{phone}...")
     
     def send_otp_thread():
@@ -680,6 +707,8 @@ def shopsy_phone_handler(message):
             loop.close()
             
             if not session_data:
+                # Refund credits if failed
+                update_user_balance(user_id, cost)
                 bot.edit_message_text(f"❌ Failed: {msg}", chat_id=message.chat.id, message_id=status_msg.message_id)
                 user_shopsy_state[user_id] = None
                 return
@@ -693,6 +722,8 @@ def shopsy_phone_handler(message):
                 message_id=status_msg.message_id
             )
         except Exception as e:
+            # Refund credits if failed
+            update_user_balance(user_id, cost)
             bot.edit_message_text(f"❌ Error: {str(e)[:200]}", chat_id=message.chat.id, message_id=status_msg.message_id)
             user_shopsy_state[user_id] = None
     
@@ -721,12 +752,12 @@ def shopsy_otp_handler(message):
         try:
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
-            session_data, success = loop.run_until_complete(verify_otp(session_data, otp))
+            verified_session, success = loop.run_until_complete(verify_otp(session_data, otp))
             loop.close()
             
             if success:
-                save_shopsy_session(user_id, phone, session_data)
-                save_session(phone, session_data)
+                save_shopsy_session(user_id, phone, verified_session)
+                save_session(phone, verified_session)
                 user_shopsy_state[user_id] = "mining"
                 
                 bot.edit_message_text(
@@ -736,17 +767,25 @@ def shopsy_otp_handler(message):
                 )
                 
                 # Start mining
-                start_shopsy_mining(message, user_id, phone, session_data)
+                start_shopsy_mining(message, user_id, phone, verified_session)
             else:
+                # Refund credits if OTP failed
+                cost = get_module_cost("shopsy")
+                update_user_balance(user_id, cost)
                 bot.edit_message_text(
-                    "❌ Invalid OTP. Please try again with /shopsy",
+                    "❌ Invalid OTP. Credits refunded. Please try again with /shopsy",
                     chat_id=message.chat.id,
                     message_id=status_msg.message_id
                 )
                 user_shopsy_state[user_id] = None
+                user_shopsy_otp_data.pop(user_id, None)
         except Exception as e:
+            # Refund credits if error
+            cost = get_module_cost("shopsy")
+            update_user_balance(user_id, cost)
             bot.edit_message_text(f"❌ Error: {str(e)[:200]}", chat_id=message.chat.id, message_id=status_msg.message_id)
             user_shopsy_state[user_id] = None
+            user_shopsy_otp_data.pop(user_id, None)
     
     threading.Thread(target=verify_thread).start()
 
@@ -793,8 +832,11 @@ def start_shopsy_mining(message, user_id, phone, session_data):
                 )
                 log_usage(user_id, "Shopsy Mining", f"Phone: +91{phone}")
             else:
+                # Refund credits if mining failed
+                cost = get_module_cost("shopsy")
+                update_user_balance(user_id, cost)
                 bot.edit_message_text(
-                    f"❌ **Shopsy Mining Failed**\n\n{result.get('msg', 'Unknown error')}",
+                    f"❌ **Shopsy Mining Failed**\n\n{result.get('msg', 'Unknown error')}\n\nCredits refunded.",
                     chat_id=message.chat.id,
                     message_id=progress_msg.message_id
                 )
@@ -803,8 +845,12 @@ def start_shopsy_mining(message, user_id, phone, session_data):
             user_shopsy_otp_data.pop(user_id, None)
             
         except Exception as e:
+            # Refund credits if error
+            cost = get_module_cost("shopsy")
+            update_user_balance(user_id, cost)
             bot.edit_message_text(f"❌ Error: {str(e)[:200]}", chat_id=message.chat.id, message_id=progress_msg.message_id)
             user_shopsy_state[user_id] = None
+            user_shopsy_otp_data.pop(user_id, None)
     
     threading.Thread(target=mine_thread).start()
 
@@ -815,20 +861,21 @@ def handle_shopsy_callback(call):
     action = call.data.split("_")[1]
     
     if action == "start":
+        cost = get_module_cost("shopsy")
         balance = get_user_balance(user_id)
-        if balance < 2:
-            bot.answer_callback_query(call.id, "❌ You need 2 credits for Shopsy mining!", show_alert=True)
+        if balance < cost:
+            bot.answer_callback_query(call.id, f"❌ You need {cost} credits for Shopsy mining!", show_alert=True)
             return
         
         user_shopsy_state[user_id] = "waiting_phone"
         bot.answer_callback_query(call.id, "📱 Enter your phone number")
         bot.edit_message_text(
-            "🎯 **SHOPSY MINING**\n\n"
-            "Enter your 10‑digit phone number (without country code).\n"
-            "I will send an OTP to that number.\n\n"
-            "💰 Cost: <b>2 Credits</b>\n"
-            "⏱️ Process takes 1-2 minutes.\n\n"
-            "Send /cancel to abort.",
+            f"🎯 **SHOPSY MINING**\n\n"
+            f"Enter your 10‑digit phone number (without country code).\n"
+            f"I will send an OTP to that number.\n\n"
+            f"💰 Cost: <b>{cost} Credits</b>\n"
+            f"⏱️ Process takes 1-2 minutes.\n\n"
+            f"Send /cancel to abort.",
             chat_id=call.message.chat.id,
             message_id=call.message.message_id,
             parse_mode="HTML"
@@ -850,7 +897,7 @@ def handle_shopsy_callback(call):
             f"🪙 Total Coins Mined: {total_coins}\n"
             f"⭐ Shopsy Points: {shopsy_bal}\n"
             f"📊 Total Runs: {total_runs}\n\n"
-            f"💡 Each run costs 2 credits.\n"
+            f"💡 Each run costs {get_module_cost('shopsy')} credits.\n"
             f"You earn points based on coins mined!",
             chat_id=call.message.chat.id,
             message_id=call.message.message_id,
@@ -1795,7 +1842,7 @@ def handle_module_callback(call):
     if module == "firebase":
         user_firebase_state[user_id] = False
         bot.delete_message(call.message.chat.id, call.message.message_id)
-        text = firebase_menu_text(user_id, balance, "ACTIVE")
+        text = firebase_menu_text(user_id, balance, "ACTIVE", get_module_cost("firebase"))
         bot.send_message(call.message.chat.id, text, reply_markup=firebase_menu_keyboard(), parse_mode="HTML")
         bot.answer_callback_query(call.id)
 
@@ -1807,13 +1854,13 @@ def handle_module_callback(call):
 
     elif module == "flipkart":
         bot.delete_message(call.message.chat.id, call.message.message_id)
-        text = flipkart_menu_text(user_id, balance, "ACTIVE")
+        text = flipkart_menu_text(user_id, balance, "ACTIVE", get_module_cost("flipkart"))
         bot.send_message(call.message.chat.id, text, reply_markup=flipkart_menu_keyboard(), parse_mode="HTML")
         bot.answer_callback_query(call.id)
 
     elif module == "instagram":
         bot.delete_message(call.message.chat.id, call.message.message_id)
-        text = instagram_menu_text(user_id, balance, "ACTIVE")
+        text = instagram_menu_text(user_id, balance, "ACTIVE", get_module_cost("instagram_single"))
         bot.send_message(call.message.chat.id, text, reply_markup=instagram_menu_keyboard(), parse_mode="HTML")
         bot.answer_callback_query(call.id)
 
@@ -1848,20 +1895,21 @@ def handle_module_callback(call):
         bot.answer_callback_query(call.id)
 
     elif module == "crownit":
-        if balance < 2:
-            bot.answer_callback_query(call.id, "❌ You need 2 credits for Crownit automation.", show_alert=True)
+        cost = get_module_cost("crownit")
+        if balance < cost:
+            bot.answer_callback_query(call.id, f"❌ You need {cost} credits for Crownit automation.", show_alert=True)
             return
         user_crownit_state[user_id] = "waiting_phone"
         bot.delete_message(call.message.chat.id, call.message.message_id)
         bot.send_message(
             call.message.chat.id,
-            "🎯 <b>CROWNIT AUTOMATION</b>\n\n"
-            "Enter your 10‑digit phone number (without country code).\n"
-            "I will send an OTP to that number.\n"
-            "After you enter the OTP, I'll complete surveys and claim a coupon.\n\n"
-            "💰 Cost: <b>2 Credits</b>\n"
-            "⏱️ Process may take 2‑5 minutes.\n\n"
-            "Send <code>/cancel</code> to abort.",
+            f"🎯 <b>CROWNIT AUTOMATION</b>\n\n"
+            f"Enter your 10‑digit phone number (without country code).\n"
+            f"I will send an OTP to that number.\n"
+            f"After you enter the OTP, I'll complete surveys and claim a coupon.\n\n"
+            f"💰 Cost: <b>{cost} Credits</b>\n"
+            f"⏱️ Process may take 2‑5 minutes.\n\n"
+            f"Send <code>/cancel</code> to abort.",
             parse_mode="HTML"
         )
         bot.answer_callback_query(call.id)
@@ -1932,17 +1980,21 @@ def handle_firebase_callback(call):
     chat_id = call.message.chat.id
     msg_id = call.message.message_id
     balance = get_user_balance(user_id)
+    cost = get_module_cost("firebase")
 
     if action == "send":
+        if balance < cost:
+            bot.answer_callback_query(call.id, f"❌ You need {cost} credits for Firebase analysis.", show_alert=True)
+            return
         user_firebase_state[user_id] = True
         bot.answer_callback_query(call.id, "📤 Ready! Send your APK file.")
         bot.edit_message_text(
-            "📤 <b>Send APK</b>\n\n"
-            "Please upload your APK file.\n"
-            "I will analyze it for Firebase credentials and other sensitive data.\n\n"
-            "⏱️ Analysis may take 30-60 seconds.\n"
-            "💰 Cost: 2 Credits.\n"
-            "Click <b>Remove APK</b> to cancel.",
+            f"📤 <b>Send APK</b>\n\n"
+            f"Please upload your APK file.\n"
+            f"I will analyze it for Firebase credentials and other sensitive data.\n\n"
+            f"⏱️ Analysis may take 30-60 seconds.\n"
+            f"💰 Cost: {cost} Credits.\n"
+            f"Click <b>Remove APK</b> to cancel.",
             chat_id=chat_id,
             message_id=msg_id,
             reply_markup=firebase_menu_keyboard(),
@@ -1979,12 +2031,13 @@ def handle_apk(message):
         bot.reply_to(message, "❌ Max file size: 50 MB.")
         return
 
+    cost = get_module_cost("firebase")
     balance = get_user_balance(user_id)
-    if balance < 2:
-        bot.reply_to(message, f"❌ Insufficient credits! You need 2 credits. Your balance: {balance}")
+    if balance < cost:
+        bot.reply_to(message, f"❌ Insufficient credits! You need {cost} credits. Your balance: {balance}")
         return
 
-    update_user_balance(user_id, -2)
+    update_user_balance(user_id, -cost)
     processing_msg = bot.reply_to(message, "⏳ Analyzing APK... (may take 30-60 seconds)")
 
     tmp_path = None
@@ -2004,7 +2057,7 @@ def handle_apk(message):
         log_usage(user_id, "Firebase Extractor", f"APK: {doc.file_name}")
     except Exception as e:
         logger.error(f"APK analysis error: {e}")
-        update_user_balance(user_id, 2)
+        update_user_balance(user_id, cost)  # Refund on error
         bot.edit_message_text(
             f"❌ Analysis failed!\n\nError: {str(e)[:200]}",
             chat_id=message.chat.id,
@@ -2026,26 +2079,32 @@ def crownit_phone_handler(message):
     if not phone.isdigit() or len(phone) != 10:
         bot.reply_to(message, "❌ Please enter exactly 10 digits.")
         return
+    
+    cost = get_module_cost("crownit")
     balance = get_user_balance(user_id)
-    if balance < 2:
-        bot.reply_to(message, "❌ Insufficient credits. You need 2.")
+    if balance < cost:
+        bot.reply_to(message, f"❌ Insufficient credits. You need {cost}.")
         user_crownit_state[user_id] = None
         return
-    update_user_balance(user_id, -2)
+    
+    update_user_balance(user_id, -cost)
     crownit_data[user_id] = {"phone": phone, "bot": None, "uid": None, "reg_id": None, "attempts": 0}
     user_crownit_state[user_id] = "waiting_otp"
     processing = bot.reply_to(message, "⏳ Sending OTP...")
+    
     def send_otp_thread():
         try:
             bot_instance = CrownitBot(phone)
             reg_id = bot_instance.register_device()
             if not reg_id:
+                update_user_balance(user_id, cost)  # Refund
                 bot.edit_message_text("❌ Device registration failed. Try again.", chat_id=message.chat.id, message_id=processing.message_id)
                 user_crownit_state[user_id] = None
                 crownit_data.pop(user_id, None)
                 return
             uid = bot_instance.create_user_and_send_otp(reg_id)
             if not uid:
+                update_user_balance(user_id, cost)  # Refund
                 bot.edit_message_text("❌ Failed to send OTP. Check number.", chat_id=message.chat.id, message_id=processing.message_id)
                 user_crownit_state[user_id] = None
                 crownit_data.pop(user_id, None)
@@ -2055,9 +2114,11 @@ def crownit_phone_handler(message):
             crownit_data[user_id]["reg_id"] = reg_id
             bot.edit_message_text(f"✅ OTP sent to +91{phone}.\n\nNow enter the OTP you received.", chat_id=message.chat.id, message_id=processing.message_id)
         except Exception as e:
+            update_user_balance(user_id, cost)  # Refund
             bot.edit_message_text(f"❌ Error: {str(e)[:200]}", chat_id=message.chat.id, message_id=processing.message_id)
             user_crownit_state[user_id] = None
             crownit_data.pop(user_id, None)
+    
     threading.Thread(target=send_otp_thread).start()
 
 # ==================== CROWNIT OTP HANDLER ====================
@@ -2085,13 +2146,15 @@ def crownit_otp_handler(message):
     processing = bot.reply_to(message, "⏳ Verifying OTP...")
 
     def run_automation():
+        cost = get_module_cost("crownit")
         try:
             sid = bot_instance.verify_otp(otp, uid, reg_id)
             if not sid:
                 if attempts >= 3:
+                    update_user_balance(user_id, cost)  # Refund
                     bot.edit_message_text(
                         f"❌ <b>OTP verification failed 3 times.</b>\n\n"
-                        f"Please start over with /crownit (you will be charged again).",
+                        f"Credits refunded. Please start over.",
                         chat_id=message.chat.id,
                         message_id=processing.message_id,
                         parse_mode="HTML"
@@ -2123,9 +2186,10 @@ def crownit_otp_handler(message):
                 user_crownit_state[user_id] = None
                 crownit_data.pop(user_id, None)
             else:
+                update_user_balance(user_id, cost)  # Refund
                 bot.edit_message_text(
                     f"❌ <b>Automation Failed</b>\n\nReason: {error or 'Unknown error'}\n\n"
-                    f"Please try again later.",
+                    f"Credits refunded. Please try again later.",
                     chat_id=message.chat.id,
                     message_id=processing.message_id,
                     parse_mode="HTML"
@@ -2133,6 +2197,7 @@ def crownit_otp_handler(message):
                 user_crownit_state[user_id] = None
                 crownit_data.pop(user_id, None)
         except Exception as e:
+            update_user_balance(user_id, cost)  # Refund
             bot.edit_message_text(
                 f"❌ Error: {str(e)[:300]}",
                 chat_id=message.chat.id,
@@ -2540,11 +2605,12 @@ def handle_phone_number(message):
         user_shopsy_state.get(user_id)):
         return
 
+    cost = get_module_cost("flipkart")
     balance = get_user_balance(user_id)
-    if balance < 1:
-        bot.reply_to(message, "❌ Insufficient credits! You need 1 credit to check a number.")
+    if balance < cost:
+        bot.reply_to(message, f"❌ Insufficient credits! You need {cost} credit to check a number.")
         return
-    update_user_balance(user_id, -1)
+    update_user_balance(user_id, -cost)
     processing = bot.reply_to(message, f"🔍 Checking <code>{message.text}</code> on Flipkart...", parse_mode="HTML")
     def check_thread():
         result = check_flipkart(message.text)
@@ -2563,16 +2629,21 @@ def handle_phone_number(message):
 def handle_instagram_callback(call):
     action = call.data.split("_")[1]
     user_id = call.from_user.id
+    cost = get_module_cost("instagram_single")
 
     if action == "single":
+        balance = get_user_balance(user_id)
+        if balance < cost:
+            bot.answer_callback_query(call.id, f"❌ You need {cost} credit for download.", show_alert=True)
+            return
         user_instagram_state[user_id] = "single"
         bot.answer_callback_query(call.id, "📹 Send a single Instagram video URL.")
         bot.edit_message_text(
-            "📹 <b>Single Download</b>\n\n"
-            "Send me the Instagram video link.\n"
-            "Example: <code>https://www.instagram.com/reel/xyz123/</code>\n\n"
-            "💡 Costs 1 Credit.\n\n"
-            "<i>Powered By Viediet Utility</i>",
+            f"📹 <b>Single Download</b>\n\n"
+            f"Send me the Instagram video link.\n"
+            f"Example: <code>https://www.instagram.com/reel/xyz123/</code>\n\n"
+            f"💡 Costs {cost} Credit.\n\n"
+            f"<i>Powered By Viediet Utility</i>",
             chat_id=call.message.chat.id,
             message_id=call.message.message_id,
             reply_markup=instagram_menu_keyboard(),
@@ -2589,8 +2660,8 @@ def handle_instagram_callback(call):
             "Example:\n"
             "<code>https://www.instagram.com/reel/abc/\n"
             "https://www.instagram.com/reel/def/</code>\n\n"
-            "💡 Costs 1 Credit per video.\n\n"
-            "<i>Powered By Viediet Utility</i>",
+            f"💡 Costs {cost} Credit per video.\n\n"
+            f"<i>Powered By Viediet Utility</i>",
             chat_id=call.message.chat.id,
             message_id=call.message.message_id,
             reply_markup=instagram_menu_keyboard(),
@@ -2602,6 +2673,7 @@ def handle_instagram_link(message):
     user_id = message.from_user.id
     balance = get_user_balance(user_id)
     state = user_instagram_state.get(user_id)
+    cost = get_module_cost("instagram_single")
 
     if not state:
         bot.reply_to(message, "📥 Please use the Instagram Downloader module from the main menu to send links.")
@@ -2615,10 +2687,10 @@ def handle_instagram_link(message):
         return
 
     if state == "single":
-        if balance < 1:
-            bot.reply_to(message, "❌ Insufficient credits! You need 1 credit to download.")
+        if balance < cost:
+            bot.reply_to(message, f"❌ Insufficient credits! You need {cost} credit to download.")
             return
-        update_user_balance(user_id, -1)
+        update_user_balance(user_id, -cost)
         processing = bot.reply_to(message, "⏳ Downloading reel...")
         def download_single():
             file_path = download_reel(urls[0])
@@ -2636,7 +2708,7 @@ def handle_instagram_link(message):
         threading.Thread(target=download_single).start()
 
     elif state == "bulk":
-        total_cost = len(urls)
+        total_cost = len(urls) * cost
         if balance < total_cost:
             bot.reply_to(message, f"❌ Insufficient credits! Need {total_cost} credits for {len(urls)} videos.")
             return
@@ -2723,10 +2795,12 @@ def handle_admin_callback(call):
         )
 
     elif call.data == "admin_costs":
-        current_cost = get_config("firebase_cost", "2")
+        current_costs = "\n".join([f"• {k}: {get_module_cost(k)} credits" for k in DEFAULT_COSTS.keys()])
         bot.answer_callback_query(call.id)
         bot.edit_message_text(
-            f"⚙️ <b>Set Costs</b>\n\nCurrent Firebase cost: <code>{current_cost}</code> credits\n\nTo change, send:\n`/setcost firebase 5`\n\n(Other modules can be added later)",
+            f"⚙️ <b>Current Costs</b>\n\n{current_costs}\n\n"
+            f"To change, send:\n`/setcost module amount`\n\n"
+            f"Available modules: {', '.join(DEFAULT_COSTS.keys())}",
             chat_id=chat_id, message_id=msg_id,
             reply_markup=admin_panel_keyboard(), parse_mode="HTML"
         )
@@ -2962,6 +3036,9 @@ def setcost_cmd(message):
             return
         module = parts[1].lower()
         amount = int(parts[2])
+        if module not in DEFAULT_COSTS:
+            bot.reply_to(message, f"❌ Invalid module. Available: {', '.join(DEFAULT_COSTS.keys())}")
+            return
         set_config(f"{module}_cost", str(amount))
         bot.reply_to(message, f"✅ Cost for {module} set to {amount} credits.")
     except Exception as e:
@@ -3060,7 +3137,7 @@ if __name__ == "__main__":
     init_db()
     task_thread = threading.Thread(target=run_scheduled_tasks, daemon=True)
     task_thread.start()
-    logger.info("🤖 Bot started – Shopsy Mining added!")
+    logger.info("🤖 Bot started – Shopsy Mining added with 1 credit cost!")
     try:
         bot.remove_webhook()
         time.sleep(5)
