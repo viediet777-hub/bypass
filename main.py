@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-# NRTECNO SYSTEM - VIEDIET BOT v2.0 - WITH SUPERCOIN FETCHER (FIXED)
+# NRTECNO SYSTEM - VIEDIET BOT v2.0 - WITH SUPERCOIN FETCHER (DEBUG FIXED)
 
 import os
 import logging
@@ -298,8 +298,11 @@ def run_scheduled_tasks():
         try:
             conn = sqlite3.connect(DB_PATH, check_same_thread=False)
             c = conn.cursor()
-            c.execute('DELETE FROM temp_emails WHERE created_at <= datetime("now", "-10 minutes")')
-            conn.commit()
+            # Check if table exists first
+            c.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='temp_emails'")
+            if c.fetchone():
+                c.execute('DELETE FROM temp_emails WHERE created_at <= datetime("now", "-10 minutes")')
+                conn.commit()
             conn.close()
         except Exception as e:
             logger.error(f"[SCHEDULED] Error cleaning temp emails: {e}")
@@ -638,7 +641,7 @@ def extract_yoga_code(link: str):
         return link
     return None
 
-# ==================== SUPERCOIN FETCHER CLASS - FIXED ====================
+# ==================== SUPERCOIN FETCHER CLASS - FIXED WITH DEBUG ====================
 class ShopsySession:
     """NRTECNO Optimized Shopsy Session Handler - FIXED"""
     
@@ -813,7 +816,7 @@ class ShopsySession:
         return status == 200
     
     async def fetch_coins(self):
-        """Fetch super coins - FIXED to match flip.py"""
+        """Fetch super coins - WITH DEBUG LOGGING"""
         if not self.user_id:
             self.user_id = self.tokens.get("accountId", "")
         
@@ -828,21 +831,62 @@ class ShopsySession:
         
         status, response = await self.request("POST", "/1/shopsy/games", payload, is_game=True)
         
-        # Match flip.py exactly
-        if status == 200 and response.get("success"):
-            data = response.get("data", {})
-            earnings = data.get("earnings", {})
-            coins = earnings.get("coinsEarnedTotal", 0)
-            return {
-                "total_coins": coins,
-                "daily_coins": earnings.get("coinsEarnedDaily", 0),
-                "weekly_coins": earnings.get("coinsEarnedWeekly", 0),
-                "name": data.get("name", "N/A"),
-                "user_id": data.get("userId", ""),
-                "total_orders": data.get("totalOrders", 0),
-                "data": data
-            }
+        # DEBUG: Print the response to console
+        print(f"[DEBUG] fetch_coins - Status: {status}")
+        print(f"[DEBUG] fetch_coins - Response type: {type(response)}")
+        print(f"[DEBUG] fetch_coins - Response: {json.dumps(response, indent=2)[:1500]}")
         
+        # Try to extract coins from different response structures
+        if status == 200:
+            # Check if response has success field
+            if response.get("success"):
+                data = response.get("data", {})
+                earnings = data.get("earnings", {})
+                coins = earnings.get("coinsEarnedTotal", 0)
+                print(f"[DEBUG] Found coins via success: {coins}")
+                return {
+                    "total_coins": coins,
+                    "daily_coins": earnings.get("coinsEarnedDaily", 0),
+                    "weekly_coins": earnings.get("coinsEarnedWeekly", 0),
+                    "name": data.get("name", "N/A"),
+                    "user_id": data.get("userId", ""),
+                    "total_orders": data.get("totalOrders", 0),
+                    "data": data
+                }
+            # Try alternative response structure
+            elif response.get("data"):
+                data = response.get("data", {})
+                if isinstance(data, dict):
+                    earnings = data.get("earnings", {})
+                    if earnings:
+                        coins = earnings.get("coinsEarnedTotal", 0)
+                        print(f"[DEBUG] Found coins via data.earnings: {coins}")
+                        return {
+                            "total_coins": coins,
+                            "daily_coins": earnings.get("coinsEarnedDaily", 0),
+                            "weekly_coins": earnings.get("coinsEarnedWeekly", 0),
+                            "name": data.get("name", "N/A"),
+                            "user_id": data.get("userId", ""),
+                            "total_orders": data.get("totalOrders", 0),
+                            "data": data
+                        }
+            # Try direct response
+            elif isinstance(response, dict):
+                earnings = response.get("earnings", {})
+                if earnings:
+                    coins = earnings.get("coinsEarnedTotal", 0)
+                    print(f"[DEBUG] Found coins via direct earnings: {coins}")
+                    return {
+                        "total_coins": coins,
+                        "daily_coins": earnings.get("coinsEarnedDaily", 0),
+                        "weekly_coins": earnings.get("coinsEarnedWeekly", 0),
+                        "name": response.get("name", "N/A"),
+                        "user_id": response.get("userId", ""),
+                        "total_orders": response.get("totalOrders", 0),
+                        "data": response
+                    }
+        
+        print(f"[DEBUG] fetch_coins - No coins found, returning None")
         return None
 
 # ==================== SHOPSY SESSION FUNCTIONS ====================
@@ -1509,7 +1553,8 @@ def supercoin_otp_handler(message):
                     f"❌ Failed to fetch coins.\n\n"
                     f"📱 Phone: +91{phone}\n"
                     f"This account may not have any Supercoins yet.\n\n"
-                    f"💡 Try using the account on Shopsy app first!",
+                    f"💡 Try using the account on Shopsy app first!\n\n"
+                    f"🔍 Check console logs for debug output.",
                     chat_id=message.chat.id,
                     message_id=status_msg.message_id,
                     reply_markup=back_button()
@@ -2654,12 +2699,20 @@ if __name__ == "__main__":
     logger.info("🔄 Abort and Back buttons added for all features")
     logger.info("📊 Referral system - Get Link & Stats working")
     logger.info("👑 Admin Panel - All features working (Stats, Users, Add/Remove Coins, Broadcast, Costs)")
-    logger.info("💰 Supercoin Fetcher - Check Shopsy Supercoin balance (FIXED)")
+    logger.info("💰 Supercoin Fetcher - DEBUG MODE (Check console logs)")
     logger.info("🌐 Proxy support for Flipkart, Shopsy")
     
+    # Remove webhook
     try:
         bot.remove_webhook()
-        time.sleep(1)
+        time.sleep(2)
+    except:
+        pass
+    
+    # Stop any existing polling
+    try:
+        bot.stop_polling()
+        time.sleep(2)
     except:
         pass
     
