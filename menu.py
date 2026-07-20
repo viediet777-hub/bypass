@@ -40,7 +40,6 @@ def main_menu_text(user_id, first_name, balance, status):
 Earn free credits by referring friends!
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-<i>Made with ❤️ by @viedietextraa</i>
 """
 
 def main_menu_keyboard(is_admin=False):
@@ -530,7 +529,6 @@ def help_menu_text():
 • Yoga Referral
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-<i>Made with ❤️ by @viedietextraa</i>
 """
 
 # ==================== Helper Functions ====================
