@@ -23,7 +23,6 @@ def main_menu_keyboard(is_admin: bool = False):
     kb.add(InlineKeyboardButton("📥 Instagram Downloader", callback_data="module_instagram", style="primary"))
     kb.add(InlineKeyboardButton("👁️ Instagram Viewer", callback_data="module_igviewer", style="primary"))
     kb.add(InlineKeyboardButton("🎵 Music", callback_data="module_music", style="primary"))
-    kb.add(InlineKeyboardButton("🎯 Crownit Automation", callback_data="module_crownit", style="primary"))
     kb.add(InlineKeyboardButton("⛏️ Shopsy Mining", callback_data="module_shopsy", style="primary"))
     kb.add(InlineKeyboardButton("🔗 Referral", callback_data="module_referral", style="primary"))
     if is_admin:
