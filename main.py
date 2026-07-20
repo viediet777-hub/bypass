@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+# NRTECNO SYSTEM - VIEDIET BOT v2.0 FIXED
+# All features included - Credit refund, Yoga fixes, Proxy support, Abort buttons
 
 import os
 import logging
@@ -28,19 +30,88 @@ from contextlib import suppress
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton
 from curl_cffi import requests as cffi_requests
 
-# ---- Import menu functions ----
-from menu import (
-    main_menu_text, main_menu_keyboard,
-    firebase_menu_text, firebase_menu_keyboard,
-    temp_menu_text, temp_menu_keyboard,
-    flipkart_menu_text, flipkart_menu_keyboard,
-    instagram_menu_text, instagram_menu_keyboard,
-    referral_menu_text, referral_menu_keyboard,
-    admin_panel_text, admin_panel_keyboard,
-    music_menu_text, music_menu_keyboard,
-    shopsy_menu_text, shopsy_menu_keyboard,
-    yoga_menu_text, yoga_menu_keyboard
-)
+# ==================== PROXY CONFIGURATION ====================
+# Load proxies from environment or use defaults
+# Set these on Railway:
+# PROXY_HOST=dc.decodo.com
+# PROXY_USER=sptu9f11ur
+# PROXY_PASS=0c_nm5z3eVm4jJEddL
+
+class ProxyManager:
+    """Centralized proxy management with environment variable support"""
+    
+    @staticmethod
+    def get_proxy_config():
+        """Get proxy config from environment or defaults"""
+        return {
+            "host": os.environ.get("PROXY_HOST", "dc.decodo.com"),
+            "user": os.environ.get("PROXY_USER", "sptu9f11ur"),
+            "pass": os.environ.get("PROXY_PASS", "0c_nm5z3eVm4jJEddL")
+        }
+    
+    @staticmethod
+    def get_yoga_proxies():
+        config = ProxyManager.get_proxy_config()
+        proxies = []
+        for port in range(10001, 10011):
+            proxies.append({
+                "host": config["host"],
+                "port": port,
+                "user": config["user"],
+                "pass": config["pass"]
+            })
+        return proxies
+    
+    @staticmethod
+    def get_flipkart_proxies():
+        config = ProxyManager.get_proxy_config()
+        return [
+            {"host": config["host"], "port": 10011, "user": config["user"], "pass": config["pass"]},
+            {"host": config["host"], "port": 10012, "user": config["user"], "pass": config["pass"]},
+        ]
+    
+    @staticmethod
+    def get_shopsy_proxies():
+        config = ProxyManager.get_proxy_config()
+        return [
+            {"host": config["host"], "port": 10013, "user": config["user"], "pass": config["pass"]},
+            {"host": config["host"], "port": 10014, "user": config["user"], "pass": config["pass"]},
+        ]
+
+# Initialize proxies
+PROXY_MANAGER = ProxyManager()
+YOGA_PROXIES = PROXY_MANAGER.get_yoga_proxies()
+FLIPKART_PROXIES = PROXY_MANAGER.get_flipkart_proxies()
+SHOPSY_PROXIES = PROXY_MANAGER.get_shopsy_proxies()
+
+_yoga_proxy_index = 0
+_proxy_lock = threading.Lock()
+
+def get_proxy_url(proxy):
+    if not proxy:
+        return None
+    return f"http://{proxy['user']}:{proxy['pass']}@{proxy['host']}:{proxy['port']}"
+
+def get_yoga_proxy():
+    global _yoga_proxy_index
+    if not YOGA_PROXIES:
+        return None
+    with _proxy_lock:
+        proxy = YOGA_PROXIES[_yoga_proxy_index]
+        _yoga_proxy_index = (_yoga_proxy_index + 1) % len(YOGA_PROXIES)
+        return get_proxy_url(proxy)
+
+def get_flipkart_proxy():
+    if not FLIPKART_PROXIES:
+        return None
+    proxy = random.choice(FLIPKART_PROXIES)
+    return get_proxy_url(proxy)
+
+def get_shopsy_proxy():
+    if not SHOPSY_PROXIES:
+        return None
+    proxy = random.choice(SHOPSY_PROXIES)
+    return get_proxy_url(proxy)
 
 # ==================== CONFIG ====================
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
@@ -66,26 +137,7 @@ DEFAULT_COSTS = {
     "yoga": 1,
 }
 
-YOGA_PROXIES = [
-    {"host": "dc.decodo.com", "port": 10001, "user": "sptu9f11ur", "pass": "0c_nm5z3eVm4jJEddL"},
-    {"host": "dc.decodo.com", "port": 10002, "user": "sptu9f11ur", "pass": "0c_nm5z3eVm4jJEddL"},
-    {"host": "dc.decodo.com", "port": 10003, "user": "sptu9f11ur", "pass": "0c_nm5z3eVm4jJEddL"},
-    {"host": "dc.decodo.com", "port": 10004, "user": "sptu9f11ur", "pass": "0c_nm5z3eVm4jJEddL"},
-    {"host": "dc.decodo.com", "port": 10005, "user": "sptu9f11ur", "pass": "0c_nm5z3eVm4jJEddL"},
-    {"host": "dc.decodo.com", "port": 10006, "user": "sptu9f11ur", "pass": "0c_nm5z3eVm4jJEddL"},
-    {"host": "dc.decodo.com", "port": 10007, "user": "sptu9f11ur", "pass": "0c_nm5z3eVm4jJEddL"},
-    {"host": "dc.decodo.com", "port": 10008, "user": "sptu9f11ur", "pass": "0c_nm5z3eVm4jJEddL"},
-    {"host": "dc.decodo.com", "port": 10009, "user": "sptu9f11ur", "pass": "0c_nm5z3eVm4jJEddL"},
-    {"host": "dc.decodo.com", "port": 10010, "user": "sptu9f11ur", "pass": "0c_nm5z3eVm4jJEddL"},
-]
-
-YOGA_NAMES = [
-    "Aarav","Vivaan","Aditya","Vihaan","Arjun","Sai","Shaurya","Atharva","Yash","Dhruv",
-    "Kabir","Reyansh","Krishna","Laksh","Advik","Pranav","Rudra","Ishaan","Dev","Ansh",
-    "Anaya","Aaradhya","Navya","Myra","Ananya","Diya","Sara","Ishita","Aadhya","Riya",
-    "Raj","Simran","Priya","Rahul","Neha","Amit","Pooja","Vikram","Anjali","Rohan",
-]
-
+# Yoga API endpoints
 YOGA_REGISTER_URL = "https://auth-service.habuild.in/public/user/v1/register-user"
 YOGA_LOGIN_URL = "https://auth-service.habuild.in/public/auth/v1/login"
 YOGA_VERIFY_URL = "https://auth-service.habuild.in/public/auth/v1/verify-otp"
@@ -102,6 +154,13 @@ YOGA_HEADERS = {
     "user-agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.5 Mobile/15E148 Safari/604.1",
 }
 YOGA_REG_HEADERS = {**YOGA_HEADERS, "authorization": "Bearer"}
+
+YOGA_NAMES = [
+    "Aarav","Vivaan","Aditya","Vihaan","Arjun","Sai","Shaurya","Atharva","Yash","Dhruv",
+    "Kabir","Reyansh","Krishna","Laksh","Advik","Pranav","Rudra","Ishaan","Dev","Ansh",
+    "Anaya","Aaradhya","Navya","Myra","Ananya","Diya","Sara","Ishita","Aadhya","Riya",
+    "Raj","Simran","Priya","Rahul","Neha","Amit","Pooja","Vikram","Anjali","Rohan",
+]
 
 logging.basicConfig(
     level=logging.INFO,
@@ -187,6 +246,44 @@ def init_db():
     logger.info("Database initialized.")
 
 init_db()
+
+# ==================== CREDIT MANAGER (REFUND ON FAILURE) ====================
+class CreditManager:
+    """Handle credit deduction with automatic refund on failure"""
+    
+    def __init__(self, user_id, cost, operation_name=""):
+        self.user_id = user_id
+        self.cost = cost
+        self.operation_name = operation_name
+        self.deducted = False
+        self.balance_before = 0
+    
+    def __enter__(self):
+        return self
+    
+    def deduct(self):
+        """Deduct credits from user"""
+        self.balance_before = get_user_balance(self.user_id)
+        if self.balance_before < self.cost:
+            raise ValueError(f"Insufficient credits! Need {self.cost}")
+        update_user_balance(self.user_id, -self.cost)
+        self.deducted = True
+        logger.info(f"💰 Deducted {self.cost} credits from user {self.user_id} for {self.operation_name}")
+        return self
+    
+    def refund(self):
+        """Refund credits to user"""
+        if self.deducted:
+            update_user_balance(self.user_id, self.cost)
+            self.deducted = False
+            logger.info(f"💰 Refunded {self.cost} credits to user {self.user_id} for {self.operation_name}")
+            return True
+        return False
+    
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if exc_type is not None:
+            self.refund()
+            return False
 
 # ==================== DATABASE FUNCTIONS ====================
 def get_user(user_id):
@@ -384,28 +481,9 @@ def get_yoga_welcome_bonus():
     return get_config("yoga_welcome_bonus", YOGA_WELCOME_BONUS)
 
 # ==================== YOGA PROXY FUNCTIONS ====================
-_yoga_proxy_index = 0
-_yoga_proxy_lock = threading.Lock()
-
-def get_yoga_proxy():
-    global _yoga_proxy_index
-    if not YOGA_PROXIES:
-        return None
-    with _yoga_proxy_lock:
-        proxy = YOGA_PROXIES[_yoga_proxy_index]
-        _yoga_proxy_index = (_yoga_proxy_index + 1) % len(YOGA_PROXIES)
-        return proxy
-
-def get_yoga_proxy_url():
-    proxy = get_yoga_proxy()
-    if not proxy:
-        return None
-    return f"http://{proxy['user']}:{proxy['pass']}@{proxy['host']}:{proxy['port']}"
-
-# ==================== YOGA API FUNCTIONS ====================
 def yoga_api_post(url, payload, headers, use_proxy=True):
     try:
-        proxy_url = get_yoga_proxy_url() if use_proxy else None
+        proxy_url = get_yoga_proxy() if use_proxy else None
         proxies = {"http": proxy_url, "https": proxy_url} if proxy_url else None
         
         response = requests.post(
@@ -465,10 +543,21 @@ def rand_yoga_name():
     return random.choice(YOGA_NAMES)
 
 def extract_yoga_code(link: str):
+    """Extract code from link OR accept direct code - FIXED"""
     link = link.strip().rstrip("/")
-    code = link.replace("https://habit.yoga/", "") if "habit.yoga/" in link else link
-    if code and all(c.isalnum() or c == "_" for c in code) and 1 <= len(code) <= 50:
-        return code
+    
+    # Check if it's a full URL
+    if "habit.yoga/" in link:
+        code = link.replace("https://habit.yoga/", "").replace("http://habit.yoga/", "")
+        code = code.split("/")[0]  # Get first part after domain
+        if code and all(c.isalnum() or c == "_" for c in code) and 1 <= len(code) <= 50:
+            return code
+        return None
+    
+    # Check if it's a direct code (alphanumeric + underscore)
+    if link and all(c.isalnum() or c == "_" for c in link) and 1 <= len(link) <= 50:
+        return link
+    
     return None
 
 # ==================== SHOPSY SESSION FUNCTIONS ====================
@@ -874,8 +963,15 @@ async def core_mine_logic(session_data, progress_callback=None):
 def shopsy_phone_handler(message):
     user_id = message.from_user.id
     phone = message.text.strip()
+    
+    # Check for cancellation
+    if phone.lower() in ['/cancel', 'cancel', 'abort']:
+        user_shopsy_state[user_id] = None
+        bot.reply_to(message, "❌ Shopsy mining cancelled.", reply_markup=get_menu_kb(user_id))
+        return
+    
     if not phone.isdigit() or len(phone) != 10:
-        bot.reply_to(message, "❌ Please enter exactly 10 digits.")
+        bot.reply_to(message, "❌ Please enter exactly 10 digits.\n\nSend /cancel to abort.")
         return
     
     cost = get_module_cost("shopsy")
@@ -884,9 +980,14 @@ def shopsy_phone_handler(message):
         bot.reply_to(message, f"❌ Insufficient credits! You need {cost} credits. Your balance: {balance}")
         return
     
-    update_user_balance(user_id, -cost)
+    # Create abort keyboard
+    abort_kb = InlineKeyboardMarkup()
+    abort_kb.add(InlineKeyboardButton("❌ Abort", callback_data="shopsy_abort"))
     
-    status_msg = bot.reply_to(message, f"📱 Sending OTP to +91{phone}...")
+    status_msg = bot.reply_to(message, f"📱 Sending OTP to +91{phone}...", reply_markup=abort_kb)
+    
+    # Deduct credits (will be refunded on failure)
+    update_user_balance(user_id, -cost)
     
     def send_otp_thread():
         try:
@@ -896,32 +997,83 @@ def shopsy_phone_handler(message):
             loop.close()
             
             if not session_data:
-                update_user_balance(user_id, cost)
+                update_user_balance(user_id, cost)  # REFUND
                 bot.edit_message_text(f"❌ Failed: {msg}", chat_id=message.chat.id, message_id=status_msg.message_id)
                 user_shopsy_state[user_id] = None
                 return
             
-            user_shopsy_otp_data[user_id] = {"session_data": session_data, "phone": phone}
+            user_shopsy_otp_data[user_id] = {"session_data": session_data, "phone": phone, "cost": cost}
             user_shopsy_state[user_id] = "waiting_otp"
+            
+            # OTP waiting with abort button
+            otp_kb = InlineKeyboardMarkup()
+            otp_kb.add(InlineKeyboardButton("❌ Abort", callback_data="shopsy_abort_otp"))
+            
             bot.edit_message_text(
                 f"✅ OTP sent to +91{phone}!\n\n"
-                f"Enter the OTP code you received:",
+                f"Enter the OTP code you received:\n\nSend /cancel to abort.",
                 chat_id=message.chat.id,
-                message_id=status_msg.message_id
+                message_id=status_msg.message_id,
+                reply_markup=otp_kb
             )
         except Exception as e:
-            update_user_balance(user_id, cost)
+            update_user_balance(user_id, cost)  # REFUND
             bot.edit_message_text(f"❌ Error: {str(e)[:200]}", chat_id=message.chat.id, message_id=status_msg.message_id)
             user_shopsy_state[user_id] = None
     
     threading.Thread(target=send_otp_thread).start()
 
+@bot.callback_query_handler(func=lambda call: call.data in ["shopsy_abort", "shopsy_abort_otp"])
+def shopsy_abort_callback(call):
+    user_id = call.from_user.id
+    
+    if call.data == "shopsy_abort_otp":
+        data = user_shopsy_otp_data.get(user_id, {})
+        cost = data.get("cost", get_module_cost("shopsy"))
+        
+        if user_shopsy_state.get(user_id) == "waiting_otp":
+            update_user_balance(user_id, cost)  # REFUND
+            user_shopsy_state[user_id] = None
+            user_shopsy_otp_data.pop(user_id, None)
+            bot.edit_message_text(
+                "🔄 OTP session aborted. Credits refunded.",
+                chat_id=call.message.chat.id,
+                message_id=call.message.message_id
+            )
+            bot.answer_callback_query(call.id, "✅ Aborted")
+            return
+    
+    elif call.data == "shopsy_abort":
+        if user_shopsy_state.get(user_id) == "waiting_phone":
+            cost = get_module_cost("shopsy")
+            update_user_balance(user_id, cost)  # REFUND
+            user_shopsy_state[user_id] = None
+            bot.edit_message_text(
+                "🔄 Shopsy mining aborted. Credits refunded.",
+                chat_id=call.message.chat.id,
+                message_id=call.message.message_id
+            )
+            bot.answer_callback_query(call.id, "✅ Aborted")
+            return
+    
+    bot.answer_callback_query(call.id, "No active session")
+
 @bot.message_handler(func=lambda message: user_shopsy_state.get(message.from_user.id) == "waiting_otp")
 def shopsy_otp_handler(message):
     user_id = message.from_user.id
     otp = message.text.strip()
+    
+    if otp.lower() in ['/cancel', 'cancel']:
+        data = user_shopsy_otp_data.get(user_id, {})
+        cost = data.get("cost", get_module_cost("shopsy"))
+        update_user_balance(user_id, cost)  # REFUND
+        user_shopsy_state[user_id] = None
+        user_shopsy_otp_data.pop(user_id, None)
+        bot.reply_to(message, "🔄 OTP verification cancelled. Credits refunded.")
+        return
+    
     if not otp.isdigit():
-        bot.reply_to(message, "❌ Enter a valid OTP.")
+        bot.reply_to(message, "❌ Enter a valid OTP.\n\nSend /cancel to abort.")
         return
     
     data = user_shopsy_otp_data.get(user_id)
@@ -932,6 +1084,7 @@ def shopsy_otp_handler(message):
     
     session_data = data["session_data"]
     phone = data["phone"]
+    cost = data.get("cost", get_module_cost("shopsy"))
     
     status_msg = bot.reply_to(message, "🔐 Verifying OTP...")
     
@@ -955,18 +1108,16 @@ def shopsy_otp_handler(message):
                 
                 start_shopsy_mining(message, user_id, phone, verified_session)
             else:
-                cost = get_module_cost("shopsy")
-                update_user_balance(user_id, cost)
+                update_user_balance(user_id, cost)  # REFUND
                 bot.edit_message_text(
-                    "❌ Invalid OTP. Credits refunded. Please try again with /shopsy",
+                    "❌ Invalid OTP. Credits refunded. Please try again.",
                     chat_id=message.chat.id,
                     message_id=status_msg.message_id
                 )
                 user_shopsy_state[user_id] = None
                 user_shopsy_otp_data.pop(user_id, None)
         except Exception as e:
-            cost = get_module_cost("shopsy")
-            update_user_balance(user_id, cost)
+            update_user_balance(user_id, cost)  # REFUND
             bot.edit_message_text(f"❌ Error: {str(e)[:200]}", chat_id=message.chat.id, message_id=status_msg.message_id)
             user_shopsy_state[user_id] = None
             user_shopsy_otp_data.pop(user_id, None)
@@ -1016,7 +1167,7 @@ def start_shopsy_mining(message, user_id, phone, session_data):
                 log_usage(user_id, "Shopsy Mining", f"Phone: +91{phone}")
             else:
                 cost = get_module_cost("shopsy")
-                update_user_balance(user_id, cost)
+                update_user_balance(user_id, cost)  # REFUND
                 bot.edit_message_text(
                     f"❌ **Shopsy Mining Failed**\n\n{result.get('msg', 'Unknown error')}\n\nCredits refunded.",
                     chat_id=message.chat.id,
@@ -1028,7 +1179,7 @@ def start_shopsy_mining(message, user_id, phone, session_data):
             
         except Exception as e:
             cost = get_module_cost("shopsy")
-            update_user_balance(user_id, cost)
+            update_user_balance(user_id, cost)  # REFUND
             bot.edit_message_text(f"❌ Error: {str(e)[:200]}", chat_id=message.chat.id, message_id=progress_msg.message_id)
             user_shopsy_state[user_id] = None
             user_shopsy_otp_data.pop(user_id, None)
@@ -1107,7 +1258,7 @@ def yoga_code_handler(message):
     code = extract_yoga_code(text)
     
     if not code:
-        bot.reply_to(message, "❌ *Invalid Yoga code!*\n\nSend your Habit.Yoga referral link or code:\n`https://habit.yoga/yourcode`", parse_mode="Markdown")
+        bot.reply_to(message, "❌ *Invalid Yoga code!*\n\nSend your Habit.Yoga referral link or code:\n`https://habit.yoga/yourcode`\nor just: `yourcode`", parse_mode="Markdown")
         return
     
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
@@ -1124,8 +1275,14 @@ def yoga_phone_handler(message):
     user_id = message.from_user.id
     phone = message.text.strip().replace(" ", "")
     
+    # Check for cancellation
+    if phone.lower() in ['/cancel', 'cancel']:
+        user_yoga_state[user_id] = None
+        bot.reply_to(message, "❌ Yoga referral cancelled.", reply_markup=get_menu_kb(user_id))
+        return
+    
     if not phone.isdigit() or len(phone) != 10:
-        bot.reply_to(message, "❌ *Invalid number!* Need 10 digits.\nTry again:", parse_mode="Markdown")
+        bot.reply_to(message, "❌ *Invalid number!* Need 10 digits.\n\nSend `/cancel` to abort.", parse_mode="Markdown")
         return
     
     cost = get_module_cost("yoga")
@@ -1134,10 +1291,15 @@ def yoga_phone_handler(message):
         bot.reply_to(message, f"❌ *Insufficient points!* Need {cost} points.\n\n💡 Earn more by sharing your bot link!", parse_mode="Markdown")
         return
     
-    update_user_balance(user_id, -cost)
+    # Create abort keyboard
+    abort_kb = InlineKeyboardMarkup()
+    abort_kb.add(InlineKeyboardButton("❌ Abort", callback_data="yoga_abort"))
     
     phone_full = f"+91{phone}"
-    status_msg = bot.reply_to(message, f"⏳ *Processing...*\n📱 `{phone_full}`", parse_mode="Markdown")
+    status_msg = bot.reply_to(message, f"⏳ *Processing...*\n📱 `{phone_full}`", parse_mode="Markdown", reply_markup=abort_kb)
+    
+    # Deduct credits (will be refunded on failure)
+    update_user_balance(user_id, -cost)
     
     def yoga_register_thread():
         try:
@@ -1152,23 +1314,39 @@ def yoga_phone_handler(message):
             yoga_code = row[0] if row else None
             
             if not yoga_code:
-                bot.edit_message_text("❌ *No Yoga code set!* Use the Yoga module to set code first.", chat_id=message.chat.id, message_id=status_msg.message_id, parse_mode="Markdown")
+                update_user_balance(user_id, cost)  # REFUND
+                bot.edit_message_text(
+                    "❌ *No Yoga code set!* Use the Yoga module to set code first.",
+                    chat_id=message.chat.id,
+                    message_id=status_msg.message_id,
+                    parse_mode="Markdown"
+                )
                 user_yoga_state[user_id] = None
                 return
             
             resp, err = yoga_register(phone_full, yoga_code, name, did, sid)
             
             if err or not resp:
-                update_user_balance(user_id, cost)
-                bot.edit_message_text(f"❌ *Registration failed!*\n{err or 'No response'}", chat_id=message.chat.id, message_id=status_msg.message_id, parse_mode="Markdown")
+                update_user_balance(user_id, cost)  # REFUND
+                bot.edit_message_text(
+                    f"❌ *Registration failed!*\n{err or 'No response'}",
+                    chat_id=message.chat.id,
+                    message_id=status_msg.message_id,
+                    parse_mode="Markdown"
+                )
                 user_yoga_state[user_id] = None
                 return
             
             is_verified = resp.get("result", {}).get("data", {}).get("account", {}).get("is_phone_number_verified", False)
             
             if is_verified:
-                update_user_balance(user_id, cost)
-                bot.edit_message_text(f"⚠️ *Number already registered!*\n📱 `{phone_full}`", chat_id=message.chat.id, message_id=status_msg.message_id, parse_mode="Markdown")
+                update_user_balance(user_id, cost)  # REFUND
+                bot.edit_message_text(
+                    f"⚠️ *Number already registered!*\n📱 `{phone_full}`",
+                    chat_id=message.chat.id,
+                    message_id=status_msg.message_id,
+                    parse_mode="Markdown"
+                )
                 user_yoga_state[user_id] = None
                 return
             
@@ -1176,8 +1354,13 @@ def yoga_phone_handler(message):
             otp_ref, err = yoga_send_otp(phone_full, otp_did, otp_sid)
             
             if err or not otp_ref:
-                update_user_balance(user_id, cost)
-                bot.edit_message_text(f"⚠️ *OTP failed!*\n{err or 'No reference'}", chat_id=message.chat.id, message_id=status_msg.message_id, parse_mode="Markdown")
+                update_user_balance(user_id, cost)  # REFUND
+                bot.edit_message_text(
+                    f"⚠️ *OTP failed!*\n{err or 'No reference'}",
+                    chat_id=message.chat.id,
+                    message_id=status_msg.message_id,
+                    parse_mode="Markdown"
+                )
                 user_yoga_state[user_id] = None
                 return
             
@@ -1186,31 +1369,88 @@ def yoga_phone_handler(message):
                 "otp_ref": otp_ref,
                 "otp_did": otp_did,
                 "otp_sid": otp_sid,
-                "name": name
+                "name": name,
+                "cost": cost
             }
             user_yoga_state[user_id] = "waiting_otp"
             
+            # OTP waiting with abort button
+            otp_kb = InlineKeyboardMarkup()
+            otp_kb.add(InlineKeyboardButton("❌ Abort", callback_data="yoga_abort_otp"))
+            
             bot.edit_message_text(
-                f"✅ *OTP Sent!*\n📱 `{phone_full}`\n\n🔐 *Enter 6-digit OTP:*",
+                f"✅ *OTP Sent!*\n📱 `{phone_full}`\n\n🔐 *Enter 6-digit OTP:*\n\nSend `/cancel` to abort.",
+                chat_id=message.chat.id,
+                message_id=status_msg.message_id,
+                parse_mode="Markdown",
+                reply_markup=otp_kb
+            )
+            
+        except Exception as e:
+            update_user_balance(user_id, cost)  # REFUND
+            bot.edit_message_text(
+                f"❌ *Error:* {str(e)[:200]}",
                 chat_id=message.chat.id,
                 message_id=status_msg.message_id,
                 parse_mode="Markdown"
             )
-            
-        except Exception as e:
-            update_user_balance(user_id, cost)
-            bot.edit_message_text(f"❌ *Error:* {str(e)[:200]}", chat_id=message.chat.id, message_id=status_msg.message_id, parse_mode="Markdown")
             user_yoga_state[user_id] = None
     
     threading.Thread(target=yoga_register_thread).start()
+
+@bot.callback_query_handler(func=lambda call: call.data in ["yoga_abort", "yoga_abort_otp"])
+def yoga_abort_callback(call):
+    user_id = call.from_user.id
+    
+    if call.data == "yoga_abort_otp":
+        data = user_yoga_otp_data.get(user_id, {})
+        cost = data.get("cost", get_module_cost("yoga"))
+        
+        if user_yoga_state.get(user_id) == "waiting_otp":
+            update_user_balance(user_id, cost)  # REFUND
+            user_yoga_state[user_id] = None
+            user_yoga_otp_data.pop(user_id, None)
+            bot.edit_message_text(
+                "🔄 *OTP session aborted.* Credits refunded.",
+                chat_id=call.message.chat.id,
+                message_id=call.message.message_id,
+                parse_mode="Markdown"
+            )
+            bot.answer_callback_query(call.id, "✅ Aborted")
+            return
+    
+    elif call.data == "yoga_abort":
+        if user_yoga_state.get(user_id) == "waiting_phone":
+            cost = get_module_cost("yoga")
+            update_user_balance(user_id, cost)  # REFUND
+            user_yoga_state[user_id] = None
+            bot.edit_message_text(
+                "🔄 *Yoga referral aborted.* Credits refunded.",
+                chat_id=call.message.chat.id,
+                message_id=call.message.message_id,
+                parse_mode="Markdown"
+            )
+            bot.answer_callback_query(call.id, "✅ Aborted")
+            return
+    
+    bot.answer_callback_query(call.id, "No active session")
 
 @bot.message_handler(func=lambda message: user_yoga_state.get(message.from_user.id) == "waiting_otp")
 def yoga_otp_handler(message):
     user_id = message.from_user.id
     otp = message.text.strip()
     
+    if otp.lower() in ['/cancel', 'cancel']:
+        data = user_yoga_otp_data.get(user_id, {})
+        cost = data.get("cost", get_module_cost("yoga"))
+        update_user_balance(user_id, cost)  # REFUND
+        user_yoga_state[user_id] = None
+        user_yoga_otp_data.pop(user_id, None)
+        bot.reply_to(message, "🔄 *OTP verification cancelled.* Credits refunded.", parse_mode="Markdown")
+        return
+    
     if not otp.isdigit() or len(otp) != 6:
-        bot.reply_to(message, "❌ *Need 6-digit OTP!* Try again:", parse_mode="Markdown")
+        bot.reply_to(message, "❌ *Need 6-digit OTP!* Try again:\n\nSend `/cancel` to abort.", parse_mode="Markdown")
         return
     
     data = user_yoga_otp_data.get(user_id)
@@ -1224,6 +1464,7 @@ def yoga_otp_handler(message):
     did = data["otp_did"]
     sid = data["otp_sid"]
     name = data.get("name", "User")
+    cost = data.get("cost", get_module_cost("yoga"))
     
     status_msg = bot.reply_to(message, "⏳ *Verifying OTP...*", parse_mode="Markdown")
     
@@ -1232,7 +1473,13 @@ def yoga_otp_handler(message):
             result, err = yoga_verify_otp(phone, otp_ref, otp, did, sid)
             
             if err or not result:
-                bot.edit_message_text(f"❌ *Invalid or Expired OTP!*\n{err or 'Failed'}", chat_id=message.chat.id, message_id=status_msg.message_id, parse_mode="Markdown")
+                update_user_balance(user_id, cost)  # REFUND
+                bot.edit_message_text(
+                    f"❌ *Invalid or Expired OTP!*\n{err or 'Failed'}\n\nCredits refunded.",
+                    chat_id=message.chat.id,
+                    message_id=status_msg.message_id,
+                    parse_mode="Markdown"
+                )
                 user_yoga_state[user_id] = None
                 user_yoga_otp_data.pop(user_id, None)
                 return
@@ -1265,7 +1512,13 @@ def yoga_otp_handler(message):
             user_yoga_otp_data.pop(user_id, None)
             
         except Exception as e:
-            bot.edit_message_text(f"❌ *Error:* {str(e)[:200]}", chat_id=message.chat.id, message_id=status_msg.message_id, parse_mode="Markdown")
+            update_user_balance(user_id, cost)  # REFUND
+            bot.edit_message_text(
+                f"❌ *Error:* {str(e)[:200]}\n\nCredits refunded.",
+                chat_id=message.chat.id,
+                message_id=status_msg.message_id,
+                parse_mode="Markdown"
+            )
             user_yoga_state[user_id] = None
             user_yoga_otp_data.pop(user_id, None)
     
@@ -1293,7 +1546,9 @@ def handle_yoga_callback(call):
             bot.edit_message_text(
                 "🧘 *Yoga Referral Setup*\n\n"
                 "First, set your Habit.Yoga referral code.\n"
-                "Send your referral link or code:",
+                "Send your referral link or code:\n"
+                "`https://habit.yoga/yourcode`\n\n"
+                "Or just: `yourcode`",
                 chat_id=call.message.chat.id,
                 message_id=call.message.message_id,
                 parse_mode="Markdown"
@@ -1314,7 +1569,7 @@ def handle_yoga_callback(call):
             f"🧘 *Yoga Referral*\n\n"
             f"💰 Cost: <b>{cost} Credits</b>\n"
             f"🎁 Reward: <b>{get_yoga_refer_reward()} Credits</b> per referral\n\n"
-            f"📱 Send 10-digit phone number:",
+            f"📱 Send 10-digit phone number:\n\nSend `/cancel` to abort.",
             chat_id=call.message.chat.id,
             message_id=call.message.message_id,
             parse_mode="HTML"
@@ -1539,7 +1794,12 @@ def check_flipkart(num):
             "Connection": "close"
         }
         burp0_json = {"loginId": [num_with_code], "supportAllStates": True}
-        response = requests.post(burp0_url, headers=burp0_headers, json=burp0_json, timeout=10)
+        
+        # Use proxy for Flipkart
+        proxy_url = get_flipkart_proxy()
+        proxies = {"http": proxy_url, "https": proxy_url} if proxy_url else None
+        
+        response = requests.post(burp0_url, headers=burp0_headers, json=burp0_json, timeout=10, proxies=proxies)
         if response.status_code != 200:
             return f"⚠️ Flipkart : API Blocked (HTTP {response.status_code})"
         try:
@@ -2139,6 +2399,7 @@ def handle_apk(message):
         bot.reply_to(message, f"❌ Insufficient credits! You need {cost} credits. Your balance: {balance}")
         return
 
+    # Deduct credits (will be refunded on failure)
     update_user_balance(user_id, -cost)
     processing_msg = bot.reply_to(message, "⏳ Analyzing APK... (may take 30-60 seconds)")
 
@@ -2159,9 +2420,9 @@ def handle_apk(message):
         log_usage(user_id, "Firebase Extractor", f"APK: {doc.file_name}")
     except Exception as e:
         logger.error(f"APK analysis error: {e}")
-        update_user_balance(user_id, cost)
+        update_user_balance(user_id, cost)  # REFUND
         bot.edit_message_text(
-            f"❌ Analysis failed!\n\nError: {str(e)[:200]}",
+            f"❌ Analysis failed!\n\nError: {str(e)[:200]}\n\nCredits refunded.",
             chat_id=message.chat.id,
             message_id=processing_msg.message_id,
             parse_mode="HTML"
@@ -2574,18 +2835,30 @@ def handle_phone_number(message):
     if balance < cost:
         bot.reply_to(message, f"❌ Insufficient credits! You need {cost} credit to check a number.")
         return
+    
+    # Deduct credits (will be refunded on failure)
     update_user_balance(user_id, -cost)
     processing = bot.reply_to(message, f"🔍 Checking <code>{message.text}</code> on Flipkart...", parse_mode="HTML")
+    
     def check_thread():
-        result = check_flipkart(message.text)
-        new_balance = get_user_balance(user_id)
-        bot.edit_message_text(
-            f"📱 <b>Result for {message.text}</b>\n\n{result}\n\n💰 Remaining Credits: {new_balance}",
-            chat_id=message.chat.id,
-            message_id=processing.message_id,
-            parse_mode="HTML"
-        )
-        log_usage(user_id, "Flipkart Checker", f"Number: {message.text}")
+        try:
+            result = check_flipkart(message.text)
+            new_balance = get_user_balance(user_id)
+            bot.edit_message_text(
+                f"📱 <b>Result for {message.text}</b>\n\n{result}\n\n💰 Remaining Credits: {new_balance}",
+                chat_id=message.chat.id,
+                message_id=processing.message_id,
+                parse_mode="HTML"
+            )
+            log_usage(user_id, "Flipkart Checker", f"Number: {message.text}")
+        except Exception as e:
+            update_user_balance(user_id, cost)  # REFUND
+            bot.edit_message_text(
+                f"❌ Error: {str(e)[:200]}\n\nCredits refunded.",
+                chat_id=message.chat.id,
+                message_id=processing.message_id,
+                parse_mode="HTML"
+            )
     threading.Thread(target=check_thread).start()
 
 # ==================== Instagram callbacks (Downloader) ====================
@@ -2654,21 +2927,29 @@ def handle_instagram_link(message):
         if balance < cost:
             bot.reply_to(message, f"❌ Insufficient credits! You need {cost} credit to download.")
             return
+        # Deduct credits (will be refunded on failure)
         update_user_balance(user_id, -cost)
         processing = bot.reply_to(message, "⏳ Downloading reel...")
+        
         def download_single():
-            file_path = download_reel(urls[0])
-            if file_path:
-                try:
-                    with open(file_path, "rb") as vid:
-                        bot.send_video(message.chat.id, vid, caption="✅ Downloaded successfully!")
-                    os.remove(file_path)
-                    shutil.rmtree(os.path.dirname(file_path), ignore_errors=True)
-                except Exception as e:
-                    bot.send_message(message.chat.id, f"❌ Upload failed: {e}")
-            else:
-                bot.send_message(message.chat.id, "❌ Failed to download reel. Check URL or try again.")
-            bot.delete_message(message.chat.id, processing.message_id)
+            try:
+                file_path = download_reel(urls[0])
+                if file_path:
+                    try:
+                        with open(file_path, "rb") as vid:
+                            bot.send_video(message.chat.id, vid, caption="✅ Downloaded successfully!")
+                        os.remove(file_path)
+                        shutil.rmtree(os.path.dirname(file_path), ignore_errors=True)
+                    except Exception as e:
+                        bot.send_message(message.chat.id, f"❌ Upload failed: {e}")
+                        update_user_balance(user_id, cost)  # REFUND
+                else:
+                    bot.send_message(message.chat.id, "❌ Failed to download reel. Check URL or try again.")
+                    update_user_balance(user_id, cost)  # REFUND
+                bot.delete_message(message.chat.id, processing.message_id)
+            except Exception as e:
+                update_user_balance(user_id, cost)  # REFUND
+                bot.send_message(message.chat.id, f"❌ Error: {str(e)[:200]}\n\nCredits refunded.")
         threading.Thread(target=download_single).start()
 
     elif state == "bulk":
@@ -2676,23 +2957,30 @@ def handle_instagram_link(message):
         if balance < total_cost:
             bot.reply_to(message, f"❌ Insufficient credits! Need {total_cost} credits for {len(urls)} videos.")
             return
+        # Deduct credits (will be refunded on failure)
         update_user_balance(user_id, -total_cost)
         processing = bot.reply_to(message, f"⏳ Downloading {len(urls)} reels...")
+        
         def download_bulk_thread():
-            paths = download_bulk(urls)
-            if paths:
-                for path in paths:
-                    try:
-                        with open(path, "rb") as vid:
-                            bot.send_video(message.chat.id, vid)
-                        os.remove(path)
-                        shutil.rmtree(os.path.dirname(path), ignore_errors=True)
-                    except Exception as e:
-                        bot.send_message(message.chat.id, f"❌ Upload failed for one video: {e}")
-                bot.send_message(message.chat.id, f"✅ All {len(paths)} videos sent successfully!")
-            else:
-                bot.send_message(message.chat.id, "❌ Failed to download any reel.")
-            bot.delete_message(message.chat.id, processing.message_id)
+            try:
+                paths = download_bulk(urls)
+                if paths:
+                    for path in paths:
+                        try:
+                            with open(path, "rb") as vid:
+                                bot.send_video(message.chat.id, vid)
+                            os.remove(path)
+                            shutil.rmtree(os.path.dirname(path), ignore_errors=True)
+                        except Exception as e:
+                            bot.send_message(message.chat.id, f"❌ Upload failed for one video: {e}")
+                    bot.send_message(message.chat.id, f"✅ All {len(paths)} videos sent successfully!")
+                else:
+                    bot.send_message(message.chat.id, "❌ Failed to download any reel.")
+                    update_user_balance(user_id, total_cost)  # REFUND
+                bot.delete_message(message.chat.id, processing.message_id)
+            except Exception as e:
+                update_user_balance(user_id, total_cost)  # REFUND
+                bot.send_message(message.chat.id, f"❌ Error: {str(e)[:200]}\n\nCredits refunded.")
         threading.Thread(target=download_bulk_thread).start()
 
     user_instagram_state[user_id] = None
@@ -3060,6 +3348,41 @@ def back_to_menu(call):
 @bot.message_handler(commands=['cancel'])
 def cancel_cmd(message):
     user_id = message.from_user.id
+    
+    # Check Yoga OTP session
+    if user_yoga_state.get(user_id) == "waiting_otp":
+        data = user_yoga_otp_data.get(user_id, {})
+        cost = data.get("cost", get_module_cost("yoga"))
+        update_user_balance(user_id, cost)  # REFUND
+        user_yoga_state[user_id] = None
+        user_yoga_otp_data.pop(user_id, None)
+        bot.reply_to(message, "🔄 Yoga OTP cancelled. Credits refunded.")
+        return
+    
+    if user_yoga_state.get(user_id) == "waiting_phone":
+        cost = get_module_cost("yoga")
+        update_user_balance(user_id, cost)  # REFUND
+        user_yoga_state[user_id] = None
+        bot.reply_to(message, "🔄 Yoga referral cancelled. Credits refunded.")
+        return
+    
+    # Check Shopsy OTP session
+    if user_shopsy_state.get(user_id) == "waiting_otp":
+        data = user_shopsy_otp_data.get(user_id, {})
+        cost = data.get("cost", get_module_cost("shopsy"))
+        update_user_balance(user_id, cost)  # REFUND
+        user_shopsy_state[user_id] = None
+        user_shopsy_otp_data.pop(user_id, None)
+        bot.reply_to(message, "🔄 Shopsy OTP cancelled. Credits refunded.")
+        return
+    
+    if user_shopsy_state.get(user_id) == "waiting_phone":
+        cost = get_module_cost("shopsy")
+        update_user_balance(user_id, cost)  # REFUND
+        user_shopsy_state[user_id] = None
+        bot.reply_to(message, "🔄 Shopsy mining cancelled. Credits refunded.")
+        return
+    
     if user_music_state.get(user_id):
         user_music_state[user_id] = None
         bot.reply_to(message, "❌ Music search cancelled.")
@@ -3070,14 +3393,6 @@ def cancel_cmd(message):
         user_igviewer_state[user_id] = None
         igviewer_data.pop(user_id, None)
         bot.reply_to(message, "❌ Instagram Viewer cancelled.")
-    elif user_shopsy_state.get(user_id):
-        user_shopsy_state[user_id] = None
-        user_shopsy_otp_data.pop(user_id, None)
-        bot.reply_to(message, "❌ Shopsy mining cancelled.")
-    elif user_yoga_state.get(user_id):
-        user_yoga_state[user_id] = None
-        user_yoga_otp_data.pop(user_id, None)
-        bot.reply_to(message, "❌ Yoga referral cancelled.")
     else:
         bot.reply_to(message, "No active operation to cancel.")
 
@@ -3101,7 +3416,10 @@ if __name__ == "__main__":
     init_db()
     task_thread = threading.Thread(target=run_scheduled_tasks, daemon=True)
     task_thread.start()
-    logger.info("🤖 Bot started – Yoga Referral added with proxy support!")
+    logger.info("🤖 Bot started – All features fixed!")
+    logger.info("💰 Credit refund on failure enabled")
+    logger.info("🧘 Yoga: Accepts both link and direct code")
+    logger.info("🔄 Abort buttons added for OTP sessions")
     
     try:
         bot.remove_webhook()
