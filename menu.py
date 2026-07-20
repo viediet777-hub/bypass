@@ -200,13 +200,15 @@ def crownit_menu_keyboard():
     return kb
 
 # ========== SHOPSY (NEW) ==========
-def shopsy_menu_text(user_id: int, balance: int = 15, status: str = "ACTIVE", shopsy_balance: int = 0) -> str:
+def shopsy_menu_text(user_id: int, balance: int = 15, status: str = "ACTIVE", shopsy_balance: int = 0, logged_in: int = 0) -> str:
+    login_status = "✅ Logged in" if logged_in else "🔴 Not logged in"
     return (
         f"⛏️ <b>SHOPSY MINING</b>\n\n"
         f"Status: <b>{status}</b>\n"
         f"Balance: <b>{balance} Credits</b>\n"
         f"💰 Shopsy Points: <b>{shopsy_balance}</b>\n"
-        f"💡 Cost: <b>2 Credits</b> per run\n\n"
+        f"📱 Login: {login_status}\n"
+        f"💡 Cost: <b>{get_module_cost('shopsy')} Credits</b> per run\n\n"
         f"Click <b>Start Mining</b> to begin.\n"
         f"• You'll enter your 10‑digit phone number\n"
         f"• OTP will be sent to your number\n"
@@ -220,6 +222,9 @@ def shopsy_menu_keyboard():
     kb.row(
         InlineKeyboardButton("⛏️ Start Mining", callback_data="shopsy_start", style="success"),
         InlineKeyboardButton("📊 My Stats", callback_data="shopsy_stats", style="primary")
+    )
+    kb.row(
+        InlineKeyboardButton("🚪 Logout", callback_data="shopsy_logout", style="danger")
     )
     kb.add(InlineKeyboardButton("🔙 Back to Main", callback_data="back_menu", style="danger"))
     return kb
