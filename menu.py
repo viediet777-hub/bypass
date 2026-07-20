@@ -1,5 +1,5 @@
 # menu.py - Complete Menu Functions for Viediet Bot
-# REFACTORED WITH BACK BUTTONS + COLORED INLINE BUTTONS
+# WITH SUPERCOIN FETCHER MODULE
 
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton
 
@@ -60,10 +60,11 @@ def main_menu_keyboard(is_admin=False):
     )
     kb.row(
         colored_button("🛍️ Shopsy Mining", "module_shopsy", "primary"),
-        colored_button("🧘 Yoga Referral", "module_yoga", "success")
+        colored_button("💰 Supercoin Fetcher", "module_supercoin", "success")
     )
     kb.row(
-        colored_button("🔗 Referral System", "module_referral", "danger")
+        colored_button("🧘 Yoga Referral", "module_yoga", "danger"),
+        colored_button("🔗 Referral System", "module_referral", "primary")
     )
 
     if is_admin:
@@ -306,6 +307,51 @@ def music_menu_keyboard():
     kb.row(*back_button())
     return kb
 
+# ==================== SUPERCOIN FETCHER MENU ====================
+def supercoin_menu_text(user_id, balance, status, cost):
+    return f"""
+╔══════════════════════════════════╗
+║     💰 SUPERCOIN FETCHER        ║
+╚══════════════════════════════════╝
+
+<b>📋 Module:</b> Shopsy Supercoin Extractor
+<b>💰 Cost:</b> <code>{cost}</code> Credits
+<b>💳 Balance:</b> <code>{balance}</code> Credits
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+<b>📌 What it does:</b>
+Extract Supercoin balance from Shopsy accounts
+• 📱 Login with OTP
+• 💰 Get exact Supercoin balance
+• 📊 View daily/weekly earnings
+• 👤 Profile information
+
+<b>📤 How to use:</b>
+1. Click <b>🚀 Check Coins</b>
+2. Enter 10-digit phone number
+3. Enter OTP received
+4. Get Supercoin balance instantly!
+
+<b>📊 What you get:</b>
+• 🪙 Total Supercoins
+• 📈 Daily coins
+• 📊 Weekly coins
+• 👤 Account name
+• 🛒 Total orders
+
+<b>💡 Tip:</b> Perfect for checking your Shopsy rewards!
+"""
+
+def supercoin_menu_keyboard():
+    kb = InlineKeyboardMarkup(row_width=2)
+    kb.row(
+        colored_button("🚀 Check Coins", "supercoin_start", "success"),
+        colored_button("📊 Stats", "supercoin_stats", "primary")
+    )
+    kb.row(*back_button())
+    return kb
+
 # ==================== SHOPSY MENU ====================
 def shopsy_menu_text(user_id, balance, status, shopsy_balance, is_logged_in):
     login_status = "✅ Logged In" if is_logged_in else "❌ Not Logged In"
@@ -526,6 +572,7 @@ def help_menu_text():
 • IG Viewer
 • Music Downloader
 • Shopsy Mining
+• Supercoin Fetcher
 • Yoga Referral
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
