@@ -1,7 +1,20 @@
 # menu.py - Complete Menu Functions for Viediet Bot
-# ONLY INLINE KEYBOARD - NO REPLY KEYBOARD
+# REFACTORED WITH BACK BUTTONS + COLORED INLINE BUTTONS
 
-from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
+from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton
+
+# ==================== COLORED BUTTON HELPER ====================
+def colored_button(text, callback_data, style="default", emoji_id=None):
+    """
+    Creates colored inline keyboard button using Telegram's style parameter
+    style: "primary" (blue), "danger" (red), "success" (green), or "default"
+    """
+    button = InlineKeyboardButton(text, callback_data=callback_data)
+    if style != "default":
+        button.style = style
+    if emoji_id:
+        button.icon_custom_emoji_id = emoji_id
+    return button
 
 # ==================== MAIN MENU ====================
 def main_menu_text(user_id, first_name, balance, status):
@@ -32,37 +45,37 @@ Earn free credits by referring friends!
 
 def main_menu_keyboard(is_admin=False):
     kb = InlineKeyboardMarkup(row_width=2)
-    
-    # Row 1
+
+    # Main modules with colors
     kb.row(
-        InlineKeyboardButton("🔥 Firebase Extractor", callback_data="module_firebase"),
-        InlineKeyboardButton("📧 Temp Mail", callback_data="module_temp")
+        colored_button("🔥 Firebase Extractor", "module_firebase", "primary"),
+        colored_button("📧 Temp Mail", "module_temp", "success")
     )
-    # Row 2
     kb.row(
-        InlineKeyboardButton("🛒 Flipkart Checker", callback_data="module_flipkart"),
-        InlineKeyboardButton("📸 Instagram Downloader", callback_data="module_instagram")
+        colored_button("🛒 Flipkart Checker", "module_flipkart", "danger"),
+        colored_button("📸 Instagram Downloader", "module_instagram", "primary")
     )
-    # Row 3
     kb.row(
-        InlineKeyboardButton("👁️ IG Viewer", callback_data="module_igviewer"),
-        InlineKeyboardButton("🎵 Music Downloader", callback_data="module_music")
+        colored_button("👁️ IG Viewer", "module_igviewer", "success"),
+        colored_button("🎵 Music Downloader", "module_music", "danger")
     )
-    # Row 4
     kb.row(
-        InlineKeyboardButton("🛍️ Shopsy Mining", callback_data="module_shopsy"),
-        InlineKeyboardButton("🧘 Yoga Referral", callback_data="module_yoga")
+        colored_button("🛍️ Shopsy Mining", "module_shopsy", "primary"),
+        colored_button("🧘 Yoga Referral", "module_yoga", "success")
     )
-    # Row 5
     kb.row(
-        InlineKeyboardButton("🔗 Referral System", callback_data="module_referral")
+        colored_button("🔗 Referral System", "module_referral", "danger")
     )
-    
-    # Admin Panel - Only for admin
+
     if is_admin:
-        kb.row(InlineKeyboardButton("👑 Admin Panel", callback_data="module_admin"))
-    
+        kb.row(colored_button("👑 Admin Panel", "module_admin", "primary"))
+
     return kb
+
+# ==================== BACK BUTTON HELPER ====================
+def back_button():
+    """Returns a standardized back button row"""
+    return [colored_button("🔙 Back to Menu", "back_menu", "default")]
 
 # ==================== FIREBASE MENU ====================
 def firebase_menu_text(user_id, balance, status, cost):
@@ -98,10 +111,10 @@ Only use on APKs you own!
 def firebase_menu_keyboard():
     kb = InlineKeyboardMarkup(row_width=2)
     kb.row(
-        InlineKeyboardButton("📤 Send APK", callback_data="firebase_send"),
-        InlineKeyboardButton("🗑️ Remove APK", callback_data="firebase_remove")
+        colored_button("📤 Send APK", "firebase_send", "primary"),
+        colored_button("🗑️ Remove APK", "firebase_remove", "danger")
     )
-    kb.row(InlineKeyboardButton("🔙 Back to Menu", callback_data="back_menu"))
+    kb.row(*back_button())
     return kb
 
 # ==================== TEMP MAIL MENU ====================
@@ -135,14 +148,14 @@ Perfect for OTP verification without sharing real email!
 def temp_menu_keyboard():
     kb = InlineKeyboardMarkup(row_width=2)
     kb.row(
-        InlineKeyboardButton("📧 New Email", callback_data="temp_new"),
-        InlineKeyboardButton("📥 Check Inbox", callback_data="temp_inbox")
+        colored_button("📧 New Email", "temp_new", "success"),
+        colored_button("📥 Check Inbox", "temp_inbox", "primary")
     )
     kb.row(
-        InlineKeyboardButton("🔑 Get OTP", callback_data="temp_otp"),
-        InlineKeyboardButton("🗑️ Delete Email", callback_data="temp_delete")
+        colored_button("🔑 Get OTP", "temp_otp", "danger"),
+        colored_button("🗑️ Delete Email", "temp_delete", "danger")
     )
-    kb.row(InlineKeyboardButton("🔙 Back to Menu", callback_data="back_menu"))
+    kb.row(*back_button())
     return kb
 
 # ==================== FLIPKART MENU ====================
@@ -179,8 +192,8 @@ Check if a phone number is registered on Flipkart
 
 def flipkart_menu_keyboard():
     kb = InlineKeyboardMarkup(row_width=1)
-    kb.row(InlineKeyboardButton("📱 Check Number", callback_data="flipkart_check"))
-    kb.row(InlineKeyboardButton("🔙 Back to Menu", callback_data="back_menu"))
+    kb.row(colored_button("📱 Check Number", "flipkart_check", "primary"))
+    kb.row(*back_button())
     return kb
 
 # ==================== INSTAGRAM MENU ====================
@@ -215,102 +228,45 @@ Download Instagram Reels & Videos
 def instagram_menu_keyboard():
     kb = InlineKeyboardMarkup(row_width=2)
     kb.row(
-        InlineKeyboardButton("📹 Single Download", callback_data="instagram_single"),
-        InlineKeyboardButton("📚 Bulk Download", callback_data="instagram_bulk")
+        colored_button("📹 Single Download", "instagram_single", "primary"),
+        colored_button("📚 Bulk Download", "instagram_bulk", "success")
     )
-    kb.row(InlineKeyboardButton("🔙 Back to Menu", callback_data="back_menu"))
+    kb.row(*back_button())
     return kb
 
-# ==================== REFERRAL MENU ====================
-def referral_menu_text(user_id, balance, referral_count):
+# ==================== IG VIEWER MENU ====================
+def igviewer_menu_text(user_id, balance, status, cost):
     return f"""
 ╔══════════════════════════════════╗
-║      🔗 REFERRAL SYSTEM         ║
+║      👁️ IG VIEWER              ║
 ╚══════════════════════════════════╝
 
-<b>📋 Module:</b> Referral Program
-<b>💰 Balance:</b> <code>{balance}</code> Credits
+<b>📋 Module:</b> Instagram Profile Viewer
+<b>💰 Cost:</b> <code>{cost}</code> Credits
+<b>💳 Balance:</b> <code>{balance}</code> Credits
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-<b>📌 How it works:</b>
-• Share your referral link
-• Friends join via your link
-• They stay 24 hours
-• You earn <b>+{3} Credits</b>!
-
-<b>📊 Your Stats:</b>
-👥 <b>Referrals:</b> <code>{referral_count}</code>
-⏳ <b>Pending:</b> <code>{get_pending_referral_count(user_id)}</code>
-💰 <b>Bonus per referral:</b> <code>+3 Credits</code>
-
-<b>🎁 Friend gets:</b> <b>+5 Credits</b> on joining!
+<b>📌 What it does:</b>
+View Instagram profiles anonymously
+• 👤 Profile information
+• 📸 Post previews
+• 📊 Engagement stats
+• 🔍 Story viewer
 
 <b>📤 How to use:</b>
-1. Click <b>🔗 Get Link</b>
-2. Share with friends
-3. They join and stay
-4. You earn credits!
+1. Click <b>👤 View Profile</b>
+2. Enter username
+3. Get full profile data
+
+<b>⚠️ Note:</b>
+Works for public profiles only!
 """
 
-def referral_menu_keyboard():
-    kb = InlineKeyboardMarkup(row_width=2)
-    kb.row(
-        InlineKeyboardButton("🔗 Get Link", callback_data="referral_get_link"),
-        InlineKeyboardButton("📊 Stats", callback_data="referral_stats")
-    )
-    kb.row(InlineKeyboardButton("🔙 Back to Menu", callback_data="back_menu"))
-    return kb
-
-# ==================== ADMIN MENU ====================
-def admin_panel_text():
-    return f"""
-╔══════════════════════════════════╗
-║      👑 ADMIN PANEL            ║
-╚══════════════════════════════════╝
-
-<b>📋 Admin Controls</b>
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-<b>📊 Statistics:</b>
-• Total Users
-• Total Coins
-• Usage Analytics
-
-<b>👥 User Management:</b>
-• View all users
-• Add/Remove coins
-• Ban/Unban users
-
-<b>📢 Broadcasting:</b>
-• Send messages to all users
-
-<b>⚙️ Configuration:</b>
-• Module costs
-• Referral rewards
-• System settings
-
-<b>⚠️ Warning:</b>
-Admin actions are irreversible!
-Use with caution.
-"""
-
-def admin_panel_keyboard():
-    kb = InlineKeyboardMarkup(row_width=2)
-    kb.row(
-        InlineKeyboardButton("📊 Stats", callback_data="admin_stats"),
-        InlineKeyboardButton("👥 Users", callback_data="admin_users")
-    )
-    kb.row(
-        InlineKeyboardButton("➕ Add Coins", callback_data="admin_add_coins"),
-        InlineKeyboardButton("➖ Remove Coins", callback_data="admin_remove_coins")
-    )
-    kb.row(
-        InlineKeyboardButton("📢 Broadcast", callback_data="admin_broadcast"),
-        InlineKeyboardButton("⚙️ Costs", callback_data="admin_costs")
-    )
-    kb.row(InlineKeyboardButton("🔙 Back to Menu", callback_data="back_menu"))
+def igviewer_menu_keyboard():
+    kb = InlineKeyboardMarkup(row_width=1)
+    kb.row(colored_button("👤 View Profile", "igviewer_view", "primary"))
+    kb.row(*back_button())
     return kb
 
 # ==================== MUSIC MENU ====================
@@ -347,8 +303,8 @@ Download high-quality MP3 songs
 
 def music_menu_keyboard():
     kb = InlineKeyboardMarkup(row_width=1)
-    kb.row(InlineKeyboardButton("🎵 Search Song", callback_data="music_search"))
-    kb.row(InlineKeyboardButton("🔙 Back to Menu", callback_data="back_menu"))
+    kb.row(colored_button("🎵 Search Song", "music_search", "success"))
+    kb.row(*back_button())
     return kb
 
 # ==================== SHOPSY MENU ====================
@@ -389,13 +345,13 @@ Automatically play Shopsy games and earn coins
 def shopsy_menu_keyboard():
     kb = InlineKeyboardMarkup(row_width=2)
     kb.row(
-        InlineKeyboardButton("🚀 Start Mining", callback_data="shopsy_start"),
-        InlineKeyboardButton("📊 Stats", callback_data="shopsy_stats")
+        colored_button("🚀 Start Mining", "shopsy_start", "success"),
+        colored_button("📊 Stats", "shopsy_stats", "primary")
     )
     kb.row(
-        InlineKeyboardButton("🚪 Logout", callback_data="shopsy_logout")
+        colored_button("🚪 Logout", "shopsy_logout", "danger")
     )
-    kb.row(InlineKeyboardButton("🔙 Back to Menu", callback_data="back_menu"))
+    kb.row(*back_button())
     return kb
 
 # ==================== YOGA MENU ====================
@@ -436,13 +392,105 @@ Send link or code to setup.
 def yoga_menu_keyboard():
     kb = InlineKeyboardMarkup(row_width=2)
     kb.row(
-        InlineKeyboardButton("🧘 Start Referral", callback_data="yoga_start"),
-        InlineKeyboardButton("📊 Stats", callback_data="yoga_stats")
+        colored_button("🧘 Start Referral", "yoga_start", "success"),
+        colored_button("📊 Stats", "yoga_stats", "primary")
     )
     kb.row(
-        InlineKeyboardButton("🔑 Set Code", callback_data="yoga_setcode")
+        colored_button("🔑 Set Code", "yoga_setcode", "danger")
     )
-    kb.row(InlineKeyboardButton("🔙 Back to Menu", callback_data="back_menu"))
+    kb.row(*back_button())
+    return kb
+
+# ==================== REFERRAL MENU ====================
+def referral_menu_text(user_id, balance, referral_count):
+    return f"""
+╔══════════════════════════════════╗
+║      🔗 REFERRAL SYSTEM         ║
+╚══════════════════════════════════╝
+
+<b>📋 Module:</b> Referral Program
+<b>💰 Balance:</b> <code>{balance}</code> Credits
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+<b>📌 How it works:</b>
+• Share your referral link
+• Friends join via your link
+• They stay 24 hours
+• You earn <b>+{3} Credits</b>!
+
+<b>📊 Your Stats:</b>
+👥 <b>Referrals:</b> <code>{referral_count}</code>
+⏳ <b>Pending:</b> <code>{get_pending_referral_count(user_id)}</code>
+💰 <b>Bonus per referral:</b> <code>+3 Credits</code>
+
+<b>🎁 Friend gets:</b> <b>+5 Credits</b> on joining!
+
+<b>📤 How to use:</b>
+1. Click <b>🔗 Get Link</b>
+2. Share with friends
+3. They join and stay
+4. You earn credits!
+"""
+
+def referral_menu_keyboard():
+    kb = InlineKeyboardMarkup(row_width=2)
+    kb.row(
+        colored_button("🔗 Get Link", "referral_get_link", "success"),
+        colored_button("📊 Stats", "referral_stats", "primary")
+    )
+    kb.row(*back_button())
+    return kb
+
+# ==================== ADMIN MENU ====================
+def admin_panel_text():
+    return f"""
+╔══════════════════════════════════╗
+║      👑 ADMIN PANEL            ║
+╚══════════════════════════════════╝
+
+<b>📋 Admin Controls</b>
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+<b>📊 Statistics:</b>
+• Total Users
+• Total Coins
+• Usage Analytics
+
+<b>👥 User Management:</b>
+• View all users
+• Add/Remove coins
+• Ban/Unban users
+
+<b>📢 Broadcasting:</b>
+• Send messages to all users
+
+<b>⚙️ Configuration:</b>
+• Module costs
+• Referral rewards
+• System settings
+
+<b>⚠️ Warning:</b>
+Admin actions are irreversible!
+Use with caution.
+"""
+
+def admin_panel_keyboard():
+    kb = InlineKeyboardMarkup(row_width=2)
+    kb.row(
+        colored_button("📊 Stats", "admin_stats", "primary"),
+        colored_button("👥 Users", "admin_users", "primary")
+    )
+    kb.row(
+        colored_button("➕ Add Coins", "admin_add_coins", "success"),
+        colored_button("➖ Remove Coins", "admin_remove_coins", "danger")
+    )
+    kb.row(
+        colored_button("📢 Broadcast", "admin_broadcast", "primary"),
+        colored_button("⚙️ Costs", "admin_costs", "primary")
+    )
+    kb.row(*back_button())
     return kb
 
 # ==================== HELP MENU ====================
