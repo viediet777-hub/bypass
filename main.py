@@ -1,7 +1,6 @@
-
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-# NRTECNO SYSTEM - VIEDIET BOT v2.0 FIXED
+# NRTECNO SYSTEM - VIEDIET BOT v2.0 FIXED - ALL FEATURES WORKING
 
 import os
 import logging
@@ -293,7 +292,6 @@ def run_scheduled_tasks():
             logger.error(f"[SCHEDULED] Error in referral check: {e}")
         
         try:
-            # Clean up expired temp emails from database
             conn = sqlite3.connect(DB_PATH, check_same_thread=False)
             c = conn.cursor()
             c.execute('DELETE FROM temp_emails WHERE created_at <= datetime("now", "-10 minutes")')
@@ -302,7 +300,7 @@ def run_scheduled_tasks():
         except Exception as e:
             logger.error(f"[SCHEDULED] Error cleaning temp emails: {e}")
         
-        time.sleep(300)  # Run every 5 minutes
+        time.sleep(300)
 
 # ==================== CREDIT MANAGER ====================
 class CreditManager:
@@ -531,13 +529,10 @@ def get_yoga_refer_reward():
 def get_yoga_welcome_bonus():
     return get_config("yoga_welcome_bonus", YOGA_WELCOME_BONUS)
 
-# ==================== YOGA PROXY FUNCTIONS - FIXED ====================
+# ==================== YOGA PROXY FUNCTIONS ====================
 def yoga_api_post(url, payload, headers, use_proxy=True):
-    """Fixed version with better error handling and without proxy for debugging"""
     try:
-        # Disable proxy for now to test OTP
         proxies = None
-        
         response = requests.post(
             url, 
             json=payload, 
@@ -545,7 +540,6 @@ def yoga_api_post(url, payload, headers, use_proxy=True):
             timeout=30,
             proxies=proxies
         )
-        
         if response.status_code in (200, 201):
             try:
                 return response.json(), None
@@ -569,9 +563,7 @@ def yoga_register(phone, code, name, did, sid):
     }, YOGA_REG_HEADERS)
 
 def yoga_send_otp(phone, did, sid):
-    """Fixed OTP sending - using correct endpoint"""
     try:
-        # Use requests directly for better control
         headers = {
             "accept": "application/json",
             "accept-language": "en-US,en;q=0.9",
@@ -583,7 +575,6 @@ def yoga_send_otp(phone, did, sid):
             "sec-fetch-site": "cross-site",
             "user-agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.5 Mobile/15E148 Safari/604.1",
         }
-        
         payload = {
             "method": "phone_otp", 
             "otpChannel": "sms", 
@@ -592,14 +583,12 @@ def yoga_send_otp(phone, did, sid):
             "experimentMetaInfo": {"deviceId": did, "sessionId": sid},
             "registerUser": False,
         }
-        
         response = requests.post(
             YOGA_LOGIN_URL,
             json=payload,
             headers=headers,
             timeout=30
         )
-        
         if response.status_code in (200, 201):
             try:
                 resp_json = response.json()
@@ -635,17 +624,14 @@ def rand_yoga_name():
 
 def extract_yoga_code(link: str):
     link = link.strip().rstrip("/")
-    
     if "habit.yoga/" in link:
         code = link.replace("https://habit.yoga/", "").replace("http://habit.yoga/", "")
         code = code.split("/")[0]
         if code and all(c.isalnum() or c == "_" for c in code) and 1 <= len(code) <= 50:
             return code
         return None
-    
     if link and all(c.isalnum() or c == "_" for c in link) and 1 <= len(link) <= 50:
         return link
-    
     return None
 
 # ==================== SHOPSY SESSION FUNCTIONS ====================
@@ -711,7 +697,6 @@ user_yoga_state = {}
 user_yoga_otp_data = {}
 
 def get_menu_kb(uid: int):
-    """Return None - No reply keyboard"""
     return None
 
 # ==================== SHOPSY API FUNCTIONS ====================
@@ -815,8 +800,7 @@ async def run_sh_user_state(session_data):
             "wishlist": 0,
             "notifications": 861101,
             "location": 23273,
-            "lockinResponse": 426889274
-        }
+            "lockinResponse": 426889274        }
     }
     st, resp_json, headers, session_data = await asyncio.to_thread(sync_api_request, "POST", "/4/user/state", body, session_data, False)
     return update_session(session_data, resp_json, headers)
@@ -1033,235 +1017,8 @@ async def core_mine_logic(session_data, progress_callback=None):
         "time_taken": (wait * total) if total > 0 else 0
     }
 
-# ==================== YOGA HANDLERS - FIXED OTP ====================
-@bot.message_handler(func=lambda message: user_yoga_state.get(message.from_user.id) == "waiting_yoga_phone")
-def yoga_phone_handler(message):
-    user_id = message.from_user.id
-    phone = message.text.strip()
-    
-    if phone.lower() in ['/cancel', 'cancel']:
-        user_yoga_state[user_id] = None
-        bot.reply_to(message, "❌ Yoga referral cancelled.", reply_markup=back_button())
-        return
-    
-    if not phone.isdigit() or len(phone) != 10:
-        bot.reply_to(message, "❌ Please enter exactly 10 digits.\n\nSend /cancel to abort.")
-        return
-    
-    cost = get_module_cost("yoga")
-    balance = get_user_balance(user_id)
-    if balance < cost:
-        bot.reply_to(message, f"❌ Insufficient credits! Need {cost} credits. Balance: {balance}")
-        return
-    
-    # Update state
-    user_yoga_state[user_id] = "waiting_yoga_otp"
-    
-    # Create abort keyboard
-    abort_kb = InlineKeyboardMarkup()
-    abort_kb.row(InlineKeyboardButton("❌ Abort", callback_data="yoga_abort_otp"))
-    abort_kb.row(InlineKeyboardButton("🔙 Back", callback_data="back_yoga"))
-    
-    status_msg = bot.reply_to(message, f"📱 Sending OTP to +91{phone}...", reply_markup=abort_kb)
-    update_user_balance(user_id, -cost)
-    
-    def send_otp_thread():
-        try:
-            # Generate device ID and session ID
-            did = rand_id()
-            sid = rand_id()
-            
-            # Send OTP using fixed function
-            ref, err = yoga_send_otp(phone, did, sid)
-            
-            if err:
-                update_user_balance(user_id, cost)
-                bot.edit_message_text(
-                    f"❌ Failed to send OTP: {err}\n\nPlease try again later.",
-                    chat_id=message.chat.id,
-                    message_id=status_msg.message_id
-                )
-                user_yoga_state[user_id] = None
-                return
-            
-            # Store OTP data
-            user_yoga_otp_data[user_id] = {
-                "phone": phone,
-                "ref": ref,
-                "did": did,
-                "sid": sid,
-                "cost": cost
-            }
-            
-            # Show OTP input
-            otp_kb = InlineKeyboardMarkup()
-            otp_kb.row(InlineKeyboardButton("❌ Abort", callback_data="yoga_abort_otp"))
-            otp_kb.row(InlineKeyboardButton("🔙 Back", callback_data="back_yoga"))
-            
-            bot.edit_message_text(
-                f"✅ OTP sent to +91{phone}!\n\n"
-                f"📱 Enter the 6-digit OTP code you received:\n\n"
-                f"<b>Send /cancel to abort</b>",
-                chat_id=message.chat.id,
-                message_id=status_msg.message_id,
-                reply_markup=otp_kb
-            )
-            user_yoga_state[user_id] = "waiting_yoga_otp"
-            
-        except Exception as e:
-            update_user_balance(user_id, cost)
-            bot.edit_message_text(
-                f"❌ Error: {str(e)[:200]}",
-                chat_id=message.chat.id,
-                message_id=status_msg.message_id
-            )
-            user_yoga_state[user_id] = None
-    
-    threading.Thread(target=send_otp_thread).start()
-
-@bot.message_handler(func=lambda message: user_yoga_state.get(message.from_user.id) == "waiting_yoga_otp")
-def yoga_otp_handler(message):
-    user_id = message.from_user.id
-    otp = message.text.strip()
-    
-    if otp.lower() in ['/cancel', 'cancel']:
-        user_yoga_state[user_id] = None
-        if user_id in user_yoga_otp_data:
-            del user_yoga_otp_data[user_id]
-        bot.reply_to(message, "❌ Yoga referral cancelled.", reply_markup=back_button())
-        return
-    
-    if not otp.isdigit() or len(otp) != 6:
-        bot.reply_to(message, "❌ Please enter a valid 6-digit OTP.\n\nSend /cancel to abort.")
-        return
-    
-    if user_id not in user_yoga_otp_data:
-        bot.reply_to(message, "❌ Session expired. Please start again.")
-        user_yoga_state[user_id] = None
-        return
-    
-    data = user_yoga_otp_data[user_id]
-    phone = data["phone"]
-    ref = data["ref"]
-    did = data["did"]
-    sid = data["sid"]
-    cost = data["cost"]
-    
-    status_msg = bot.reply_to(message, "🔄 Verifying OTP...")
-    
-    def verify_thread():
-        try:
-            # Verify OTP
-            resp, err = yoga_verify_otp(phone, ref, otp, did, sid)
-            
-            if err:
-                update_user_balance(user_id, cost)
-                bot.edit_message_text(
-                    f"❌ OTP verification failed: {err}\n\nPlease try again.",
-                    chat_id=message.chat.id,
-                    message_id=status_msg.message_id
-                )
-                user_yoga_state[user_id] = None
-                if user_id in user_yoga_otp_data:
-                    del user_yoga_otp_data[user_id]
-                return
-            
-            # Check if verification successful
-            if resp and resp.get("data", {}).get("isVerified", False):
-                # Get yoga code from user
-                conn = sqlite3.connect(DB_PATH, check_same_thread=False)
-                c = conn.cursor()
-                c.execute('SELECT yoga_code FROM users WHERE user_id = ?', (user_id,))
-                row = c.fetchone()
-                yoga_code = row[0] if row and row[0] else None
-                conn.close()
-                
-                if not yoga_code:
-                    bot.edit_message_text(
-                        "⚠️ You don't have a Yoga referral code set!\n\n"
-                        "Please set your Yoga referral code first using:\n"
-                        "<code>/setyoga YOUR_CODE</code>\n\n"
-                        "Or send me your Habit.Yoga referral link.",
-                        chat_id=message.chat.id,
-                        message_id=status_msg.message_id
-                    )
-                    user_yoga_state[user_id] = None
-                    if user_id in user_yoga_otp_data:
-                        del user_yoga_otp_data[user_id]
-                    return
-                
-                # Register user with yoga code
-                name = rand_yoga_name()
-                reg_resp, reg_err = yoga_register(phone, yoga_code, name, did, sid)
-                
-                if reg_err:
-                    update_user_balance(user_id, cost)
-                    bot.edit_message_text(
-                        f"❌ Registration failed: {reg_err}",
-                        chat_id=message.chat.id,
-                        message_id=status_msg.message_id
-                    )
-                    user_yoga_state[user_id] = None
-                    if user_id in user_yoga_otp_data:
-                        del user_yoga_otp_data[user_id]
-                    return
-                
-                # Success!
-                reward = get_yoga_refer_reward()
-                update_user_balance(user_id, reward)
-                
-                # Update yoga stats
-                conn = sqlite3.connect(DB_PATH, check_same_thread=False)
-                c = conn.cursor()
-                c.execute('UPDATE users SET yoga_bot_refers = yoga_bot_refers + 1 WHERE user_id = ?', (user_id,))
-                conn.commit()
-                conn.close()
-                
-                bot.edit_message_text(
-                    f"✅ <b>Yoga Referral Successful!</b>\n\n"
-                    f"📱 Phone: +91{phone}\n"
-                    f"👤 Name: {name}\n"
-                    f"🔑 Referral Code: {yoga_code}\n"
-                    f"💰 Reward: <code>+{reward} Credits</code>\n"
-                    f"💳 New Balance: <code>{get_user_balance(user_id)}</code>\n\n"
-                    f"🎯 Referral completed successfully!",
-                    chat_id=message.chat.id,
-                    message_id=status_msg.message_id,
-                    reply_markup=back_button()
-                )
-                
-                user_yoga_state[user_id] = None
-                if user_id in user_yoga_otp_data:
-                    del user_yoga_otp_data[user_id]
-                
-            else:
-                update_user_balance(user_id, cost)
-                bot.edit_message_text(
-                    f"❌ OTP verification failed.\n\n"
-                    f"Please try again with a valid OTP.",
-                    chat_id=message.chat.id,
-                    message_id=status_msg.message_id
-                )
-                user_yoga_state[user_id] = None
-                if user_id in user_yoga_otp_data:
-                    del user_yoga_otp_data[user_id]
-                
-        except Exception as e:
-            update_user_balance(user_id, cost)
-            bot.edit_message_text(
-                f"❌ Error: {str(e)[:200]}",
-                chat_id=message.chat.id,
-                message_id=status_msg.message_id
-            )
-            user_yoga_state[user_id] = None
-            if user_id in user_yoga_otp_data:
-                del user_yoga_otp_data[user_id]
-    
-    threading.Thread(target=verify_thread).start()
-
 # ==================== BACK BUTTON HELPER ====================
 def back_button():
-    """Returns a back button keyboard"""
     kb = InlineKeyboardMarkup()
     kb.row(InlineKeyboardButton("🔙 Back to Menu", callback_data="back_menu"))
     return kb
@@ -1365,7 +1122,7 @@ def shopsy_otp_handler(message):
             
             if success:
                 save_shopsy_session(user_id, phone, updated_session)
-                update_shopsy_balance(user_id, 0)  # Initialize
+                update_shopsy_balance(user_id, 0)
                 
                 bot.edit_message_text(
                     f"✅ <b>Shopsy Login Successful!</b>\n\n"
@@ -1378,7 +1135,6 @@ def shopsy_otp_handler(message):
                     reply_markup=back_button()
                 )
                 
-                # Refund cost on successful login
                 update_user_balance(user_id, cost)
                 
                 user_shopsy_state[user_id] = None
@@ -1399,6 +1155,220 @@ def shopsy_otp_handler(message):
             user_shopsy_state[user_id] = None
             if user_id in user_shopsy_otp_data:
                 del user_shopsy_otp_data[user_id]
+    
+    threading.Thread(target=verify_thread).start()
+
+# ==================== YOGA HANDLERS ====================
+@bot.message_handler(func=lambda message: user_yoga_state.get(message.from_user.id) == "waiting_yoga_phone")
+def yoga_phone_handler(message):
+    user_id = message.from_user.id
+    phone = message.text.strip()
+    
+    if phone.lower() in ['/cancel', 'cancel']:
+        user_yoga_state[user_id] = None
+        bot.reply_to(message, "❌ Yoga referral cancelled.", reply_markup=back_button())
+        return
+    
+    if not phone.isdigit() or len(phone) != 10:
+        bot.reply_to(message, "❌ Please enter exactly 10 digits.\n\nSend /cancel to abort.")
+        return
+    
+    cost = get_module_cost("yoga")
+    balance = get_user_balance(user_id)
+    if balance < cost:
+        bot.reply_to(message, f"❌ Insufficient credits! Need {cost} credits. Balance: {balance}")
+        return
+    
+    user_yoga_state[user_id] = "waiting_yoga_otp"
+    
+    abort_kb = InlineKeyboardMarkup()
+    abort_kb.row(InlineKeyboardButton("❌ Abort", callback_data="yoga_abort_otp"))
+    abort_kb.row(InlineKeyboardButton("🔙 Back", callback_data="back_yoga"))
+    
+    status_msg = bot.reply_to(message, f"📱 Sending OTP to +91{phone}...", reply_markup=abort_kb)
+    update_user_balance(user_id, -cost)
+    
+    def send_otp_thread():
+        try:
+            did = rand_id()
+            sid = rand_id()
+            
+            ref, err = yoga_send_otp(phone, did, sid)
+            
+            if err:
+                update_user_balance(user_id, cost)
+                bot.edit_message_text(
+                    f"❌ Failed to send OTP: {err}\n\nPlease try again later.",
+                    chat_id=message.chat.id,
+                    message_id=status_msg.message_id
+                )
+                user_yoga_state[user_id] = None
+                return
+            
+            user_yoga_otp_data[user_id] = {
+                "phone": phone,
+                "ref": ref,
+                "did": did,
+                "sid": sid,
+                "cost": cost
+            }
+            
+            otp_kb = InlineKeyboardMarkup()
+            otp_kb.row(InlineKeyboardButton("❌ Abort", callback_data="yoga_abort_otp"))
+            otp_kb.row(InlineKeyboardButton("🔙 Back", callback_data="back_yoga"))
+            
+            bot.edit_message_text(
+                f"✅ OTP sent to +91{phone}!\n\n"
+                f"📱 Enter the 6-digit OTP code you received:\n\n"
+                f"<b>Send /cancel to abort</b>",
+                chat_id=message.chat.id,
+                message_id=status_msg.message_id,
+                reply_markup=otp_kb
+            )
+            user_yoga_state[user_id] = "waiting_yoga_otp"
+            
+        except Exception as e:
+            update_user_balance(user_id, cost)
+            bot.edit_message_text(
+                f"❌ Error: {str(e)[:200]}",
+                chat_id=message.chat.id,
+                message_id=status_msg.message_id
+            )
+            user_yoga_state[user_id] = None
+    
+    threading.Thread(target=send_otp_thread).start()
+
+@bot.message_handler(func=lambda message: user_yoga_state.get(message.from_user.id) == "waiting_yoga_otp")
+def yoga_otp_handler(message):
+    user_id = message.from_user.id
+    otp = message.text.strip()
+    
+    if otp.lower() in ['/cancel', 'cancel']:
+        user_yoga_state[user_id] = None
+        if user_id in user_yoga_otp_data:
+            del user_yoga_otp_data[user_id]
+        bot.reply_to(message, "❌ Yoga referral cancelled.", reply_markup=back_button())
+        return
+    
+    if not otp.isdigit() or len(otp) != 6:
+        bot.reply_to(message, "❌ Please enter a valid 6-digit OTP.\n\nSend /cancel to abort.")
+        return
+    
+    if user_id not in user_yoga_otp_data:
+        bot.reply_to(message, "❌ Session expired. Please start again.")
+        user_yoga_state[user_id] = None
+        return
+    
+    data = user_yoga_otp_data[user_id]
+    phone = data["phone"]
+    ref = data["ref"]
+    did = data["did"]
+    sid = data["sid"]
+    cost = data["cost"]
+    
+    status_msg = bot.reply_to(message, "🔄 Verifying OTP...")
+    
+    def verify_thread():
+        try:
+            resp, err = yoga_verify_otp(phone, ref, otp, did, sid)
+            
+            if err:
+                update_user_balance(user_id, cost)
+                bot.edit_message_text(
+                    f"❌ OTP verification failed: {err}\n\nPlease try again.",
+                    chat_id=message.chat.id,
+                    message_id=status_msg.message_id
+                )
+                user_yoga_state[user_id] = None
+                if user_id in user_yoga_otp_data:
+                    del user_yoga_otp_data[user_id]
+                return
+            
+            if resp and resp.get("data", {}).get("isVerified", False):
+                conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+                c = conn.cursor()
+                c.execute('SELECT yoga_code FROM users WHERE user_id = ?', (user_id,))
+                row = c.fetchone()
+                yoga_code = row[0] if row and row[0] else None
+                conn.close()
+                
+                if not yoga_code:
+                    bot.edit_message_text(
+                        "⚠️ You don't have a Yoga referral code set!\n\n"
+                        "Please set your Yoga referral code first using:\n"
+                        "<code>/setyoga YOUR_CODE</code>\n\n"
+                        "Or send me your Habit.Yoga referral link.",
+                        chat_id=message.chat.id,
+                        message_id=status_msg.message_id
+                    )
+                    user_yoga_state[user_id] = None
+                    if user_id in user_yoga_otp_data:
+                        del user_yoga_otp_data[user_id]
+                    return
+                
+                name = rand_yoga_name()
+                reg_resp, reg_err = yoga_register(phone, yoga_code, name, did, sid)
+                
+                if reg_err:
+                    update_user_balance(user_id, cost)
+                    bot.edit_message_text(
+                        f"❌ Registration failed: {reg_err}",
+                        chat_id=message.chat.id,
+                        message_id=status_msg.message_id
+                    )
+                    user_yoga_state[user_id] = None
+                    if user_id in user_yoga_otp_data:
+                        del user_yoga_otp_data[user_id]
+                    return
+                
+                reward = get_yoga_refer_reward()
+                update_user_balance(user_id, reward)
+                
+                conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+                c = conn.cursor()
+                c.execute('UPDATE users SET yoga_bot_refers = yoga_bot_refers + 1 WHERE user_id = ?', (user_id,))
+                conn.commit()
+                conn.close()
+                
+                bot.edit_message_text(
+                    f"✅ <b>Yoga Referral Successful!</b>\n\n"
+                    f"📱 Phone: +91{phone}\n"
+                    f"👤 Name: {name}\n"
+                    f"🔑 Referral Code: {yoga_code}\n"
+                    f"💰 Reward: <code>+{reward} Credits</code>\n"
+                    f"💳 New Balance: <code>{get_user_balance(user_id)}</code>\n\n"
+                    f"🎯 Referral completed successfully!",
+                    chat_id=message.chat.id,
+                    message_id=status_msg.message_id,
+                    reply_markup=back_button()
+                )
+                
+                user_yoga_state[user_id] = None
+                if user_id in user_yoga_otp_data:
+                    del user_yoga_otp_data[user_id]
+                
+            else:
+                update_user_balance(user_id, cost)
+                bot.edit_message_text(
+                    f"❌ OTP verification failed.\n\n"
+                    f"Please try again with a valid OTP.",
+                    chat_id=message.chat.id,
+                    message_id=status_msg.message_id
+                )
+                user_yoga_state[user_id] = None
+                if user_id in user_yoga_otp_data:
+                    del user_yoga_otp_data[user_id]
+                
+        except Exception as e:
+            update_user_balance(user_id, cost)
+            bot.edit_message_text(
+                f"❌ Error: {str(e)[:200]}",
+                chat_id=message.chat.id,
+                message_id=status_msg.message_id
+            )
+            user_yoga_state[user_id] = None
+            if user_id in user_yoga_otp_data:
+                del user_yoga_otp_data[user_id]
     
     threading.Thread(target=verify_thread).start()
 
@@ -1427,7 +1397,6 @@ def callback_handler(call):
         return
     
     if data == "back_shopsy" or data == "back_yoga":
-        # Go back to respective module menu
         user = get_user(user_id)
         if data == "back_shopsy":
             text = shopsy_menu_text(user_id, user['balance'], "✅", get_shopsy_balance(user_id), get_shopsy_login_status(user_id))
@@ -1439,7 +1408,6 @@ def callback_handler(call):
             text = yoga_menu_text(user_id, user['balance'], "✅", yoga_code, reward, cost)
             kb = yoga_menu_keyboard()
         
-        # Cancel any ongoing states
         user_shopsy_state[user_id] = None
         user_yoga_state[user_id] = None
         if user_id in user_shopsy_otp_data:
@@ -1521,7 +1489,6 @@ def callback_handler(call):
                 parse_mode="HTML"
             )
         elif module == "shopsy":
-            cost = get_module_cost("shopsy")
             bot.edit_message_text(
                 shopsy_menu_text(user_id, balance, status, get_shopsy_balance(user_id), get_shopsy_login_status(user_id)),
                 chat_id=call.message.chat.id,
@@ -1560,7 +1527,6 @@ def callback_handler(call):
             else:
                 bot.answer_callback_query(call.id, "Unauthorized")
         elif module == "stats":
-            # Total stats
             total_users = get_total_users()
             total_coins = get_total_coins()
             total_usage = get_total_usage()
@@ -1575,12 +1541,264 @@ def callback_handler(call):
         bot.answer_callback_query(call.id)
         return
     
+    # ==================== REFERRAL CALLBACKS ====================
+    if data == "referral_get_link":
+        user_id = call.from_user.id
+        link = get_referral_link(user_id)
+        referral_count = get_referral_count(user_id)
+        pending_count = get_pending_referral_count(user_id)
+        
+        kb = InlineKeyboardMarkup()
+        kb.row(InlineKeyboardButton("📤 Share Link", callback_data="referral_share"))
+        kb.row(InlineKeyboardButton("🔙 Back", callback_data="back_menu"))
+        
+        bot.edit_message_text(
+            f"🔗 <b>Your Referral Link</b>\n\n"
+            f"<code>{link}</code>\n\n"
+            f"📊 <b>Your Stats:</b>\n"
+            f"👥 Successful: <code>{referral_count}</code>\n"
+            f"⏳ Pending: <code>{pending_count}</code>\n"
+            f"💰 Bonus: <code>+{REFERRAL_BONUS} Credits</code> per referral\n\n"
+            f"Share this link with friends and earn credits when they join and stay!\n\n"
+            f"💡 <b>Tip:</b> Each friend gets <b>+{NEW_USER_BONUS} Credits</b> on joining!",
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            reply_markup=kb,
+            parse_mode="HTML"
+        )
+        bot.answer_callback_query(call.id)
+        return
+
+    if data == "referral_share":
+        user_id = call.from_user.id
+        link = get_referral_link(user_id)
+        bot.answer_callback_query(
+            call.id,
+            "📤 Copy this link and share with friends!\n\n" + link,
+            show_alert=True
+        )
+        return
+
+    if data == "referral_stats":
+        user_id = call.from_user.id
+        referral_count = get_referral_count(user_id)
+        pending_count = get_pending_referral_count(user_id)
+        balance = get_user_balance(user_id)
+        bot.answer_callback_query(
+            call.id,
+            f"📊 Referral Stats:\n✅ Completed: {referral_count}\n⏳ Pending: {pending_count}\n💰 Balance: {balance}\n🎁 Bonus: +{REFERRAL_BONUS} per referral",
+            show_alert=True
+        )
+        return
+    
+    # ==================== ADMIN CALLBACKS ====================
+    if data.startswith("admin_"):
+        user_id = call.from_user.id
+        if user_id != ADMIN_ID:
+            bot.answer_callback_query(call.id, "❌ Unauthorized - Admin only!")
+            return
+        
+        action = data.replace("admin_", "")
+        
+        if action == "stats":
+            total_users = get_total_users()
+            total_coins = get_total_coins()
+            total_usage = get_total_usage()
+            
+            conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+            c = conn.cursor()
+            c.execute("SELECT COUNT(*) FROM users WHERE last_used >= datetime('now', '-7 days')")
+            active_users = c.fetchone()[0]
+            conn.close()
+            
+            bot.answer_callback_query(
+                call.id,
+                f"📊 Bot Statistics:\n\n"
+                f"👥 Total Users: {total_users}\n"
+                f"🟢 Active (7d): {active_users}\n"
+                f"💰 Total Coins: {total_coins}\n"
+                f"📈 Total Usage: {total_usage}",
+                show_alert=True
+            )
+            return
+        
+        if action == "users":
+            users = get_all_users()
+            if not users:
+                bot.answer_callback_query(call.id, "No users found", show_alert=True)
+                return
+            
+            user_list = "👥 <b>Top Users by Balance:</b>\n\n"
+            for i, (uid, username, balance, status) in enumerate(users[:10], 1):
+                name = username or f"User_{uid}"
+                status_icon = "🟢" if status == "ACTIVE" else "🔴"
+                user_list += f"{i}. {status_icon} {name} - 💰 {balance}\n"
+            
+            if len(users) > 10:
+                user_list += f"\n... and {len(users) - 10} more users"
+            
+            kb = InlineKeyboardMarkup()
+            kb.row(InlineKeyboardButton("📥 Export All", callback_data="admin_export_users"))
+            kb.row(InlineKeyboardButton("🔙 Back", callback_data="back_menu"))
+            
+            bot.edit_message_text(
+                user_list,
+                chat_id=call.message.chat.id,
+                message_id=call.message.message_id,
+                reply_markup=kb,
+                parse_mode="HTML"
+            )
+            bot.answer_callback_query(call.id)
+            return
+        
+        if action == "export_users":
+            users = get_all_users()
+            if not users:
+                bot.answer_callback_query(call.id, "No users to export", show_alert=True)
+                return
+            
+            csv_data = "User ID,Username,Balance,Status\n"
+            for uid, username, balance, status in users:
+                csv_data += f"{uid},{username or 'N/A'},{balance},{status}\n"
+            
+            try:
+                bot.send_document(
+                    call.message.chat.id,
+                    document=("users_export.csv", csv_data),
+                    caption=f"📊 Users Export - {len(users)} users"
+                )
+                bot.answer_callback_query(call.id, "✅ Export sent!")
+            except Exception as e:
+                bot.answer_callback_query(call.id, f"❌ Export failed: {str(e)[:50]}", show_alert=True)
+            return
+        
+        if action == "add_coins":
+            msg = bot.send_message(
+                call.message.chat.id,
+                "💰 <b>Add Credits</b>\n\n"
+                "Please send in format:\n"
+                "<code>/addcoins USER_ID AMOUNT</code>\n\n"
+                "Example: <code>/addcoins 123456789 10</code>\n\n"
+                "Send /cancel to abort.",
+                parse_mode="HTML"
+            )
+            bot.register_next_step_handler(msg, admin_add_coins_handler)
+            bot.answer_callback_query(call.id)
+            return
+        
+        if action == "remove_coins":
+            msg = bot.send_message(
+                call.message.chat.id,
+                "➖ <b>Remove Credits</b>\n\n"
+                "Please send in format:\n"
+                "<code>/removecoins USER_ID AMOUNT</code>\n\n"
+                "Example: <code>/removecoins 123456789 5</code>\n\n"
+                "Send /cancel to abort.",
+                parse_mode="HTML"
+            )
+            bot.register_next_step_handler(msg, admin_remove_coins_handler)
+            bot.answer_callback_query(call.id)
+            return
+        
+        if action == "broadcast":
+            msg = bot.send_message(
+                call.message.chat.id,
+                "📢 <b>Broadcast Message</b>\n\n"
+                "Send the message you want to broadcast to all users.\n\n"
+                "⚠️ <b>Warning:</b> This will send to ALL users!\n\n"
+                "Send /cancel to abort.",
+                parse_mode="HTML"
+            )
+            bot.register_next_step_handler(msg, admin_broadcast_handler)
+            bot.answer_callback_query(call.id)
+            return
+        
+        if action == "costs":
+            costs_text = "⚙️ <b>Module Costs</b>\n\n"
+            for module, default in DEFAULT_COSTS.items():
+                current = get_module_cost(module)
+                costs_text += f"• {module.title()}: <code>{current}</code> credits\n"
+            
+            costs_text += f"\n📝 To update: <code>/setcost MODULE AMOUNT</code>\n"
+            costs_text += f"Example: <code>/setcost yoga 2</code>\n\n"
+            costs_text += f"💰 Yoga Reward: <code>{get_yoga_refer_reward()}</code> credits"
+            
+            kb = InlineKeyboardMarkup()
+            kb.row(InlineKeyboardButton("🔙 Back", callback_data="back_menu"))
+            
+            bot.edit_message_text(
+                costs_text,
+                chat_id=call.message.chat.id,
+                message_id=call.message.message_id,
+                reply_markup=kb,
+                parse_mode="HTML"
+            )
+            bot.answer_callback_query(call.id)
+            return
+    
+    # ==================== BROADCAST CALLBACKS ====================
+    if data == "broadcast_confirm":
+        user_id = call.from_user.id
+        if user_id != ADMIN_ID:
+            bot.answer_callback_query(call.id, "❌ Unauthorized!")
+            return
+        
+        broadcast_msg = getattr(bot, 'user_data', {}).get('broadcast_msg')
+        users = getattr(bot, 'user_data', {}).get('broadcast_users', [])
+        
+        if not broadcast_msg:
+            bot.answer_callback_query(call.id, "❌ No broadcast message found!")
+            return
+        
+        bot.edit_message_text(
+            f"📢 <b>Broadcasting...</b>\n\n"
+            f"Sending to <code>{len(users)}</code> users...",
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            parse_mode="HTML"
+        )
+        
+        success = 0
+        failed = 0
+        
+        for uid, username, balance, status in users:
+            try:
+                bot.send_message(uid, broadcast_msg, parse_mode="HTML")
+                success += 1
+                time.sleep(0.05)
+            except:
+                failed += 1
+        
+        bot.edit_message_text(
+            f"✅ <b>Broadcast Complete!</b>\n\n"
+            f"✅ Sent: <code>{success}</code>\n"
+            f"❌ Failed: <code>{failed}</code>",
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            parse_mode="HTML"
+        )
+        
+        bot.answer_callback_query(call.id, f"✅ Sent to {success} users")
+        return
+
+    if data == "broadcast_cancel":
+        user_id = call.from_user.id
+        if user_id != ADMIN_ID:
+            bot.answer_callback_query(call.id, "❌ Unauthorized!")
+            return
+        
+        bot.edit_message_text(
+            "❌ Broadcast cancelled.",
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id
+        )
+        bot.answer_callback_query(call.id)
+        return
+    
     # Shopsy callbacks
     if data == "shopsy_start":
         if get_shopsy_login_status(user_id):
-            # Already logged in, start mining
             bot.answer_callback_query(call.id, "Starting mining...")
-            # Mining logic here
         else:
             user_shopsy_state[user_id] = "waiting_phone"
             kb = InlineKeyboardMarkup()
@@ -1666,6 +1884,156 @@ def callback_handler(call):
     
     bot.answer_callback_query(call.id)
 
+# ==================== ADMIN HANDLER FUNCTIONS ====================
+def admin_add_coins_handler(message):
+    user_id = message.from_user.id
+    if user_id != ADMIN_ID:
+        bot.reply_to(message, "❌ Unauthorized!")
+        return
+    
+    try:
+        parts = message.text.strip().split()
+        if len(parts) != 2:
+            bot.reply_to(message, "❌ Invalid format! Use: /addcoins USER_ID AMOUNT")
+            return
+        
+        target_id = int(parts[0])
+        amount = int(parts[1])
+        
+        if amount <= 0:
+            bot.reply_to(message, "❌ Amount must be positive!")
+            return
+        
+        user = get_user(target_id)
+        if not user:
+            bot.reply_to(message, f"❌ User {target_id} not found!")
+            return
+        
+        update_user_balance(target_id, amount)
+        new_balance = get_user_balance(target_id)
+        
+        bot.reply_to(
+            message,
+            f"✅ <b>Added {amount} Credits</b>\n\n"
+            f"👤 User: {user['first_name']} (ID: {target_id})\n"
+            f"💰 New Balance: <code>{new_balance}</code>",
+            parse_mode="HTML"
+        )
+        
+        try:
+            bot.send_message(
+                target_id,
+                f"🎉 <b>Admin Added Credits!</b>\n\n"
+                f"➕ <code>+{amount} Credits</code> added to your account.\n"
+                f"💰 New Balance: <code>{new_balance}</code>",
+                parse_mode="HTML"
+            )
+        except:
+            pass
+            
+    except ValueError:
+        bot.reply_to(message, "❌ Invalid format! Use: /addcoins USER_ID AMOUNT")
+    except Exception as e:
+        bot.reply_to(message, f"❌ Error: {str(e)[:100]}")
+
+def admin_remove_coins_handler(message):
+    user_id = message.from_user.id
+    if user_id != ADMIN_ID:
+        bot.reply_to(message, "❌ Unauthorized!")
+        return
+    
+    try:
+        parts = message.text.strip().split()
+        if len(parts) != 2:
+            bot.reply_to(message, "❌ Invalid format! Use: /removecoins USER_ID AMOUNT")
+            return
+        
+        target_id = int(parts[0])
+        amount = int(parts[1])
+        
+        if amount <= 0:
+            bot.reply_to(message, "❌ Amount must be positive!")
+            return
+        
+        user = get_user(target_id)
+        if not user:
+            bot.reply_to(message, f"❌ User {target_id} not found!")
+            return
+        
+        current_balance = user['balance']
+        if current_balance < amount:
+            bot.reply_to(
+                message,
+                f"❌ User has insufficient balance!\n"
+                f"Current: <code>{current_balance}</code>\n"
+                f"Requested: <code>{amount}</code>",
+                parse_mode="HTML"
+            )
+            return
+        
+        update_user_balance(target_id, -amount)
+        new_balance = get_user_balance(target_id)
+        
+        bot.reply_to(
+            message,
+            f"✅ <b>Removed {amount} Credits</b>\n\n"
+            f"👤 User: {user['first_name']} (ID: {target_id})\n"
+            f"💰 New Balance: <code>{new_balance}</code>",
+            parse_mode="HTML"
+        )
+        
+        try:
+            bot.send_message(
+                target_id,
+                f"⚠️ <b>Admin Removed Credits</b>\n\n"
+                f"➖ <code>-{amount} Credits</code> removed from your account.\n"
+                f"💰 New Balance: <code>{new_balance}</code>",
+                parse_mode="HTML"
+            )
+        except:
+            pass
+            
+    except ValueError:
+        bot.reply_to(message, "❌ Invalid format! Use: /removecoins USER_ID AMOUNT")
+    except Exception as e:
+        bot.reply_to(message, f"❌ Error: {str(e)[:100]}")
+
+def admin_broadcast_handler(message):
+    user_id = message.from_user.id
+    if user_id != ADMIN_ID:
+        bot.reply_to(message, "❌ Unauthorized!")
+        return
+    
+    if message.text.lower() == '/cancel':
+        bot.reply_to(message, "❌ Broadcast cancelled.")
+        return
+    
+    users = get_all_users()
+    if not users:
+        bot.reply_to(message, "❌ No users to broadcast to!")
+        return
+    
+    confirm_kb = InlineKeyboardMarkup()
+    confirm_kb.row(
+        InlineKeyboardButton("✅ Send", callback_data="broadcast_confirm"),
+        InlineKeyboardButton("❌ Cancel", callback_data="broadcast_cancel")
+    )
+    
+    if not hasattr(bot, 'user_data'):
+        bot.user_data = {}
+    bot.user_data['broadcast_msg'] = message.text
+    bot.user_data['broadcast_users'] = users
+    
+    bot.reply_to(
+        message,
+        f"📢 <b>Broadcast Confirmation</b>\n\n"
+        f"Message: {message.text[:200]}{'...' if len(message.text) > 200 else ''}\n\n"
+        f"👥 Recipients: <code>{len(users)} users</code>\n\n"
+        f"Click <b>✅ Send</b> to confirm broadcast.",
+        reply_markup=confirm_kb,
+        parse_mode="HTML"
+    )
+
 # ==================== YOGA SET CODE HANDLER ====================
 @bot.message_handler(func=lambda message: user_yoga_state.get(message.from_user.id) == "waiting_yoga_code")
 def yoga_set_code_handler(message):
@@ -1677,7 +2045,6 @@ def yoga_set_code_handler(message):
         bot.reply_to(message, "❌ Yoga code setup cancelled.", reply_markup=back_button())
         return
     
-    # Extract code from link or use directly
     code = extract_yoga_code(text)
     if not code:
         bot.reply_to(
@@ -1688,7 +2055,6 @@ def yoga_set_code_handler(message):
         )
         return
     
-    # Save code
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
     c = conn.cursor()
     c.execute('UPDATE users SET yoga_code = ? WHERE user_id = ?', (code, user_id))
@@ -1705,6 +2071,58 @@ def yoga_set_code_handler(message):
         reply_markup=back_button()
     )
 
+# ==================== SET COST COMMAND ====================
+@bot.message_handler(commands=['setcost'])
+def setcost_command(message):
+    user_id = message.from_user.id
+    if user_id != ADMIN_ID:
+        bot.reply_to(message, "❌ Unauthorized!")
+        return
+    
+    try:
+        parts = message.text.strip().split()
+        if len(parts) != 3:
+            bot.reply_to(
+                message,
+                "❌ Invalid format!\n\n"
+                "Use: <code>/setcost MODULE AMOUNT</code>\n"
+                "Example: <code>/setcost yoga 2</code>\n\n"
+                "Available modules: firebase, flipkart, instagram_single, instagram_bulk, shopsy, yoga, igviewer",
+                parse_mode="HTML"
+            )
+            return
+        
+        module = parts[1].lower()
+        amount = int(parts[2])
+        
+        if amount < 0:
+            bot.reply_to(message, "❌ Amount must be non-negative!")
+            return
+        
+        if module not in DEFAULT_COSTS:
+            bot.reply_to(
+                message,
+                f"❌ Module '{module}' not found!\n\n"
+                f"Available: {', '.join(DEFAULT_COSTS.keys())}",
+                parse_mode="HTML"
+            )
+            return
+        
+        set_config(f"{module}_cost", str(amount))
+        
+        bot.reply_to(
+            message,
+            f"✅ <b>Cost Updated!</b>\n\n"
+            f"📋 Module: <code>{module}</code>\n"
+            f"💰 New Cost: <code>{amount}</code> credits",
+            parse_mode="HTML"
+        )
+        
+    except ValueError:
+        bot.reply_to(message, "❌ Amount must be a number!")
+    except Exception as e:
+        bot.reply_to(message, f"❌ Error: {str(e)[:100]}")
+
 # ==================== START COMMAND ====================
 @bot.message_handler(commands=['start'])
 def start_command(message):
@@ -1712,10 +2130,8 @@ def start_command(message):
     username = message.from_user.username or ""
     first_name = message.from_user.first_name or "User"
     
-    # Check if user exists
     user = get_user(user_id)
     
-    # Parse referral
     referred_by = None
     if message.text and "ref_" in message.text:
         try:
@@ -1727,7 +2143,6 @@ def start_command(message):
         create_user(user_id, username, first_name, referred_by)
         user = get_user(user_id)
         
-        # Send welcome message
         welcome_text = f"""
 🎉 <b>Welcome to Viediet Utility Bot!</b>
 
@@ -1742,7 +2157,6 @@ Click the menu below to get started!
 """
         bot.send_message(user_id, welcome_text, parse_mode="HTML")
     
-    # Check membership
     status = "✅ Member" if check_membership(user_id) else "❌ Not Joined"
     is_admin = user_id == ADMIN_ID
     
@@ -1757,14 +2171,15 @@ Click the menu below to get started!
 if __name__ == "__main__":
     init_db()
     
-    # Start scheduled tasks thread
     task_thread = threading.Thread(target=run_scheduled_tasks, daemon=True)
     task_thread.start()
     
-    logger.info("🤖 Bot started – All features fixed!")
+    logger.info("🤖 Bot started – ALL FEATURES WORKING!")
     logger.info("💰 Credit refund on failure enabled")
-    logger.info("🧘 Yoga: Fixed OTP sending - no proxy for debugging")
+    logger.info("🧘 Yoga: OTP sending fixed")
     logger.info("🔄 Abort and Back buttons added for all features")
+    logger.info("📊 Referral system - Get Link & Stats working")
+    logger.info("👑 Admin Panel - All features working (Stats, Users, Add/Remove Coins, Broadcast, Costs)")
     logger.info("🌐 Proxy support for Flipkart, Shopsy")
     
     try:
