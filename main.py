@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-# NRTECNO SYSTEM - VIEDIET BOT v2.0 FIXED - ALL FEATURES WORKING
+# NRTECNO SYSTEM - VIEDIET BOT v2.0 - WITH SUPERCOIN FETCHER
 
 import os
 import logging
@@ -43,7 +43,8 @@ try:
         shopsy_menu_text, shopsy_menu_keyboard,
         yoga_menu_text, yoga_menu_keyboard,
         help_menu_text,
-        igviewer_menu_text, igviewer_menu_keyboard
+        igviewer_menu_text, igviewer_menu_keyboard,
+        supercoin_menu_text, supercoin_menu_keyboard
     )
 except ImportError:
     # Fallback if menu.py missing
@@ -73,6 +74,8 @@ except ImportError:
     def help_menu_text(*a,**k): return "Help"
     def igviewer_menu_text(*a,**k): return "IG Viewer"
     def igviewer_menu_keyboard(): return main_menu_keyboard()
+    def supercoin_menu_text(*a,**k): return "Supercoin Fetcher"
+    def supercoin_menu_keyboard(): return main_menu_keyboard()
 
 # ==================== PROXY CONFIGURATION ====================
 class ProxyManager:
@@ -155,8 +158,8 @@ if not BOT_TOKEN:
 
 ADMIN_ID = int(os.environ.get("ADMIN_ID", 1364476174))
 CHANNEL_USERNAME = "viedietlooters"
-REFERRAL_BONUS = 3
-NEW_USER_BONUS = 5
+REFERRAL_BONUS = 2
+NEW_USER_BONUS = 10
 REFERRAL_STAY_HOURS = 1
 
 YOGA_REFER_REWARD = 4
@@ -170,6 +173,7 @@ DEFAULT_COSTS = {
     "shopsy": 1,
     "yoga": 1,
     "igviewer": 1,
+    "supercoin": 1,
 }
 
 YOGA_REGISTER_URL = "https://auth-service.habuild.in/public/user/v1/register-user"
@@ -634,6 +638,206 @@ def extract_yoga_code(link: str):
         return link
     return None
 
+# ==================== SUPERCOIN FETCHER CLASS ====================
+class ShopsySession:
+    """NRTECNO Optimized Shopsy Session Handler for Supercoin Fetcher"""
+    
+    def __init__(self):
+        self.session = cffi_requests.Session(impersonate="chrome120")
+        self.device_id = uuid.uuid4().hex[:32]
+        self.visit_id = f"{uuid.uuid4().hex[:32]}-{int(time.time() * 1000)}"
+        self.app_session = f"{uuid.uuid4()}_{int(time.time()*1000)}"
+        self.current_dc = "1"
+        self.tokens = {}
+        self.user_id = None
+        
+    def _build_headers(self, is_game=False, extra_headers=None):
+        base_headers = {
+            "User-Agent": "Mozilla/5.0 (Linux; Android 13; SM-S918B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36",
+            "Content-Type": "application/json; charset=UTF-8",
+            "Accept": "application/json",
+            "Accept-Encoding": "gzip, deflate, br",
+            "Connection": "keep-alive",
+            "FK-TENANT-ID": "SHOPSY",
+            "X-PARTNER-CONTEXT": json.dumps({"source": "reseller"}),
+            "X-User-Agent": f"Mozilla/5.0 (Linux; Android 13; SM-S918B Build/TP1A.220624.014) FKUA/Retail/2291170/Android/Mobile (Samsung/SM-S918B/{self.device_id})",
+            "X-Visit-Id": self.visit_id,
+            "X-AppSession-ID": self.app_session,
+            "X-Device-Id": self.device_id,
+            "X-Platform": "android",
+            "X-App-Version": "2291170",
+            "city": "Delhi"
+        }
+        
+        if is_game:
+            base_headers.pop("X-Visit-Id", None)
+            base_headers.pop("X-AppSession-ID", None)
+            base_headers["sessionid"] = self.tokens.get("session_id", str(uuid.uuid4()))
+            
+        for token_key in ["at", "sn", "secureToken", "rt"]:
+            if self.tokens.get(token_key):
+                base_headers[token_key] = self.tokens[token_key]
+                
+        if extra_headers:
+            base_headers.update(extra_headers)
+            
+        return base_headers
+    
+    async def request(self, method, path, data=None, is_game=False, retries=3):
+        url = f"https://{self.current_dc}.rome.api.flipkart.net{path}"
+        headers = self._build_headers(is_game)
+        
+        for attempt in range(retries):
+            try:
+                if method.upper() == "POST":
+                    resp = self.session.post(url, json=data, headers=headers, timeout=30)
+                else:
+                    resp = self.session.get(url, headers=headers, timeout=30)
+                
+                try:
+                    resp_json = resp.json()
+                except:
+                    resp_json = {}
+                
+                if resp.status_code == 406 and resp_json.get("ERROR_MESSAGE") == "DC Change":
+                    new_dc = resp_json.get("RESPONSE", {}).get("id") or resp_json.get("RESPONSE", {}).get("dc")
+                    if new_dc:
+                        self.current_dc = str(new_dc)
+                        url = f"https://{self.current_dc}.rome.api.flipkart.net{path}"
+                        continue
+                
+                self._extract_tokens(resp_json, resp.headers)
+                return resp.status_code, resp_json
+                
+            except Exception as e:
+                if attempt == retries - 1:
+                    raise Exception(f"Request failed after {retries} attempts: {str(e)}")
+                await asyncio.sleep(2 ** attempt)
+                
+        return 500, {"error": "Max retries exceeded"}
+    
+    def _extract_tokens(self, resp_json, resp_headers):
+        if isinstance(resp_json, dict):
+            session_block = resp_json.get("SESSION") or resp_json.get("RESPONSE", {}).get("SESSION") or {}
+            for key in ["accountId", "at", "rt", "sn", "secureToken", "nsid", "vid", "email", "firstName", "lastName"]:
+                if session_block.get(key):
+                    self.tokens[key] = session_block[key]
+            if session_block.get("userId"):
+                self.user_id = session_block["userId"]
+            if session_block.get("isLoggedIn") is True:
+                self.tokens["isLoggedIn"] = True
+        headers_lower = {k.lower(): v for k, v in resp_headers.items()}
+        for key in ["at", "rt", "sn", "nsid", "vid", "sessionid"]:
+            if headers_lower.get(key):
+                self.tokens[key] = headers_lower[key]
+        return self.tokens
+
+    async def request_otp(self, phone):
+        payload = {
+            "actionRequestContext": {
+                "type": "LOGIN_IDENTITY_VERIFY_SHOPSY2",
+                "loginId": phone,
+                "loginIdPrefix": "+91",
+                "phoneNumberFormat": "E164",
+                "addAppHash": True,
+                "loginType": "MOBILE",
+                "verificationType": "OTP",
+                "sourceContext": "DEFAULT",
+                "clientQueryParamMap": {
+                    "version": "2",
+                    "appName": "shopsy",
+                    "client": "android"
+                }
+            }
+        }
+        status, response = await self.request("POST", "/1/action/view", payload)
+        if status == 200:
+            req_id = response.get("RESPONSE", {}).get("actionResponseContext", {}).get("requestId")
+            if req_id:
+                self.tokens["otpRequestId"] = req_id
+                return True, req_id
+        return False, response.get("error", "OTP request failed")
+    
+    async def verify_otp(self, phone, otp):
+        payload = {
+            "actionRequestContext": {
+                "type": "LOGIN_SHOPSY2",
+                "loginId": phone,
+                "loginIdPrefix": "+91",
+                "otp": otp,
+                "otpRequestId": self.tokens.get("otpRequestId"),
+                "remainingAttempts": 5,
+                "phoneNumberFormat": "E164",
+                "loginType": "MOBILE",
+                "verificationType": "OTP",
+                "sourceContext": "DEFAULT",
+                "clientQueryParamMap": {
+                    "version": "2",
+                    "appName": "shopsy",
+                    "client": "android"
+                }
+            }
+        }
+        status, response = await self.request("POST", "/1/action/view", payload)
+        if status == 200:
+            success = response.get("RESPONSE", {}).get("actionResponseContext", {}).get("authenticationSuccess", False)
+            if success:
+                self._extract_tokens(response, {})
+                self.tokens["isLoggedIn"] = True
+                return True, response
+        return False, response.get("error", "OTP verification failed")
+    
+    async def load_user_state(self):
+        payload = {
+            "location": {"pincode": None},
+            "ad": {
+                "adId": str(uuid.uuid4()),
+                "doNotPersonalizeAds": False,
+                "sdkAdId": "",
+                "adSdkVersion": "2.12.0"
+            },
+            "locale": {"deviceLanguage": "en", "shouldRefreshLanguage": False},
+            "versions": {
+                "cart": 1167987101,
+                "userAccountState": 0,
+                "abResponse": -2054295432,
+                "abVariables": 0,
+                "accountDetails": 1220048498,
+                "wishlist": 0,
+                "notifications": 861101,
+                "location": 23273,
+                "lockinResponse": 426889274
+            }
+        }
+        status, response = await self.request("POST", "/4/user/state", payload)
+        return status == 200
+    
+    async def fetch_coins(self):
+        if not self.user_id:
+            self.user_id = self.tokens.get("accountId", "")
+        payload = {
+            "requestMethod": "GET",
+            "routeUri": "user/get-user",
+            "payload": {
+                "userId": self.user_id,
+                "userName": self.tokens.get("firstName", "User")
+            }
+        }
+        status, response = await self.request("POST", "/1/shopsy/games", payload, is_game=True)
+        if status == 200 and response.get("success"):
+            data = response.get("data", {})
+            earnings = data.get("earnings", {})
+            return {
+                "total_coins": earnings.get("coinsEarnedTotal", 0),
+                "daily_coins": earnings.get("coinsEarnedDaily", 0),
+                "weekly_coins": earnings.get("coinsEarnedWeekly", 0),
+                "name": data.get("name", "N/A"),
+                "user_id": data.get("userId", ""),
+                "total_orders": data.get("totalOrders", 0),
+                "data": data
+            }
+        return None
+
 # ==================== SHOPSY SESSION FUNCTIONS ====================
 def save_shopsy_session(user_id, phone, session_data):
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
@@ -695,6 +899,8 @@ igviewer_data = {}
 user_igviewer_state = {}
 user_yoga_state = {}
 user_yoga_otp_data = {}
+user_supercoin_state = {}
+user_supercoin_otp_data = {}
 
 def get_menu_kb(uid: int):
     return None
@@ -1158,6 +1364,197 @@ def shopsy_otp_handler(message):
     
     threading.Thread(target=verify_thread).start()
 
+# ==================== SUPERCOIN HANDLERS ====================
+@bot.message_handler(func=lambda message: user_supercoin_state.get(message.from_user.id) == "waiting_supercoin_phone")
+def supercoin_phone_handler(message):
+    user_id = message.from_user.id
+    phone = message.text.strip()
+    
+    if phone.lower() in ['/cancel', 'cancel']:
+        user_supercoin_state[user_id] = None
+        bot.reply_to(message, "❌ Supercoin check cancelled.", reply_markup=back_button())
+        return
+    
+    if not phone.isdigit() or len(phone) != 10:
+        bot.reply_to(message, "❌ Please enter exactly 10 digits.\n\nSend /cancel to abort.")
+        return
+    
+    cost = get_module_cost("supercoin")
+    balance = get_user_balance(user_id)
+    if balance < cost:
+        bot.reply_to(message, f"❌ Insufficient credits! Need {cost} credits. Balance: {balance}")
+        return
+    
+    user_supercoin_state[user_id] = "waiting_supercoin_otp"
+    
+    abort_kb = InlineKeyboardMarkup()
+    abort_kb.row(InlineKeyboardButton("❌ Abort", callback_data="supercoin_abort"))
+    abort_kb.row(InlineKeyboardButton("🔙 Back", callback_data="back_supercoin"))
+    
+    status_msg = bot.reply_to(message, f"📱 Sending OTP to +91{phone}...", reply_markup=abort_kb)
+    update_user_balance(user_id, -cost)
+    
+    def send_otp_thread():
+        try:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            client = ShopsySession()
+            success, req_id = loop.run_until_complete(client.request_otp(phone))
+            loop.close()
+            
+            if not success:
+                update_user_balance(user_id, cost)
+                bot.edit_message_text(
+                    f"❌ Failed to send OTP: {req_id}",
+                    chat_id=message.chat.id,
+                    message_id=status_msg.message_id
+                )
+                user_supercoin_state[user_id] = None
+                return
+            
+            user_supercoin_otp_data[user_id] = {
+                "phone": phone,
+                "client": client,
+                "cost": cost
+            }
+            
+            otp_kb = InlineKeyboardMarkup()
+            otp_kb.row(InlineKeyboardButton("❌ Abort", callback_data="supercoin_abort"))
+            otp_kb.row(InlineKeyboardButton("🔙 Back", callback_data="back_supercoin"))
+            
+            bot.edit_message_text(
+                f"✅ OTP sent to +91{phone}!\n\n"
+                f"📱 Enter the 6-digit OTP code you received:\n\n"
+                f"<b>Send /cancel to abort</b>",
+                chat_id=message.chat.id,
+                message_id=status_msg.message_id,
+                reply_markup=otp_kb
+            )
+            user_supercoin_state[user_id] = "waiting_supercoin_otp"
+            
+        except Exception as e:
+            update_user_balance(user_id, cost)
+            bot.edit_message_text(
+                f"❌ Error: {str(e)[:200]}",
+                chat_id=message.chat.id,
+                message_id=status_msg.message_id
+            )
+            user_supercoin_state[user_id] = None
+    
+    threading.Thread(target=send_otp_thread).start()
+
+@bot.message_handler(func=lambda message: user_supercoin_state.get(message.from_user.id) == "waiting_supercoin_otp")
+def supercoin_otp_handler(message):
+    user_id = message.from_user.id
+    otp = message.text.strip()
+    
+    if otp.lower() in ['/cancel', 'cancel']:
+        user_supercoin_state[user_id] = None
+        if user_id in user_supercoin_otp_data:
+            update_user_balance(user_id, user_supercoin_otp_data[user_id]["cost"])
+            del user_supercoin_otp_data[user_id]
+        bot.reply_to(message, "❌ Supercoin check cancelled.", reply_markup=back_button())
+        return
+    
+    if not otp.isdigit() or len(otp) != 6:
+        bot.reply_to(message, "❌ Please enter a valid 6-digit OTP.\n\nSend /cancel to abort.")
+        return
+    
+    if user_id not in user_supercoin_otp_data:
+        bot.reply_to(message, "❌ Session expired. Please start again.")
+        user_supercoin_state[user_id] = None
+        return
+    
+    data = user_supercoin_otp_data[user_id]
+    phone = data["phone"]
+    client = data["client"]
+    cost = data["cost"]
+    
+    status_msg = bot.reply_to(message, "🔄 Verifying OTP and fetching coins...")
+    
+    def verify_thread():
+        try:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            
+            success, response = loop.run_until_complete(client.verify_otp(phone, otp))
+            
+            if not success:
+                update_user_balance(user_id, cost)
+                bot.edit_message_text(
+                    f"❌ OTP verification failed: {response}",
+                    chat_id=message.chat.id,
+                    message_id=status_msg.message_id
+                )
+                user_supercoin_state[user_id] = None
+                if user_id in user_supercoin_otp_data:
+                    del user_supercoin_otp_data[user_id]
+                loop.close()
+                return
+            
+            loop.run_until_complete(client.load_user_state())
+            result = loop.run_until_complete(client.fetch_coins())
+            loop.close()
+            
+            if not result:
+                update_user_balance(user_id, cost)
+                bot.edit_message_text(
+                    f"❌ Failed to fetch coins. Please try again.",
+                    chat_id=message.chat.id,
+                    message_id=status_msg.message_id
+                )
+                user_supercoin_state[user_id] = None
+                if user_id in user_supercoin_otp_data:
+                    del user_supercoin_otp_data[user_id]
+                return
+            
+            result_text = f"""
+💰 <b>SUPERCOIN FETCHER RESULTS</b>
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📱 <b>Phone:</b> <code>+91{phone}</code>
+👤 <b>Name:</b> <code>{result.get('name', 'N/A')}</code>
+🆔 <b>User ID:</b> <code>{result.get('user_id', 'N/A')}</code>
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+💰 <b>SUPER COINS</b>
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🪙 <b>Total Coins:</b> <code>{result.get('total_coins', 0)} SC</code>
+📈 <b>Daily Coins:</b> <code>{result.get('daily_coins', 0)} SC</code>
+📊 <b>Weekly Coins:</b> <code>{result.get('weekly_coins', 0)} SC</code>
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🛒 <b>Total Orders:</b> <code>{result.get('total_orders', 0)}</code>
+"""
+            
+            update_user_balance(user_id, cost)
+            
+            bot.edit_message_text(
+                result_text,
+                chat_id=message.chat.id,
+                message_id=status_msg.message_id,
+                reply_markup=back_button(),
+                parse_mode="HTML"
+            )
+            
+            user_supercoin_state[user_id] = None
+            if user_id in user_supercoin_otp_data:
+                del user_supercoin_otp_data[user_id]
+                
+        except Exception as e:
+            update_user_balance(user_id, cost)
+            bot.edit_message_text(
+                f"❌ Error: {str(e)[:200]}",
+                chat_id=message.chat.id,
+                message_id=status_msg.message_id
+            )
+            user_supercoin_state[user_id] = None
+            if user_id in user_supercoin_otp_data:
+                del user_supercoin_otp_data[user_id]
+    
+    threading.Thread(target=verify_thread).start()
+
 # ==================== YOGA HANDLERS ====================
 @bot.message_handler(func=lambda message: user_yoga_state.get(message.from_user.id) == "waiting_yoga_phone")
 def yoga_phone_handler(message):
@@ -1396,11 +1793,14 @@ def callback_handler(call):
         bot.answer_callback_query(call.id)
         return
     
-    if data == "back_shopsy" or data == "back_yoga":
+    if data == "back_shopsy" or data == "back_yoga" or data == "back_supercoin":
         user = get_user(user_id)
         if data == "back_shopsy":
             text = shopsy_menu_text(user_id, user['balance'], "✅", get_shopsy_balance(user_id), get_shopsy_login_status(user_id))
             kb = shopsy_menu_keyboard()
+        elif data == "back_supercoin":
+            text = supercoin_menu_text(user_id, user['balance'], "✅", get_module_cost("supercoin"))
+            kb = supercoin_menu_keyboard()
         else:
             cost = get_module_cost("yoga")
             reward = get_yoga_refer_reward()
@@ -1410,10 +1810,13 @@ def callback_handler(call):
         
         user_shopsy_state[user_id] = None
         user_yoga_state[user_id] = None
+        user_supercoin_state[user_id] = None
         if user_id in user_shopsy_otp_data:
             del user_shopsy_otp_data[user_id]
         if user_id in user_yoga_otp_data:
             del user_yoga_otp_data[user_id]
+        if user_id in user_supercoin_otp_data:
+            del user_supercoin_otp_data[user_id]
         
         bot.edit_message_text(
             text,
@@ -1494,6 +1897,15 @@ def callback_handler(call):
                 chat_id=call.message.chat.id,
                 message_id=call.message.message_id,
                 reply_markup=shopsy_menu_keyboard(),
+                parse_mode="HTML"
+            )
+        elif module == "supercoin":
+            cost = get_module_cost("supercoin")
+            bot.edit_message_text(
+                supercoin_menu_text(user_id, balance, status, cost),
+                chat_id=call.message.chat.id,
+                message_id=call.message.message_id,
+                reply_markup=supercoin_menu_keyboard(),
                 parse_mode="HTML"
             )
         elif module == "yoga":
@@ -1795,6 +2207,57 @@ def callback_handler(call):
         bot.answer_callback_query(call.id)
         return
     
+    # ==================== SUPERCOIN CALLBACKS ====================
+    if data == "supercoin_start":
+        user_id = call.from_user.id
+        cost = get_module_cost("supercoin")
+        balance = get_user_balance(user_id)
+        
+        if balance < cost:
+            bot.answer_callback_query(call.id, f"❌ Need {cost} credits!", show_alert=True)
+            return
+        
+        user_supercoin_state[user_id] = "waiting_supercoin_phone"
+        kb = InlineKeyboardMarkup()
+        kb.row(InlineKeyboardButton("❌ Cancel", callback_data="supercoin_abort"))
+        kb.row(InlineKeyboardButton("🔙 Back", callback_data="back_supercoin"))
+        
+        bot.edit_message_text(
+            "💰 <b>Supercoin Fetcher</b>\n\n"
+            "📱 Enter your 10-digit phone number to check Supercoins:\n\n"
+            "Send /cancel to abort.",
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            reply_markup=kb,
+            parse_mode="HTML"
+        )
+        bot.answer_callback_query(call.id)
+        return
+    
+    if data == "supercoin_abort":
+        user_id = call.from_user.id
+        user_supercoin_state[user_id] = None
+        if user_id in user_supercoin_otp_data:
+            update_user_balance(user_id, user_supercoin_otp_data[user_id]["cost"])
+            del user_supercoin_otp_data[user_id]
+        bot.edit_message_text(
+            "❌ Supercoin check cancelled.",
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            reply_markup=back_button()
+        )
+        bot.answer_callback_query(call.id)
+        return
+    
+    if data == "supercoin_stats":
+        user_id = call.from_user.id
+        bot.answer_callback_query(
+            call.id,
+            "💰 Supercoin Fetcher\n\nUse 'Check Coins' to fetch your Supercoin balance!",
+            show_alert=True
+        )
+        return
+    
     # Shopsy callbacks
     if data == "shopsy_start":
         if get_shopsy_login_status(user_id):
@@ -2087,7 +2550,7 @@ def setcost_command(message):
                 "❌ Invalid format!\n\n"
                 "Use: <code>/setcost MODULE AMOUNT</code>\n"
                 "Example: <code>/setcost yoga 2</code>\n\n"
-                "Available modules: firebase, flipkart, instagram_single, instagram_bulk, shopsy, yoga, igviewer",
+                "Available modules: firebase, flipkart, instagram_single, instagram_bulk, shopsy, yoga, igviewer, supercoin",
                 parse_mode="HTML"
             )
             return
@@ -2180,6 +2643,7 @@ if __name__ == "__main__":
     logger.info("🔄 Abort and Back buttons added for all features")
     logger.info("📊 Referral system - Get Link & Stats working")
     logger.info("👑 Admin Panel - All features working (Stats, Users, Add/Remove Coins, Broadcast, Costs)")
+    logger.info("💰 Supercoin Fetcher - Check Shopsy Supercoin balance")
     logger.info("🌐 Proxy support for Flipkart, Shopsy")
     
     try:
