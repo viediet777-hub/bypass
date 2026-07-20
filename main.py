@@ -54,9 +54,8 @@ REFERRAL_BONUS = 3
 NEW_USER_BONUS = 5
 REFERRAL_STAY_HOURS = 1
 
-# Yoga Referral Rewards
-YOGA_REFER_REWARD = 4      # Points per yoga referral
-YOGA_WELCOME_BONUS = 2     # Points for new users
+YOGA_REFER_REWARD = 4
+YOGA_WELCOME_BONUS = 2
 
 DEFAULT_COSTS = {
     "firebase": 1,
@@ -67,7 +66,6 @@ DEFAULT_COSTS = {
     "yoga": 1,
 }
 
-# Yoga Proxies
 YOGA_PROXIES = [
     {"host": "dc.decodo.com", "port": 10001, "user": "sptu9f11ur", "pass": "0c_nm5z3eVm4jJEddL"},
     {"host": "dc.decodo.com", "port": 10002, "user": "sptu9f11ur", "pass": "0c_nm5z3eVm4jJEddL"},
@@ -88,7 +86,6 @@ YOGA_NAMES = [
     "Raj","Simran","Priya","Rahul","Neha","Amit","Pooja","Vikram","Anjali","Rohan",
 ]
 
-# Yoga API URLs
 YOGA_REGISTER_URL = "https://auth-service.habuild.in/public/user/v1/register-user"
 YOGA_LOGIN_URL = "https://auth-service.habuild.in/public/auth/v1/login"
 YOGA_VERIFY_URL = "https://auth-service.habuild.in/public/auth/v1/verify-otp"
@@ -391,7 +388,6 @@ _yoga_proxy_index = 0
 _yoga_proxy_lock = threading.Lock()
 
 def get_yoga_proxy():
-    """Get next proxy from pool for Yoga API calls"""
     global _yoga_proxy_index
     if not YOGA_PROXIES:
         return None
@@ -401,20 +397,17 @@ def get_yoga_proxy():
         return proxy
 
 def get_yoga_proxy_url():
-    """Get proxy URL for requests"""
     proxy = get_yoga_proxy()
     if not proxy:
         return None
     return f"http://{proxy['user']}:{proxy['pass']}@{proxy['host']}:{proxy['port']}"
 
 # ==================== YOGA API FUNCTIONS ====================
-async def yoga_api_post(url, payload, headers, use_proxy=True):
-    """Make POST request to Yoga API with proxy support"""
+def yoga_api_post(url, payload, headers, use_proxy=True):
     try:
         proxy_url = get_yoga_proxy_url() if use_proxy else None
         proxies = {"http": proxy_url, "https": proxy_url} if proxy_url else None
         
-        # Use requests with proxy
         response = requests.post(
             url, 
             json=payload, 
@@ -436,15 +429,15 @@ async def yoga_api_post(url, payload, headers, use_proxy=True):
     except Exception as e:
         return None, str(e)
 
-async def yoga_register(phone, code, name, did, sid):
-    return await yoga_api_post(YOGA_REGISTER_URL, {
+def yoga_register(phone, code, name, did, sid):
+    return yoga_api_post(YOGA_REGISTER_URL, {
         "name": name, "phoneNumber": phone, "referredBy": code,
         "sourceData": {"type": "Referral", "refererurl": "", "timezone": "Asia/Kolkata"},
         "experimentMetaInfo": {"deviceId": did, "sessionId": sid},
     }, YOGA_REG_HEADERS)
 
-async def yoga_send_otp(phone, did, sid):
-    resp, err = await yoga_api_post(YOGA_LOGIN_URL, {
+def yoga_send_otp(phone, did, sid):
+    resp, err = yoga_api_post(YOGA_LOGIN_URL, {
         "method": "phone_otp", "otpChannel": "sms", "phoneNumber": phone,
         "sourceData": {"type": "portal", "utm_source": "web_app"},
         "experimentMetaInfo": {"deviceId": did, "sessionId": sid},
@@ -458,8 +451,8 @@ async def yoga_send_otp(phone, did, sid):
             return ref, None
     return None, (resp.get("message", "Unknown") if resp else "No response")
 
-async def yoga_verify_otp(phone, ref, otp, did, sid):
-    return await yoga_api_post(YOGA_VERIFY_URL, {
+def yoga_verify_otp(phone, ref, otp, did, sid):
+    return yoga_api_post(YOGA_VERIFY_URL, {
         "phone": phone, "reference_code": ref, "otp": otp,
         "experimentMetaInfo": {"deviceId": did, "sessionId": sid},
         "registerUser": False,
@@ -538,13 +531,26 @@ user_shopsy_otp_data = {}
 igviewer_data = {}
 user_igviewer_state = {}
 
-# Yoga states
-user_yoga_state = {}  # "waiting_code", "waiting_phone", "waiting_otp"
+user_yoga_state = {}
 user_yoga_otp_data = {}
-user_yoga_pending_refer = {}
 
-# ==================== SHOPSY API FUNCTIONS (from so.py) ====================
+def get_menu_kb(uid: int) -> ReplyKeyboardMarkup:
+    is_admin = (uid == ADMIN_ID)
+    if is_admin:
+        kb = ReplyKeyboardMarkup(resize_keyboard=True, is_persistent=True)
+        kb.row("✨ Start Workflow", "📊 Total Stats")
+        kb.row("🔗 Bot Refer Link", "🔄 Code Update")
+        kb.row("🧘 Yoga Referral", "💡 Help")
+        kb.row("👑 Admin Panel")
+        return kb
+    else:
+        kb = ReplyKeyboardMarkup(resize_keyboard=True, is_persistent=True)
+        kb.row("✨ Start Workflow", "📊 Total Stats")
+        kb.row("🔗 Bot Refer Link", "🔄 Code Update")
+        kb.row("🧘 Yoga Referral", "💡 Help")
+        return kb
 
+# ==================== SHOPSY API FUNCTIONS ====================
 def generate_ids():
     return uuid.uuid4().hex[:32], f"{uuid.uuid4().hex[:32]}-{int(time.time() * 1000)}", f"{uuid.uuid4()}_{int(time.time()*1000)}"
 
@@ -1035,15 +1041,16 @@ def handle_shopsy_callback(call):
     user_id = call.from_user.id
     action = call.data.split("_")[1]
     
+    bot.answer_callback_query(call.id)
+    
     if action == "start":
         cost = get_module_cost("shopsy")
         balance = get_user_balance(user_id)
         if balance < cost:
-            bot.answer_callback_query(call.id, f"❌ You need {cost} credits for Shopsy mining!", show_alert=True)
+            bot.send_message(call.message.chat.id, f"❌ You need {cost} credits for Shopsy mining!")
             return
         
         user_shopsy_state[user_id] = "waiting_phone"
-        bot.answer_callback_query(call.id, "📱 Enter your phone number")
         bot.edit_message_text(
             f"🎯 **SHOPSY MINING**\n\n"
             f"Enter your 10‑digit phone number (without country code).\n"
@@ -1066,7 +1073,6 @@ def handle_shopsy_callback(call):
         total_coins = c.fetchone()[0] or 0
         conn.close()
         
-        bot.answer_callback_query(call.id, "📊 Fetching stats...")
         bot.edit_message_text(
             f"📊 **Shopsy Mining Stats**\n\n"
             f"🪙 Total Coins Mined: {total_coins}\n"
@@ -1082,7 +1088,6 @@ def handle_shopsy_callback(call):
     
     elif action == "logout":
         logout_shopsy_user(user_id)
-        bot.answer_callback_query(call.id, "✅ Logged out from Shopsy!")
         bot.edit_message_text(
             "🚪 **Logged out from Shopsy**\n\n"
             "Your Shopsy session has been cleared.\n"
@@ -1112,7 +1117,7 @@ def yoga_code_handler(message):
     conn.close()
     
     user_yoga_state[user_id] = None
-    bot.reply_to(message, f"✅ *Yoga Code Saved!*\n\nYour code: `{code}`\n\nNow use /yoga to start referring!", parse_mode="Markdown", reply_markup=get_menu_kb(user_id))
+    bot.reply_to(message, f"✅ *Yoga Code Saved!*\n\nYour code: `{code}`\n\nNow use the Yoga module to start referring!", parse_mode="Markdown", reply_markup=get_menu_kb(user_id))
 
 @bot.message_handler(func=lambda message: user_yoga_state.get(message.from_user.id) == "waiting_phone")
 def yoga_phone_handler(message):
@@ -1139,7 +1144,6 @@ def yoga_phone_handler(message):
             did, sid = rand_id(), rand_id()
             name = rand_yoga_name()
             
-            # Get user's yoga code
             conn = sqlite3.connect(DB_PATH, check_same_thread=False)
             c = conn.cursor()
             c.execute('SELECT yoga_code FROM users WHERE user_id = ?', (user_id,))
@@ -1148,7 +1152,7 @@ def yoga_phone_handler(message):
             yoga_code = row[0] if row else None
             
             if not yoga_code:
-                bot.edit_message_text("❌ *No Yoga code set!* Use /yogacode first.", chat_id=message.chat.id, message_id=status_msg.message_id, parse_mode="Markdown")
+                bot.edit_message_text("❌ *No Yoga code set!* Use the Yoga module to set code first.", chat_id=message.chat.id, message_id=status_msg.message_id, parse_mode="Markdown")
                 user_yoga_state[user_id] = None
                 return
             
@@ -1188,7 +1192,9 @@ def yoga_phone_handler(message):
             
             bot.edit_message_text(
                 f"✅ *OTP Sent!*\n📱 `{phone_full}`\n\n🔐 *Enter 6-digit OTP:*",
-                chat_id=message.chat.id, message_id=status_msg.message_id, parse_mode="Markdown"
+                chat_id=message.chat.id,
+                message_id=status_msg.message_id,
+                parse_mode="Markdown"
             )
             
         except Exception as e:
@@ -1209,7 +1215,7 @@ def yoga_otp_handler(message):
     
     data = user_yoga_otp_data.get(user_id)
     if not data:
-        bot.reply_to(message, "❌ *Session expired.* Use /yoga again.", parse_mode="Markdown")
+        bot.reply_to(message, "❌ *Session expired.* Use Yoga module again.", parse_mode="Markdown")
         user_yoga_state[user_id] = None
         return
     
@@ -1231,18 +1237,15 @@ def yoga_otp_handler(message):
                 user_yoga_otp_data.pop(user_id, None)
                 return
             
-            # Success - award points
             reward = get_yoga_refer_reward()
             update_user_balance(user_id, reward)
             
-            # Update yoga_refers count
             conn = sqlite3.connect(DB_PATH, check_same_thread=False)
             c = conn.cursor()
             c.execute('UPDATE users SET yoga_refers = yoga_refers + 1 WHERE user_id = ?', (user_id,))
             conn.commit()
             conn.close()
             
-            # Get updated balance
             new_balance = get_user_balance(user_id)
             
             bot.edit_message_text(
@@ -1251,8 +1254,10 @@ def yoga_otp_handler(message):
                 f"📱 *Phone:* `{phone}`\n"
                 f"💰 *Points Earned:* +{reward}\n"
                 f"📊 *Your Balance:* `{new_balance}`\n\n"
-                f"Ready for another? Use /yoga",
-                chat_id=message.chat.id, message_id=status_msg.message_id, parse_mode="Markdown"
+                f"Ready for another? Use the Yoga module!",
+                chat_id=message.chat.id,
+                message_id=status_msg.message_id,
+                parse_mode="Markdown"
             )
             
             log_usage(user_id, "Yoga Referral", f"Phone: {phone}")
@@ -1272,11 +1277,12 @@ def handle_yoga_callback(call):
     user_id = call.from_user.id
     action = call.data.split("_")[1]
     
+    bot.answer_callback_query(call.id)
+    
     if action == "start":
         cost = get_module_cost("yoga")
         balance = get_user_balance(user_id)
         
-        # Check if user has yoga code
         conn = sqlite3.connect(DB_PATH, check_same_thread=False)
         c = conn.cursor()
         c.execute('SELECT yoga_code FROM users WHERE user_id = ?', (user_id,))
@@ -1284,10 +1290,9 @@ def handle_yoga_callback(call):
         conn.close()
         
         if not row or not row[0]:
-            bot.answer_callback_query(call.id, "⚠️ Set your Yoga code first!", show_alert=True)
             bot.edit_message_text(
                 "🧘 *Yoga Referral Setup*\n\n"
-                "First, send your Habit.Yoga referral code.\n"
+                "First, set your Habit.Yoga referral code.\n"
                 "Send your referral link or code:",
                 chat_id=call.message.chat.id,
                 message_id=call.message.message_id,
@@ -1297,10 +1302,14 @@ def handle_yoga_callback(call):
             return
         
         if balance < cost:
-            bot.answer_callback_query(call.id, f"❌ You need {cost} points!", show_alert=True)
+            bot.edit_message_text(
+                f"❌ *Insufficient points!*\nNeed {cost} points.\n\n💡 Earn more by sharing your bot link!",
+                chat_id=call.message.chat.id,
+                message_id=call.message.message_id,
+                parse_mode="Markdown"
+            )
             return
         
-        bot.answer_callback_query(call.id, "📱 Enter phone number")
         bot.edit_message_text(
             f"🧘 *Yoga Referral*\n\n"
             f"💰 Cost: <b>{cost} Credits</b>\n"
@@ -1324,14 +1333,13 @@ def handle_yoga_callback(call):
         cost = get_module_cost("yoga")
         reward = get_yoga_refer_reward()
         
-        bot.answer_callback_query(call.id, "📊 Your Yoga Stats")
         bot.edit_message_text(
             f"🧘 *Your Yoga Stats*\n\n"
             f"💰 Balance: `{balance}`\n"
             f"🎯 Yoga Refers: `{yoga_refers}`\n"
             f"💡 Cost per refer: `{cost}`\n"
             f"🎁 Reward per refer: `{reward}`\n\n"
-            f"Use /yoga to start referring!",
+            f"Use the Yoga module to start referring!",
             chat_id=call.message.chat.id,
             message_id=call.message.message_id,
             reply_markup=yoga_menu_keyboard(),
@@ -1339,7 +1347,6 @@ def handle_yoga_callback(call):
         )
     
     elif action == "setcode":
-        bot.answer_callback_query(call.id, "📝 Send your Yoga code")
         bot.edit_message_text(
             "🧘 *Set Yoga Code*\n\n"
             "Send your Habit.Yoga referral link or code:\n"
@@ -2017,7 +2024,6 @@ def handle_module_callback(call):
 
     elif module == "yoga":
         bot.delete_message(call.message.chat.id, call.message.message_id)
-        # Check if user has yoga code
         conn = sqlite3.connect(DB_PATH, check_same_thread=False)
         c = conn.cursor()
         c.execute('SELECT yoga_code FROM users WHERE user_id = ?', (user_id,))
@@ -3097,14 +3103,12 @@ if __name__ == "__main__":
     task_thread.start()
     logger.info("🤖 Bot started – Yoga Referral added with proxy support!")
     
-    # Fix for 409 Conflict - remove webhook
     try:
         bot.remove_webhook()
         time.sleep(1)
     except:
         pass
     
-    # Simple polling
     while True:
         try:
             bot.polling(non_stop=False, interval=1, timeout=30)
