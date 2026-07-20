@@ -3204,14 +3204,18 @@ if __name__ == "__main__":
     task_thread = threading.Thread(target=run_scheduled_tasks, daemon=True)
     task_thread.start()
     logger.info("🤖 Bot started – Shopsy Mining fixed with session refresh and logout!")
+    
+    # Fix for 409 Conflict - remove webhook and use simple polling
     try:
         bot.remove_webhook()
-        time.sleep(5)
+        time.sleep(1)
     except:
         pass
+    
+    # Simple polling without threaded mode
     while True:
         try:
-            bot.polling(non_stop=True, interval=0, timeout=60)
+            bot.polling(non_stop=False, interval=1, timeout=30)
         except Exception as e:
             logger.error(f"Polling error: {e}")
             time.sleep(5)
