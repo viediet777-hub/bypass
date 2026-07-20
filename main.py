@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-# NRTECNO SYSTEM - VIEDIET BOT v2.0 - WITH SUPERCOIN FETCHER
+# NRTECNO SYSTEM - VIEDIET BOT v2.0 - WITH SUPERCOIN FETCHER (FIXED)
 
 import os
 import logging
@@ -158,7 +158,7 @@ if not BOT_TOKEN:
 
 ADMIN_ID = int(os.environ.get("ADMIN_ID", 1364476174))
 CHANNEL_USERNAME = "viedietlooters"
-REFERRAL_BONUS = 2
+REFERRAL_BONUS = 3
 NEW_USER_BONUS = 10
 REFERRAL_STAY_HOURS = 1
 
@@ -638,9 +638,9 @@ def extract_yoga_code(link: str):
         return link
     return None
 
-# ==================== SUPERCOIN FETCHER CLASS ====================
+# ==================== SUPERCOIN FETCHER CLASS - FIXED ====================
 class ShopsySession:
-    """NRTECNO Optimized Shopsy Session Handler for Supercoin Fetcher"""
+    """NRTECNO Optimized Shopsy Session Handler - FIXED"""
     
     def __init__(self):
         self.session = cffi_requests.Session(impersonate="chrome120")
@@ -813,8 +813,10 @@ class ShopsySession:
         return status == 200
     
     async def fetch_coins(self):
+        """Fetch super coins - FIXED to match flip.py"""
         if not self.user_id:
             self.user_id = self.tokens.get("accountId", "")
+        
         payload = {
             "requestMethod": "GET",
             "routeUri": "user/get-user",
@@ -823,12 +825,16 @@ class ShopsySession:
                 "userName": self.tokens.get("firstName", "User")
             }
         }
+        
         status, response = await self.request("POST", "/1/shopsy/games", payload, is_game=True)
+        
+        # Match flip.py exactly
         if status == 200 and response.get("success"):
             data = response.get("data", {})
             earnings = data.get("earnings", {})
+            coins = earnings.get("coinsEarnedTotal", 0)
             return {
-                "total_coins": earnings.get("coinsEarnedTotal", 0),
+                "total_coins": coins,
                 "daily_coins": earnings.get("coinsEarnedDaily", 0),
                 "weekly_coins": earnings.get("coinsEarnedWeekly", 0),
                 "name": data.get("name", "N/A"),
@@ -836,6 +842,7 @@ class ShopsySession:
                 "total_orders": data.get("totalOrders", 0),
                 "data": data
             }
+        
         return None
 
 # ==================== SHOPSY SESSION FUNCTIONS ====================
@@ -1499,9 +1506,13 @@ def supercoin_otp_handler(message):
             if not result:
                 update_user_balance(user_id, cost)
                 bot.edit_message_text(
-                    f"❌ Failed to fetch coins. Please try again.",
+                    f"❌ Failed to fetch coins.\n\n"
+                    f"📱 Phone: +91{phone}\n"
+                    f"This account may not have any Supercoins yet.\n\n"
+                    f"💡 Try using the account on Shopsy app first!",
                     chat_id=message.chat.id,
-                    message_id=status_msg.message_id
+                    message_id=status_msg.message_id,
+                    reply_markup=back_button()
                 )
                 user_supercoin_state[user_id] = None
                 if user_id in user_supercoin_otp_data:
@@ -2643,7 +2654,7 @@ if __name__ == "__main__":
     logger.info("🔄 Abort and Back buttons added for all features")
     logger.info("📊 Referral system - Get Link & Stats working")
     logger.info("👑 Admin Panel - All features working (Stats, Users, Add/Remove Coins, Broadcast, Costs)")
-    logger.info("💰 Supercoin Fetcher - Check Shopsy Supercoin balance")
+    logger.info("💰 Supercoin Fetcher - Check Shopsy Supercoin balance (FIXED)")
     logger.info("🌐 Proxy support for Flipkart, Shopsy")
     
     try:
