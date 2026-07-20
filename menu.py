@@ -1,6 +1,35 @@
 # menu.py
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 
+# ========== Helper function (matches main.py) ==========
+def get_module_cost(module):
+    """Get cost for a module - matches main.py function"""
+    import sqlite3
+    import os
+    DB_PATH = "viediet_bot.db"
+    
+    # Default costs
+    DEFAULT_COSTS = {
+        "firebase": 2,
+        "flipkart": 1,
+        "instagram_single": 1,
+        "instagram_bulk": 1,
+        "crownit": 2,
+        "shopsy": 1,
+    }
+    
+    try:
+        conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+        c = conn.cursor()
+        c.execute('SELECT value FROM config WHERE key = ?', (f"{module}_cost",))
+        row = c.fetchone()
+        conn.close()
+        if row:
+            return int(row[0])
+        return DEFAULT_COSTS.get(module, 1)
+    except:
+        return DEFAULT_COSTS.get(module, 1)
+
 # ========== MAIN MENU ==========
 def main_menu_text(user_id: int, username: str = None, balance: int = 15, status: str = "ACTIVE") -> str:
     return (
@@ -23,6 +52,7 @@ def main_menu_keyboard(is_admin: bool = False):
     kb.add(InlineKeyboardButton("📥 Instagram Downloader", callback_data="module_instagram", style="primary"))
     kb.add(InlineKeyboardButton("👁️ Instagram Viewer", callback_data="module_igviewer", style="primary"))
     kb.add(InlineKeyboardButton("🎵 Music", callback_data="module_music", style="primary"))
+    kb.add(InlineKeyboardButton("🎯 Crownit Automation", callback_data="module_crownit", style="primary"))
     kb.add(InlineKeyboardButton("⛏️ Shopsy Mining", callback_data="module_shopsy", style="primary"))
     kb.add(InlineKeyboardButton("🔗 Referral", callback_data="module_referral", style="primary"))
     if is_admin:
@@ -201,13 +231,14 @@ def crownit_menu_keyboard():
 # ========== SHOPSY (UPDATED) ==========
 def shopsy_menu_text(user_id: int, balance: int = 15, status: str = "ACTIVE", shopsy_balance: int = 0, logged_in: int = 0) -> str:
     login_status = "✅ Logged in" if logged_in else "🔴 Not logged in"
+    cost = get_module_cost("shopsy")
     return (
         f"⛏️ <b>SHOPSY MINING</b>\n\n"
         f"Status: <b>{status}</b>\n"
         f"Balance: <b>{balance} Credits</b>\n"
         f"💰 Shopsy Points: <b>{shopsy_balance}</b>\n"
         f"📱 Login: {login_status}\n"
-        f"💡 Cost: <b>{get_module_cost('shopsy')} Credits</b> per run\n\n"
+        f"💡 Cost: <b>{cost} Credits</b> per run\n\n"
         f"Click <b>Start Mining</b> to begin.\n"
         f"• You'll enter your 10‑digit phone number\n"
         f"• OTP will be sent to your number\n"
