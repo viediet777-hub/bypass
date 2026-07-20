@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 # NRTECNO SYSTEM - VIEDIET BOT v2.0 FIXED
 # Complete Full Script - All Features Included
+# NO REPLY KEYBOARD - ONLY INLINE KEYBOARD
 
 import os
 import logging
@@ -30,7 +31,7 @@ from contextlib import suppress
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton
 from curl_cffi import requests as cffi_requests
 
-# ==================== MENU FUNCTIONS (Built-in) ====================
+# ==================== MENU FUNCTIONS (Built-in - NO REPLY KEYBOARD) ====================
 
 def main_menu_text(user_id, first_name, balance, status):
     return f"""
@@ -1038,19 +1039,10 @@ user_igviewer_state = {}
 user_yoga_state = {}
 user_yoga_otp_data = {}
 
-def get_menu_kb(uid: int) -> ReplyKeyboardMarkup:
-    is_admin = (uid == ADMIN_ID)
-    kb = ReplyKeyboardMarkup(resize_keyboard=True, is_persistent=True)
-    if is_admin:
-        kb.row("✨ Start Workflow", "📊 Total Stats")
-        kb.row("🔗 Bot Refer Link", "🔄 Code Update")
-        kb.row("🧘 Yoga Referral", "💡 Help")
-        kb.row("👑 Admin Panel")
-    else:
-        kb.row("✨ Start Workflow", "📊 Total Stats")
-        kb.row("🔗 Bot Refer Link", "🔄 Code Update")
-        kb.row("🧘 Yoga Referral", "💡 Help")
-    return kb
+# ==================== REMOVE REPLY KEYBOARD - RETURN NONE ====================
+def get_menu_kb(uid: int):
+    """Return None - No reply keyboard"""
+    return None
 
 # ==================== SHOPSY API FUNCTIONS ====================
 def generate_ids():
@@ -1379,7 +1371,7 @@ def shopsy_phone_handler(message):
     
     if phone.lower() in ['/cancel', 'cancel', 'abort']:
         user_shopsy_state[user_id] = None
-        bot.reply_to(message, "❌ Shopsy mining cancelled.", reply_markup=get_menu_kb(user_id))
+        bot.reply_to(message, "❌ Shopsy mining cancelled.")
         return
     
     if not phone.isdigit() or len(phone) != 10:
@@ -1626,7 +1618,7 @@ def yoga_code_handler(message):
     conn.close()
     
     user_yoga_state[user_id] = None
-    bot.reply_to(message, f"✅ *Yoga Code Saved!*\n\nYour code: `{code}`\n\nNow use the Yoga module to start referring!", parse_mode="Markdown", reply_markup=get_menu_kb(user_id))
+    bot.reply_to(message, f"✅ *Yoga Code Saved!*\n\nYour code: `{code}`\n\nNow use the Yoga module to start referring!", parse_mode="Markdown")
 
 @bot.message_handler(func=lambda message: user_yoga_state.get(message.from_user.id) == "waiting_phone")
 def yoga_phone_handler(message):
@@ -1635,7 +1627,7 @@ def yoga_phone_handler(message):
     
     if phone.lower() in ['/cancel', 'cancel']:
         user_yoga_state[user_id] = None
-        bot.reply_to(message, "❌ Yoga referral cancelled.", reply_markup=get_menu_kb(user_id))
+        bot.reply_to(message, "❌ Yoga referral cancelled.")
         return
     
     if not phone.isdigit() or len(phone) != 10:
@@ -2332,8 +2324,7 @@ def get_song_details(song_id):
                 if download_links:
                     best = download_links[-1]
                     dur = song_info.get("duration", 0)
-                    minutes = dur // 60
-                    seconds = dur % 60
+                    minutes = dur // 60                    seconds = dur % 60
                     return {
                         "url": best.get("url"),
                         "title": song_info.get("name", "Unknown"),
@@ -2453,7 +2444,7 @@ def handle_module_callback(call):
         bot.delete_message(call.message.chat.id, call.message.message_id)
         user_music_state[user_id] = "waiting_for_search"
         text = music_menu_text(user_id)
-        bot.send_message(call.message.chat.id, text, parse_mode="HTML")
+        bot.send_message(call.message.chat.id, text, reply_markup=music_menu_keyboard(), parse_mode="HTML")
         bot.answer_callback_query(call.id)
 
     elif module == "admin":
@@ -3369,7 +3360,19 @@ def cancel_cmd(message):
 # ==================== FALLBACK ====================
 @bot.message_handler(func=lambda m: True)
 def fallback(message):
-    bot.reply_to(message, "❓ Unknown command. Use /start to see the menu.")
+    # If user is in any state, let specific handlers process
+    user_id = message.from_user.id
+    if (user_firebase_state.get(user_id) or user_music_state.get(user_id) or 
+        user_igviewer_state.get(user_id) or user_shopsy_state.get(user_id) or 
+        user_yoga_state.get(user_id) or user_instagram_state.get(user_id)):
+        return
+    
+    # Otherwise show main menu with inline keyboard only
+    user = message.from_user
+    balance = get_user_balance(user_id)
+    is_admin = (user_id == ADMIN_ID)
+    text = main_menu_text(user_id, user.first_name, balance, "ACTIVE")
+    bot.send_message(message.chat.id, text, reply_markup=main_menu_keyboard(is_admin), parse_mode="HTML")
 
 # ==================== SCHEDULED TASKS ====================
 def run_scheduled_tasks():
@@ -3392,6 +3395,7 @@ if __name__ == "__main__":
     logger.info("🧘 Yoga: Accepts both link and direct code")
     logger.info("🔄 Abort buttons added for OTP sessions")
     logger.info("🌐 Proxy support for Flipkart, Shopsy, Yoga")
+    logger.info("❌ NO REPLY KEYBOARD - Only inline buttons")
     
     try:
         bot.remove_webhook()
