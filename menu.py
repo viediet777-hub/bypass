@@ -24,7 +24,7 @@ def main_menu_keyboard(is_admin: bool = False):
     kb.add(InlineKeyboardButton("👁️ Instagram Viewer", callback_data="module_igviewer", style="primary"))
     kb.add(InlineKeyboardButton("🎵 Music", callback_data="module_music", style="primary"))
     kb.add(InlineKeyboardButton("🎯 Crownit Automation", callback_data="module_crownit", style="primary"))
-    kb.add(InlineKeyboardButton("⛏️ Shopsy Mining", callback_data="module_shopsy", style="primary"))    # NEW
+    kb.add(InlineKeyboardButton("⛏️ Shopsy Mining", callback_data="module_shopsy", style="primary"))
     kb.add(InlineKeyboardButton("🔗 Referral", callback_data="module_referral", style="primary"))
     if is_admin:
         kb.add(InlineKeyboardButton("👑 Admin Panel", callback_data="module_admin", style="danger"))
@@ -199,7 +199,7 @@ def crownit_menu_keyboard():
     kb.add(InlineKeyboardButton("🔙 Back to Main", callback_data="back_menu", style="danger"))
     return kb
 
-# ========== SHOPSY (NEW) ==========
+# ========== SHOPSY (UPDATED) ==========
 def shopsy_menu_text(user_id: int, balance: int = 15, status: str = "ACTIVE", shopsy_balance: int = 0, logged_in: int = 0) -> str:
     login_status = "✅ Logged in" if logged_in else "🔴 Not logged in"
     return (
