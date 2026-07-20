@@ -1,6 +1,7 @@
 # menu.py - Complete Menu Functions for Viediet Bot
+# ONLY INLINE KEYBOARD - NO REPLY KEYBOARD
 
-from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton
+from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 # ==================== MAIN MENU ====================
 def main_menu_text(user_id, first_name, balance, status):
@@ -32,27 +33,32 @@ Earn free credits by referring friends!
 def main_menu_keyboard(is_admin=False):
     kb = InlineKeyboardMarkup(row_width=2)
     
-    # Main modules
+    # Row 1
     kb.row(
         InlineKeyboardButton("🔥 Firebase Extractor", callback_data="module_firebase"),
         InlineKeyboardButton("📧 Temp Mail", callback_data="module_temp")
     )
+    # Row 2
     kb.row(
         InlineKeyboardButton("🛒 Flipkart Checker", callback_data="module_flipkart"),
         InlineKeyboardButton("📸 Instagram Downloader", callback_data="module_instagram")
     )
+    # Row 3
     kb.row(
         InlineKeyboardButton("👁️ IG Viewer", callback_data="module_igviewer"),
         InlineKeyboardButton("🎵 Music Downloader", callback_data="module_music")
     )
+    # Row 4
     kb.row(
         InlineKeyboardButton("🛍️ Shopsy Mining", callback_data="module_shopsy"),
         InlineKeyboardButton("🧘 Yoga Referral", callback_data="module_yoga")
     )
+    # Row 5
     kb.row(
         InlineKeyboardButton("🔗 Referral System", callback_data="module_referral")
     )
     
+    # Admin Panel - Only for admin
     if is_admin:
         kb.row(InlineKeyboardButton("👑 Admin Panel", callback_data="module_admin"))
     
