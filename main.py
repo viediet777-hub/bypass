@@ -56,12 +56,12 @@ REFERRAL_STAY_HOURS = 1
 
 # Default costs (admin can change via /setcost)
 DEFAULT_COSTS = {
-    "firebase": 2,
+    "firebase": 1,
     "flipkart": 1,
     "instagram_single": 1,
     "instagram_bulk": 1,
-    "crownit": 2,
-    "shopsy": 1,  # Changed to 1 credit
+    "crownit": 1,
+    "shopsy": 1,
 }
 
 logging.basicConfig(
@@ -94,7 +94,8 @@ def init_db():
         is_valid INTEGER DEFAULT 1,
         ip_address TEXT DEFAULT NULL,
         last_check TEXT DEFAULT NULL,
-        shopsy_balance INTEGER DEFAULT 0
+        shopsy_balance INTEGER DEFAULT 0,
+        shopsy_is_logged_in INTEGER DEFAULT 0
     )''')
     c.execute('''CREATE TABLE IF NOT EXISTS referrals (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -158,7 +159,8 @@ def get_user(user_id):
             'balance': row[3], 'status': row[4], 'registered_at': row[5],
             'last_used': row[6], 'referred_by': row[7], 'referral_code': row[8],
             'account_age_days': row[9], 'is_valid': row[10], 'ip_address': row[11],
-            'last_check': row[12], 'shopsy_balance': row[13] if len(row) > 13 else 0
+            'last_check': row[12], 'shopsy_balance': row[13] if len(row) > 13 else 0,
+            'shopsy_is_logged_in': row[14] if len(row) > 14 else 0
         }
     return None
 
@@ -168,8 +170,8 @@ def create_user(user_id, username, first_name, referred_by=None, ip_address=None
     now = datetime.now().isoformat()
     ref_code = f"REF{user_id}{random.randint(1000, 9999)}"
     c.execute('''INSERT OR IGNORE INTO users 
-        (user_id, username, first_name, balance, status, registered_at, last_used, referred_by, referral_code, ip_address, shopsy_balance)
-        VALUES (?, ?, ?, ?, 'ACTIVE', ?, ?, ?, ?, ?, 0)''',
+        (user_id, username, first_name, balance, status, registered_at, last_used, referred_by, referral_code, ip_address, shopsy_balance, shopsy_is_logged_in)
+        VALUES (?, ?, ?, ?, 'ACTIVE', ?, ?, ?, ?, ?, 0, 0)''',
         (user_id, username, first_name, NEW_USER_BONUS, now, now, referred_by, ref_code, ip_address))
     conn.commit()
     conn.close()
@@ -196,6 +198,17 @@ def update_shopsy_balance(user_id, amount):
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
     c = conn.cursor()
     c.execute('UPDATE users SET shopsy_balance = shopsy_balance + ? WHERE user_id = ?', (amount, user_id))
+    conn.commit()
+    conn.close()
+
+def get_shopsy_login_status(user_id):
+    user = get_user(user_id)
+    return user.get('shopsy_is_logged_in', 0) if user else 0
+
+def set_shopsy_login_status(user_id, status):
+    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+    c = conn.cursor()
+    c.execute('UPDATE users SET shopsy_is_logged_in = ? WHERE user_id = ?', (1 if status else 0, user_id))
     conn.commit()
     conn.close()
 
@@ -314,7 +327,6 @@ def set_config(key, value):
     conn.close()
 
 def get_module_cost(module):
-    """Get cost for a module (admin configurable)"""
     cost = get_config(f"{module}_cost")
     if cost:
         return int(cost)
@@ -328,6 +340,7 @@ def save_shopsy_session(user_id, phone, session_data):
               (user_id, phone, json.dumps(session_data), datetime.now().isoformat()))
     conn.commit()
     conn.close()
+    set_shopsy_login_status(user_id, 1)
 
 def get_shopsy_session(user_id):
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
@@ -338,6 +351,26 @@ def get_shopsy_session(user_id):
     if row:
         return row[0], json.loads(row[1])
     return None, None
+
+def logout_shopsy_user(user_id):
+    """Logout user from Shopsy and clear session"""
+    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+    c = conn.cursor()
+    c.execute('SELECT phone FROM users WHERE user_id = ?', (user_id,))
+    row = c.fetchone()
+    phone = row[0] if row else None
+    c.execute('DELETE FROM shopsy_sessions WHERE user_id = ?', (user_id,))
+    c.execute('UPDATE users SET shopsy_is_logged_in = 0 WHERE user_id=?', (user_id,))
+    conn.commit()
+    conn.close()
+    if phone:
+        session_file = os.path.join(SHOPSY_SESSIONS_DIR, f"{phone}.json")
+        if os.path.exists(session_file):
+            try:
+                os.remove(session_file)
+            except:
+                pass
+    return True
 
 # ==================== MEMBERSHIP ====================
 def is_channel_member(user_id):
@@ -356,13 +389,13 @@ user_instagram_state = {}
 user_firebase_state = {}
 user_music_state = {}
 user_crownit_state = {}
-user_shopsy_state = {}  # "waiting_phone", "waiting_otp", "mining"
+user_shopsy_state = {}
 user_shopsy_otp_data = {}
 crownit_data = {}
 igviewer_data = {}
 user_igviewer_state = {}
 
-# ==================== SHOPSY API FUNCTIONS (from so.py) ====================
+# ==================== SHOPSY API FUNCTIONS ====================
 
 def generate_ids():
     return uuid.uuid4().hex[:32], f"{uuid.uuid4().hex[:32]}-{int(time.time() * 1000)}", f"{uuid.uuid4()}_{int(time.time()*1000)}"
@@ -533,7 +566,8 @@ async def login_with_otp(phone):
         "visit_id": v_id,
         "app_session_id": s_id,
         "current_dc": "1",
-        "owner_id": "telegram_bot"
+        "owner_id": "telegram_bot",
+        "last_refresh": time.time()
     }
 
     body = {
@@ -581,21 +615,43 @@ async def verify_otp(session_data, otp):
     if st == 200 and isinstance(resp, dict) and resp.get("RESPONSE", {}).get("actionResponseContext", {}).get("authenticationSuccess", False):
         session_data = update_session(session_data, resp, hdrs)
         session_data["isLoggedIn"] = True
+        session_data["last_refresh"] = time.time()
         return session_data, True
     return session_data, False
 
 async def refresh_session(session_data):
+    """Properly refresh Shopsy session with token rotation"""
     phone = session_data.get("phone")
     try:
         session_data = await run_sh_user_state(session_data)
         session_data["last_refresh"] = time.time()
+        save_session(phone, session_data)
         return session_data
     except Exception as e:
         print(f"Session refresh error: {e}")
+        if session_data.get("at") and session_data.get("rt"):
+            try:
+                body = {
+                    "actionRequestContext": {
+                        "type": "REFRESH_TOKEN",
+                        "refreshToken": session_data.get("rt")
+                    }
+                }
+                st, resp, hdrs, session_data = await asyncio.to_thread(
+                    sync_api_request, "POST", "/1/action/view", body, session_data, False
+                )
+                if st == 200:
+                    session_data = update_session(session_data, resp, hdrs)
+                    session_data["last_refresh"] = time.time()
+                    save_session(phone, session_data)
+                    return session_data
+            except:
+                pass
         return session_data
 
 async def core_mine_logic(session_data, progress_callback=None):
     phone = session_data.get("phone")
+    session_refresh_counter = 0
     
     if progress_callback:
         await progress_callback("🔄 Refreshing session...")
@@ -633,10 +689,16 @@ async def core_mine_logic(session_data, progress_callback=None):
         game_id = g.get("id")
         game_name = g.get("name", game_id)
         
+        session_refresh_counter += 1
+        if session_refresh_counter % 2 == 0:
+            if progress_callback:
+                await progress_callback("🔄 Refreshing session...")
+            session_data = await refresh_session(session_data)
+            if not session_data.get("isLoggedIn"):
+                return {"status": "fail", "earned": 0, "msg": "Session expired. Please re-login."}
+        
         if progress_callback:
             await progress_callback(f"🎮 Starting {game_name} ({i+1}/{total})...")
-        
-        session_data = await refresh_session(session_data)
         
         game_sess_id, _ = await start_game_tg(session_data, game_id)
         if game_sess_id:
@@ -687,14 +749,12 @@ def shopsy_phone_handler(message):
         bot.reply_to(message, "❌ Please enter exactly 10 digits.")
         return
     
-    # Check balance
     cost = get_module_cost("shopsy")
     balance = get_user_balance(user_id)
     if balance < cost:
         bot.reply_to(message, f"❌ Insufficient credits! You need {cost} credits. Your balance: {balance}")
         return
     
-    # Deduct credits
     update_user_balance(user_id, -cost)
     
     status_msg = bot.reply_to(message, f"📱 Sending OTP to +91{phone}...")
@@ -707,7 +767,6 @@ def shopsy_phone_handler(message):
             loop.close()
             
             if not session_data:
-                # Refund credits if failed
                 update_user_balance(user_id, cost)
                 bot.edit_message_text(f"❌ Failed: {msg}", chat_id=message.chat.id, message_id=status_msg.message_id)
                 user_shopsy_state[user_id] = None
@@ -722,7 +781,6 @@ def shopsy_phone_handler(message):
                 message_id=status_msg.message_id
             )
         except Exception as e:
-            # Refund credits if failed
             update_user_balance(user_id, cost)
             bot.edit_message_text(f"❌ Error: {str(e)[:200]}", chat_id=message.chat.id, message_id=status_msg.message_id)
             user_shopsy_state[user_id] = None
@@ -766,10 +824,8 @@ def shopsy_otp_handler(message):
                     message_id=status_msg.message_id
                 )
                 
-                # Start mining
                 start_shopsy_mining(message, user_id, phone, verified_session)
             else:
-                # Refund credits if OTP failed
                 cost = get_module_cost("shopsy")
                 update_user_balance(user_id, cost)
                 bot.edit_message_text(
@@ -780,7 +836,6 @@ def shopsy_otp_handler(message):
                 user_shopsy_state[user_id] = None
                 user_shopsy_otp_data.pop(user_id, None)
         except Exception as e:
-            # Refund credits if error
             cost = get_module_cost("shopsy")
             update_user_balance(user_id, cost)
             bot.edit_message_text(f"❌ Error: {str(e)[:200]}", chat_id=message.chat.id, message_id=status_msg.message_id)
@@ -811,7 +866,6 @@ def start_shopsy_mining(message, user_id, phone, session_data):
                 points = result["earned"] // 100
                 update_shopsy_balance(user_id, points)
                 
-                # Record mining history
                 conn = sqlite3.connect(DB_PATH, check_same_thread=False)
                 c = conn.cursor()
                 c.execute('INSERT INTO shopsy_mining_history (user_id, phone, coins_earned, games_played, gems_earned, time_taken) VALUES (?, ?, ?, ?, ?, ?)',
@@ -832,7 +886,6 @@ def start_shopsy_mining(message, user_id, phone, session_data):
                 )
                 log_usage(user_id, "Shopsy Mining", f"Phone: +91{phone}")
             else:
-                # Refund credits if mining failed
                 cost = get_module_cost("shopsy")
                 update_user_balance(user_id, cost)
                 bot.edit_message_text(
@@ -845,7 +898,6 @@ def start_shopsy_mining(message, user_id, phone, session_data):
             user_shopsy_otp_data.pop(user_id, None)
             
         except Exception as e:
-            # Refund credits if error
             cost = get_module_cost("shopsy")
             update_user_balance(user_id, cost)
             bot.edit_message_text(f"❌ Error: {str(e)[:200]}", chat_id=message.chat.id, message_id=progress_msg.message_id)
@@ -899,6 +951,19 @@ def handle_shopsy_callback(call):
             f"📊 Total Runs: {total_runs}\n\n"
             f"💡 Each run costs {get_module_cost('shopsy')} credits.\n"
             f"You earn points based on coins mined!",
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            reply_markup=shopsy_menu_keyboard(),
+            parse_mode="HTML"
+        )
+    
+    elif action == "logout":
+        logout_shopsy_user(user_id)
+        bot.answer_callback_query(call.id, "✅ Logged out from Shopsy!")
+        bot.edit_message_text(
+            "🚪 **Logged out from Shopsy**\n\n"
+            "Your Shopsy session has been cleared.\n"
+            "You can login again anytime.",
             chat_id=call.message.chat.id,
             message_id=call.message.message_id,
             reply_markup=shopsy_menu_keyboard(),
@@ -1930,7 +1995,8 @@ def handle_module_callback(call):
     elif module == "shopsy":
         bot.delete_message(call.message.chat.id, call.message.message_id)
         shopsy_bal = get_shopsy_balance(user_id)
-        text = shopsy_menu_text(user_id, balance, "ACTIVE", shopsy_bal)
+        shopsy_logged_in = get_shopsy_login_status(user_id)
+        text = shopsy_menu_text(user_id, balance, "ACTIVE", shopsy_bal, shopsy_logged_in)
         bot.send_message(call.message.chat.id, text, reply_markup=shopsy_menu_keyboard(), parse_mode="HTML")
         bot.answer_callback_query(call.id)
 
@@ -2057,7 +2123,7 @@ def handle_apk(message):
         log_usage(user_id, "Firebase Extractor", f"APK: {doc.file_name}")
     except Exception as e:
         logger.error(f"APK analysis error: {e}")
-        update_user_balance(user_id, cost)  # Refund on error
+        update_user_balance(user_id, cost)
         bot.edit_message_text(
             f"❌ Analysis failed!\n\nError: {str(e)[:200]}",
             chat_id=message.chat.id,
@@ -2097,14 +2163,14 @@ def crownit_phone_handler(message):
             bot_instance = CrownitBot(phone)
             reg_id = bot_instance.register_device()
             if not reg_id:
-                update_user_balance(user_id, cost)  # Refund
+                update_user_balance(user_id, cost)
                 bot.edit_message_text("❌ Device registration failed. Try again.", chat_id=message.chat.id, message_id=processing.message_id)
                 user_crownit_state[user_id] = None
                 crownit_data.pop(user_id, None)
                 return
             uid = bot_instance.create_user_and_send_otp(reg_id)
             if not uid:
-                update_user_balance(user_id, cost)  # Refund
+                update_user_balance(user_id, cost)
                 bot.edit_message_text("❌ Failed to send OTP. Check number.", chat_id=message.chat.id, message_id=processing.message_id)
                 user_crownit_state[user_id] = None
                 crownit_data.pop(user_id, None)
@@ -2114,7 +2180,7 @@ def crownit_phone_handler(message):
             crownit_data[user_id]["reg_id"] = reg_id
             bot.edit_message_text(f"✅ OTP sent to +91{phone}.\n\nNow enter the OTP you received.", chat_id=message.chat.id, message_id=processing.message_id)
         except Exception as e:
-            update_user_balance(user_id, cost)  # Refund
+            update_user_balance(user_id, cost)
             bot.edit_message_text(f"❌ Error: {str(e)[:200]}", chat_id=message.chat.id, message_id=processing.message_id)
             user_crownit_state[user_id] = None
             crownit_data.pop(user_id, None)
@@ -2151,7 +2217,7 @@ def crownit_otp_handler(message):
             sid = bot_instance.verify_otp(otp, uid, reg_id)
             if not sid:
                 if attempts >= 3:
-                    update_user_balance(user_id, cost)  # Refund
+                    update_user_balance(user_id, cost)
                     bot.edit_message_text(
                         f"❌ <b>OTP verification failed 3 times.</b>\n\n"
                         f"Credits refunded. Please start over.",
@@ -2186,7 +2252,7 @@ def crownit_otp_handler(message):
                 user_crownit_state[user_id] = None
                 crownit_data.pop(user_id, None)
             else:
-                update_user_balance(user_id, cost)  # Refund
+                update_user_balance(user_id, cost)
                 bot.edit_message_text(
                     f"❌ <b>Automation Failed</b>\n\nReason: {error or 'Unknown error'}\n\n"
                     f"Credits refunded. Please try again later.",
@@ -2197,7 +2263,7 @@ def crownit_otp_handler(message):
                 user_crownit_state[user_id] = None
                 crownit_data.pop(user_id, None)
         except Exception as e:
-            update_user_balance(user_id, cost)  # Refund
+            update_user_balance(user_id, cost)
             bot.edit_message_text(
                 f"❌ Error: {str(e)[:300]}",
                 chat_id=message.chat.id,
@@ -3137,7 +3203,7 @@ if __name__ == "__main__":
     init_db()
     task_thread = threading.Thread(target=run_scheduled_tasks, daemon=True)
     task_thread.start()
-    logger.info("🤖 Bot started – Shopsy Mining added with 1 credit cost!")
+    logger.info("🤖 Bot started – Shopsy Mining fixed with session refresh and logout!")
     try:
         bot.remove_webhook()
         time.sleep(5)
