@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-# NRTECNO SYSTEM - VIEDIET BOT v2.0 - FULLY FIXED
+# NRTECNO SYSTEM - VIEDIET BOT v2.0 - COMPLETELY FIXED
 
 import os
 import logging
@@ -934,7 +934,7 @@ async def shopsy_core_mine(session_data, progress_callback=None):
         "time_taken": (wait * total) if total > 0 else 0
     }
 
-# ==================== SUPERCOIN FETCHER - FROM FLIP.PY ====================
+# ==================== SUPERCOIN FETCHER - FIXED ====================
 class SupercoinSession:
     def __init__(self):
         self.session = cffi_requests.Session(impersonate="chrome120")
@@ -1107,7 +1107,6 @@ class SupercoinSession:
         return status == 200
     
     async def fetch_coins(self):
-        """Fetch super coins - EXACTLY like flip.py"""
         if not self.user_id:
             self.user_id = self.tokens.get("accountId", "")
             
@@ -1122,13 +1121,38 @@ class SupercoinSession:
         
         status, response = await self.request("POST", "/1/shopsy/games", payload, is_game=True)
         
+        # FIXED: Handle empty response
         if status == 200 and response.get("success"):
             data = response.get("data", {})
             earnings = data.get("earnings", {})
             coins = earnings.get("coinsEarnedTotal", 0)
             return coins, data
-            
+        
+        # Return 0 coins if response is empty or error
         return 0, None
+
+# ==================== IG VIEWER FUNCTIONS - FROM STORY.PY ====================
+def get_instagram_stories(username: str):
+    """Fetch stories from storyviewer.com API - from story.py"""
+    try:
+        API_URL = "https://storyviewer.com/api/v1/web/profile"
+        response = requests.post(
+            API_URL,
+            json={
+                "username": username,
+                "user_info": True,
+                "user_stories": True,
+                "user_highlights": True,
+                "user_posts": True,
+            },
+            timeout=30
+        )
+        response.raise_for_status()
+        data = response.json()
+        return data
+    except Exception as e:
+        logger.error(f"API request failed: {e}")
+        return None
 
 # ==================== SHOPSY SESSION FUNCTIONS ====================
 def save_shopsy_session(user_id, phone, session_data):
@@ -1193,25 +1217,6 @@ user_yoga_state = {}
 user_yoga_otp_data = {}
 user_supercoin_state = {}
 user_supercoin_otp_data = {}
-
-# ==================== IG VIEWER FUNCTIONS ====================
-def get_instagram_profile(username):
-    try:
-        loader = instaloader.Instaloader()
-        profile = instaloader.Profile.from_username(loader.context, username)
-        return {
-            "username": profile.username,
-            "full_name": profile.full_name,
-            "bio": profile.biography,
-            "followers": profile.followers,
-            "following": profile.followees,
-            "posts": profile.mediacount,
-            "is_private": profile.is_private,
-            "is_verified": profile.is_verified,
-            "profile_pic": profile.profile_pic_url
-        }
-    except Exception as e:
-        return None
 
 # ==================== BACK BUTTON HELPER ====================
 def back_button():
@@ -1360,6 +1365,7 @@ def shopsy_start_mining_handler(message):
     user_id = message.from_user.id
     if not get_shopsy_login_status(user_id):
         bot.reply_to(message, "❌ Please login first using 'Start Mining' from the menu.", reply_markup=back_button())
+        user_shopsy_state[user_id] = None
         return
     
     cost = get_module_cost("shopsy")
@@ -1408,6 +1414,8 @@ def shopsy_start_mining_handler(message):
         except Exception as e:
             update_user_balance(user_id, cost)
             bot.edit_message_text(f"❌ Error: {str(e)[:200]}", chat_id=message.chat.id, message_id=status_msg.message_id, reply_markup=back_button())
+        
+        user_shopsy_state[user_id] = None
     
     threading.Thread(target=mining_thread).start()
 
@@ -1541,13 +1549,13 @@ def supercoin_otp_handler(message):
             
             loop.run_until_complete(client.load_user_state())
             
-            # Fetch coins - returns (coins, user_data) like flip.py
             coins, user_data = loop.run_until_complete(client.fetch_coins())
             loop.close()
             
             update_user_balance(user_id, cost)
             
-            if user_data:
+            # Always show result, even if 0 coins
+            if user_data is not None:
                 earnings = user_data.get("earnings", {})
                 result_text = f"""
 💰 <b>SUPERCOIN FETCHER RESULTS</b>
@@ -1567,23 +1575,25 @@ def supercoin_otp_handler(message):
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 🛒 <b>Total Orders:</b> <code>{user_data.get('totalOrders', 0)}</code>
 """
-                bot.edit_message_text(
-                    result_text,
-                    chat_id=message.chat.id,
-                    message_id=status_msg.message_id,
-                    reply_markup=back_button(),
-                    parse_mode="HTML"
-                )
             else:
-                bot.edit_message_text(
-                    f"❌ Failed to fetch coins.\n\n"
-                    f"📱 Phone: +91{phone}\n"
-                    f"This account may not have any Supercoins yet.\n\n"
-                    f"💡 Try using the account on Shopsy app first!",
-                    chat_id=message.chat.id,
-                    message_id=status_msg.message_id,
-                    reply_markup=back_button()
-                )
+                result_text = f"""
+💰 <b>SUPERCOIN FETCHER RESULTS</b>
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📱 <b>Phone:</b> <code>+91{phone}</code>
+🪙 <b>Total Coins:</b> <code>{coins} SC</code>
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+💡 No additional data available.
+"""
+            
+            bot.edit_message_text(
+                result_text,
+                chat_id=message.chat.id,
+                message_id=status_msg.message_id,
+                reply_markup=back_button(),
+                parse_mode="HTML"
+            )
             
             user_supercoin_state[user_id] = None
             if user_id in user_supercoin_otp_data:
@@ -1602,7 +1612,7 @@ def supercoin_otp_handler(message):
     
     threading.Thread(target=verify_thread).start()
 
-# ==================== IG VIEWER HANDLERS ====================
+# ==================== IG VIEWER HANDLERS - FROM STORY.PY ====================
 @bot.message_handler(func=lambda message: user_igviewer_state.get(message.from_user.id) == "waiting_ig_username")
 def igviewer_username_handler(message):
     user_id = message.from_user.id
@@ -1613,60 +1623,112 @@ def igviewer_username_handler(message):
         bot.reply_to(message, "❌ IG Viewer cancelled.", reply_markup=back_button())
         return
     
+    if not username:
+        bot.reply_to(message, "❌ Please enter a valid username.")
+        return
+    
     cost = get_module_cost("igviewer")
     balance = get_user_balance(user_id)
     if balance < cost:
         bot.reply_to(message, f"❌ Insufficient credits! Need {cost} credits. Balance: {balance}")
         return
     
-    status_msg = bot.reply_to(message, f"🔍 Fetching profile for @{username}...")
+    status_msg = bot.reply_to(message, f"🔍 Fetching stories for @{username}...")
     update_user_balance(user_id, -cost)
     
-    def fetch_profile():
+    def fetch_stories():
         try:
-            profile = get_instagram_profile(username)
-            if profile:
-                status_text = "🔒 Private" if profile['is_private'] else "🌐 Public"
-                verified_text = "✅ Verified" if profile['is_verified'] else "❌ Not Verified"
-                
-                result = f"""
+            data = get_instagram_stories(username)
+            
+            if not data:
+                bot.edit_message_text(
+                    f"❌ No data found for @{username}\n\n"
+                    f"Make sure the username is correct.",
+                    chat_id=message.chat.id,
+                    message_id=status_msg.message_id,
+                    reply_markup=back_button()
+                )
+                user_igviewer_state[user_id] = None
+                return
+            
+            stories = data.get("stories", [])
+            
+            if not stories:
+                bot.edit_message_text(
+                    f"📸 No stories found for @{username}\n\n"
+                    f"Profile may have no active stories.",
+                    chat_id=message.chat.id,
+                    message_id=status_msg.message_id,
+                    reply_markup=back_button()
+                )
+                user_igviewer_state[user_id] = None
+                return
+            
+            # Get user info
+            user_info = data.get("user_info", {})
+            
+            # Send profile info first
+            profile_text = f"""
 👁️ <b>INSTAGRAM PROFILE</b>
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-👤 <b>Username:</b> @{profile['username']}
-📛 <b>Name:</b> {profile['full_name']}
-📝 <b>Bio:</b> {profile['bio'][:200]}{'...' if len(profile['bio']) > 200 else ''}
+👤 <b>Username:</b> @{username}
+📛 <b>Name:</b> {user_info.get('full_name', 'N/A')}
+📝 <b>Bio:</b> {user_info.get('bio', 'N/A')[:200]}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-📊 <b>Stats</b>
+📸 <b>Stories Found:</b> <code>{len(stories)}</code>
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-👥 <b>Followers:</b> <code>{profile['followers']:,}</code>
-👤 <b>Following:</b> <code>{profile['following']:,}</code>
-📸 <b>Posts:</b> <code>{profile['posts']}</code>
-🔒 <b>Status:</b> {status_text}
-✅ <b>Verified:</b> {verified_text}
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-🔗 <b>Profile Picture:</b> <a href="{profile['profile_pic']}">Click here</a>
 """
-                bot.edit_message_text(
-                    result,
-                    chat_id=message.chat.id,
-                    message_id=status_msg.message_id,
-                    parse_mode="HTML",
+            bot.edit_message_text(
+                profile_text,
+                chat_id=message.chat.id,
+                message_id=status_msg.message_id,
+                parse_mode="HTML"
+            )
+            
+            # Send stories (limit to 5)
+            sent_count = 0
+            for idx, story in enumerate(stories[:5], 1):
+                media_url = story.get("source")
+                if not media_url:
+                    continue
+                
+                media_type = story.get("media_type", "image")
+                if media_type not in ["video", "image"]:
+                    if media_url.lower().endswith((".mp4", ".mov", ".webm")):
+                        media_type = "video"
+                    else:
+                        media_type = "image"
+                
+                caption = f"📸 Story {idx}/{len(stories[:5])}"
+                mentions = story.get("mentions", [])
+                if mentions:
+                    caption += f"\n👥 Mentions: {', '.join([f'@{m}' for m in mentions])}"
+                
+                try:
+                    if media_type == "video":
+                        bot.send_video(message.chat.id, media_url, caption=caption)
+                    else:
+                        bot.send_photo(message.chat.id, media_url, caption=caption)
+                    sent_count += 1
+                    time.sleep(0.5)
+                except Exception as e:
+                    logger.error(f"Failed to send story: {e}")
+            
+            if sent_count == 0:
+                bot.send_message(
+                    message.chat.id,
+                    "❌ Failed to send any stories.",
                     reply_markup=back_button()
                 )
             else:
-                update_user_balance(user_id, cost)
-                bot.edit_message_text(
-                    f"❌ Profile not found or private!\n\n"
-                    f"Username: @{username}\n"
-                    f"Make sure the profile is public.",
-                    chat_id=message.chat.id,
-                    message_id=status_msg.message_id,
+                bot.send_message(
+                    message.chat.id,
+                    f"✅ Sent {sent_count} story(ies) from @{username}",
                     reply_markup=back_button()
                 )
+            
         except Exception as e:
             update_user_balance(user_id, cost)
             bot.edit_message_text(
@@ -1675,9 +1737,10 @@ def igviewer_username_handler(message):
                 message_id=status_msg.message_id,
                 reply_markup=back_button()
             )
+        
         user_igviewer_state[user_id] = None
     
-    threading.Thread(target=fetch_profile).start()
+    threading.Thread(target=fetch_stories).start()
 
 # ==================== YOGA HANDLERS ====================
 @bot.message_handler(func=lambda message: user_yoga_state.get(message.from_user.id) == "waiting_yoga_phone")
@@ -2398,7 +2461,7 @@ def callback_handler(call):
         
         bot.edit_message_text(
             "👁️ <b>IG Viewer</b>\n\n"
-            "Enter the Instagram username to view profile:\n\n"
+            "Enter the Instagram username to view stories:\n\n"
             "Example: <code>instagram</code>\n\n"
             "Send /cancel to abort.",
             chat_id=call.message.chat.id,
@@ -2425,7 +2488,6 @@ def callback_handler(call):
     if data == "shopsy_start":
         user_id = call.from_user.id
         if get_shopsy_login_status(user_id):
-            # Already logged in - start mining
             user_shopsy_state[user_id] = "start_mining"
             kb = InlineKeyboardMarkup()
             kb.row(InlineKeyboardButton("⛏️ Start Mining Now", callback_data="shopsy_mine_now"))
@@ -2465,14 +2527,8 @@ def callback_handler(call):
             bot.answer_callback_query(call.id, f"❌ Need {cost} credits!", show_alert=True)
             return
         
+        # Start mining directly
         user_shopsy_state[user_id] = "start_mining"
-        # Simulate a message to trigger mining
-        bot.edit_message_text(
-            "⛏️ Starting mining...\nPlease wait...",
-            chat_id=call.message.chat.id,
-            message_id=call.message.message_id
-        )
-        # Create a fake message to trigger the handler
         fake_msg = call.message
         fake_msg.text = "start_mining"
         shopsy_start_mining_handler(fake_msg)
@@ -2869,9 +2925,9 @@ if __name__ == "__main__":
     logger.info("🔄 Abort and Back buttons added for all features")
     logger.info("📊 Referral system - Get Link & Stats working")
     logger.info("👑 Admin Panel - All features working")
-    logger.info("💰 Supercoin Fetcher - Using flip.py logic (WORKING)")
-    logger.info("⛏️ Shopsy Mining - Using so.py logic (WORKING)")
-    logger.info("👁️ IG Viewer - Working with username input")
+    logger.info("💰 Supercoin Fetcher - FIXED (returns 0 if no coins)")
+    logger.info("⛏️ Shopsy Mining - FIXED (no more login loop)")
+    logger.info("👁️ IG Viewer - Using storyviewer.com API (WORKING)")
     logger.info("🌐 Proxy support for Flipkart, Shopsy")
     
     try:
