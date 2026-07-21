@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-# NRTECNO SYSTEM - VIEDIET BOT v2.0 - WITH SLAY MODULE
+# NRTECNO SYSTEM - VIEDIET BOT v2.0 - FIXED
 
 import os
 import logging
@@ -45,10 +45,9 @@ try:
         yoga_menu_text, yoga_menu_keyboard,
         help_menu_text,
         igviewer_menu_text, igviewer_menu_keyboard,
-        slay_menu_text, slay_menu_keyboard  # <--- ADDED
+        slay_menu_text, slay_menu_keyboard
     )
 except ImportError:
-    # Fallback
     def main_menu_text(u, f, b, s): return f"Welcome {f}! Balance: {b}"
     def main_menu_keyboard(a=False): 
         kb = InlineKeyboardMarkup(row_width=1)
@@ -56,7 +55,6 @@ except ImportError:
         return kb
     def slay_menu_text(*a,**k): return "Slay Your Play"
     def slay_menu_keyboard(): return main_menu_keyboard()
-    # ... other fallbacks
 
 # ==================== CONFIG ====================
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
@@ -66,8 +64,10 @@ if not BOT_TOKEN:
 
 ADMIN_ID = int(os.environ.get("ADMIN_ID", 1364476174))
 CHANNEL_USERNAME = "viedietlooters"
-REFERRAL_BONUS = 1
-NEW_USER_BONUS = 1
+
+# NEW: Users start with 0 credits
+NEW_USER_BONUS = 0
+REFERRAL_BONUS = 1  # 1 point per referral
 REFERRAL_STAY_HOURS = 0
 
 YOGA_REFER_REWARD = 1
@@ -81,7 +81,7 @@ DEFAULT_COSTS = {
     "shopsy": 1,
     "yoga": 1,
     "igviewer": 1,
-    "slay": 1,  # <--- ADDED
+    "slay": 1,
 }
 
 logging.basicConfig(
@@ -104,7 +104,7 @@ def init_db():
         user_id INTEGER PRIMARY KEY,
         username TEXT,
         first_name TEXT,
-        balance INTEGER DEFAULT 15,
+        balance INTEGER DEFAULT 0,
         status TEXT DEFAULT 'ACTIVE',
         registered_at TEXT,
         last_used TEXT,
@@ -201,15 +201,16 @@ def create_user(user_id, username, first_name, referred_by=None, ip_address=None
     c = conn.cursor()
     now = datetime.now().isoformat()
     ref_code = f"REF{user_id}{random.randint(1000, 9999)}"
+    # NEW: balance starts at 0
     c.execute('''INSERT OR IGNORE INTO users 
         (user_id, username, first_name, balance, status, registered_at, last_used, referred_by, referral_code, ip_address, shopsy_balance, shopsy_is_logged_in, yoga_code, yoga_refers, yoga_bot_refers, slay_logged_in, slay_codes_found)
-        VALUES (?, ?, ?, ?, 'ACTIVE', ?, ?, ?, ?, ?, 0, 0, ?, 0, 0, 0, 0)''',
-        (user_id, username, first_name, NEW_USER_BONUS, now, now, referred_by, ref_code, ip_address, None))
+        VALUES (?, ?, ?, 0, 'ACTIVE', ?, ?, ?, ?, ?, 0, 0, ?, 0, 0, 0, 0)''',
+        (user_id, username, first_name, now, now, referred_by, ref_code, ip_address, None))
     conn.commit()
     conn.close()
     if referred_by:
         add_pending_referral(referred_by, user_id)
-    return NEW_USER_BONUS
+    return 0  # New users get 0 credits
 
 def update_user_balance(user_id, delta):
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
@@ -220,7 +221,7 @@ def update_user_balance(user_id, delta):
 
 def get_user_balance(user_id):
     user = get_user(user_id)
-    return user['balance'] if user else 15
+    return user['balance'] if user else 0
 
 def add_pending_referral(referrer_id, referred_id):
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
@@ -279,7 +280,6 @@ def back_button():
 class SlayProxyManager:
     @staticmethod
     def load_slay_proxies():
-        """Load proxies from slay_proxies.txt"""
         proxies = []
         proxy_file = "slay_proxies.txt"
         if not os.path.exists(proxy_file):
@@ -332,16 +332,13 @@ class SlayScanEngine:
         
         reward = reward_mobile or mobile
         
-        # Check balance
         balance = get_user_balance(self.user_id)
         cost = get_module_cost("slay")
         if balance < cost:
             return f"❌ Insufficient credits! Need {cost}, have {balance}"
         
-        # Deduct credits
         update_user_balance(self.user_id, -cost)
         
-        # Create command with arguments
         cmd = [
             "python", "workingslay.py",
             "--mobile", mobile,
@@ -350,7 +347,7 @@ class SlayScanEngine:
             "--expiry", "30",
             "--no-proxy"
         ]
-        cmd = [c for c in cmd if c]  # Remove empty strings
+        cmd = [c for c in cmd if c]
         
         self.is_running = True
         self.valid_code = None
@@ -376,22 +373,19 @@ class SlayScanEngine:
                 )
         except Exception as e:
             self.is_running = False
-            update_user_balance(self.user_id, cost)  # Refund on error
+            update_user_balance(self.user_id, cost)
             return f"❌ Failed to start scan: {e}"
         
-        # Start monitoring thread
         self.thread = threading.Thread(target=self._monitor_output, daemon=True)
         self.thread.start()
         
         return f"✅ Scan started!\n📱 Mobile: {mobile}\n💰 Cost: {cost} credits"
     
     def _monitor_output(self):
-        """Monitor and send updates"""
         last_update_time = time.time()
         
         while self.is_running and self.process:
             try:
-                # Read stdout
                 line = self.process.stdout.readline()
                 if line:
                     line = line.strip()
@@ -399,12 +393,10 @@ class SlayScanEngine:
                         self.update_count += 1
                         self._send_update(line)
                         
-                        # Check for valid code
                         if "VALID" in line.upper() or "CODE MILA" in line:
                             self.valid_code = line
                             self._send_update(f"🎯 **CODE FOUND!** {line}")
                             
-                            # Update user stats
                             conn = sqlite3.connect(DB_PATH, check_same_thread=False)
                             c = conn.cursor()
                             c.execute('UPDATE users SET slay_codes_found = slay_codes_found + 1 WHERE user_id = ?', (self.user_id,))
@@ -414,13 +406,11 @@ class SlayScanEngine:
                             self.stop_scan()
                             break
                         
-                        # Send stats every 10 updates or 5 seconds
                         current_time = time.time()
                         if self.update_count % 10 == 0 or (current_time - last_update_time) > 5:
                             self._send_update(f"📊 Scanning... {self.update_count} checks done")
                             last_update_time = current_time
                 
-                # Check if process ended
                 if self.process.poll() is not None:
                     self.is_running = False
                     break
@@ -434,13 +424,10 @@ class SlayScanEngine:
             self._send_update("⏹ Scan ended.")
     
     def _send_update(self, message):
-        """Send update to Telegram"""
         try:
-            # Filter messages to avoid spam
             if "INVALID" in message.upper():
                 return
             
-            # Send important messages
             keywords = ["VALID", "REWARD", "FOUND", "STATS", "ERROR", "FINAL", "CODE", "LIVE"]
             if any(k in message.upper() for k in keywords):
                 self.bot.send_message(
@@ -458,7 +445,6 @@ class SlayScanEngine:
             logger.error(f"[SLAY] Send update error: {e}")
     
     def stop_scan(self):
-        """Stop running scan"""
         if self.process and self.is_running:
             try:
                 self.process.terminate()
@@ -477,11 +463,14 @@ class SlayScanEngine:
             return f"✅ Code found: {self.valid_code}"
         return "🔴 Idle"
 
-# ==================== GLOBAL STATES FOR SLAY ====================
+# ==================== GLOBAL STATES ====================
 user_slay_state = {}
 user_slay_phone = {}
 slay_otp_data = {}
 slay_engines = {}
+user_shopsy_state = {}
+user_yoga_state = {}
+user_yoga_otp_data = {}
 
 # ==================== START COMMAND ====================
 @bot.message_handler(commands=['start'])
@@ -535,13 +524,202 @@ def check_membership(user_id):
     except:
         return False
 
+# ==================== ADMIN COMMANDS ====================
+@bot.message_handler(commands=['addcoins'])
+def addcoins_command(message):
+    user_id = message.from_user.id
+    if user_id != ADMIN_ID:
+        bot.reply_to(message, "❌ Unauthorized! Admin only.")
+        return
+    
+    try:
+        parts = message.text.strip().split()
+        if len(parts) == 2:
+            # Format: /addcoins AMOUNT - adds to ALL users
+            amount = int(parts[1])
+            
+            if amount <= 0:
+                bot.reply_to(message, "❌ Amount must be positive!")
+                return
+            
+            conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+            c = conn.cursor()
+            c.execute('UPDATE users SET balance = balance + ?', (amount,))
+            affected = c.rowcount
+            conn.commit()
+            conn.close()
+            
+            bot.reply_to(
+                message,
+                f"✅ <b>Added {amount} Credits to ALL Users!</b>\n\n"
+                f"👥 Affected: <code>{affected}</code> users\n"
+                f"💰 Total distributed: <code>{amount * affected}</code> credits",
+                parse_mode="HTML"
+            )
+            return
+        
+        elif len(parts) == 3:
+            # Format: /addcoins USER_ID AMOUNT - adds to specific user
+            target_id = int(parts[1])
+            amount = int(parts[2])
+            
+            if amount <= 0:
+                bot.reply_to(message, "❌ Amount must be positive!")
+                return
+            
+            user = get_user(target_id)
+            if not user:
+                bot.reply_to(message, f"❌ User {target_id} not found!")
+                return
+            
+            update_user_balance(target_id, amount)
+            new_balance = get_user_balance(target_id)
+            
+            bot.reply_to(
+                message,
+                f"✅ <b>Added {amount} Credits</b>\n\n"
+                f"👤 User: {user['first_name']} (ID: {target_id})\n"
+                f"💰 New Balance: <code>{new_balance}</code>",
+                parse_mode="HTML"
+            )
+            
+            try:
+                bot.send_message(
+                    target_id,
+                    f"🎉 <b>Admin Added Credits!</b>\n\n"
+                    f"➕ <code>+{amount} Credits</code> added to your account.\n"
+                    f"💰 New Balance: <code>{new_balance}</code>",
+                    parse_mode="HTML"
+                )
+            except:
+                pass
+            return
+        
+        else:
+            bot.reply_to(
+                message,
+                "❌ <b>Invalid format!</b>\n\n"
+                "<b>Usage:</b>\n"
+                "1️⃣ Add to ALL users:\n"
+                "<code>/addcoins AMOUNT</code>\n"
+                "Example: <code>/addcoins 5</code>\n\n"
+                "2️⃣ Add to specific user:\n"
+                "<code>/addcoins USER_ID AMOUNT</code>\n"
+                "Example: <code>/addcoins 123456789 10</code>",
+                parse_mode="HTML"
+            )
+            
+    except ValueError:
+        bot.reply_to(message, "❌ Invalid number format!")
+    except Exception as e:
+        bot.reply_to(message, f"❌ Error: {str(e)[:100]}")
+
+@bot.message_handler(commands=['removecoins'])
+def removecoins_command(message):
+    user_id = message.from_user.id
+    if user_id != ADMIN_ID:
+        bot.reply_to(message, "❌ Unauthorized! Admin only.")
+        return
+    
+    try:
+        parts = message.text.strip().split()
+        if len(parts) == 2:
+            # Format: /removecoins AMOUNT - removes from ALL users
+            amount = int(parts[1])
+            
+            if amount <= 0:
+                bot.reply_to(message, "❌ Amount must be positive!")
+                return
+            
+            conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+            c = conn.cursor()
+            c.execute('UPDATE users SET balance = balance - ? WHERE balance >= ?', (amount, amount))
+            affected = c.rowcount
+            conn.commit()
+            conn.close()
+            
+            bot.reply_to(
+                message,
+                f"✅ <b>Removed {amount} Credits from ALL Users!</b>\n\n"
+                f"👥 Affected: <code>{affected}</code> users\n"
+                f"💰 Total removed: <code>{amount * affected}</code> credits",
+                parse_mode="HTML"
+            )
+            return
+        
+        elif len(parts) == 3:
+            # Format: /removecoins USER_ID AMOUNT - removes from specific user
+            target_id = int(parts[1])
+            amount = int(parts[2])
+            
+            if amount <= 0:
+                bot.reply_to(message, "❌ Amount must be positive!")
+                return
+            
+            user = get_user(target_id)
+            if not user:
+                bot.reply_to(message, f"❌ User {target_id} not found!")
+                return
+            
+            current_balance = user['balance']
+            if current_balance < amount:
+                bot.reply_to(
+                    message,
+                    f"❌ User has insufficient balance!\n"
+                    f"Current: <code>{current_balance}</code>\n"
+                    f"Requested: <code>{amount}</code>",
+                    parse_mode="HTML"
+                )
+                return
+            
+            update_user_balance(target_id, -amount)
+            new_balance = get_user_balance(target_id)
+            
+            bot.reply_to(
+                message,
+                f"✅ <b>Removed {amount} Credits</b>\n\n"
+                f"👤 User: {user['first_name']} (ID: {target_id})\n"
+                f"💰 New Balance: <code>{new_balance}</code>",
+                parse_mode="HTML"
+            )
+            
+            try:
+                bot.send_message(
+                    target_id,
+                    f"⚠️ <b>Admin Removed Credits</b>\n\n"
+                    f"➖ <code>-{amount} Credits</code> removed from your account.\n"
+                    f"💰 New Balance: <code>{new_balance}</code>",
+                    parse_mode="HTML"
+                )
+            except:
+                pass
+            return
+        
+        else:
+            bot.reply_to(
+                message,
+                "❌ <b>Invalid format!</b>\n\n"
+                "<b>Usage:</b>\n"
+                "1️⃣ Remove from ALL users:\n"
+                "<code>/removecoins AMOUNT</code>\n"
+                "Example: <code>/removecoins 5</code>\n\n"
+                "2️⃣ Remove from specific user:\n"
+                "<code>/removecoins USER_ID AMOUNT</code>\n"
+                "Example: <code>/removecoins 123456789 10</code>",
+                parse_mode="HTML"
+            )
+            
+    except ValueError:
+        bot.reply_to(message, "❌ Invalid number format!")
+    except Exception as e:
+        bot.reply_to(message, f"❌ Error: {str(e)[:100]}")
+
 # ==================== CALLBACK QUERY HANDLER ====================
 @bot.callback_query_handler(func=lambda call: True)
 def callback_handler(call):
     user_id = call.from_user.id
     data = call.data
     
-    # ===== BACK BUTTONS =====
     if data == "back_menu" or data == "back_main":
         user = get_user(user_id)
         if not user:
@@ -559,7 +737,6 @@ def callback_handler(call):
         bot.answer_callback_query(call.id)
         return
     
-    # ===== MODULE NAVIGATION =====
     if data.startswith("module_"):
         module = data.replace("module_", "")
         user = get_user(user_id)
@@ -732,7 +909,6 @@ def callback_handler(call):
         conn.commit()
         conn.close()
         bot.answer_callback_query(call.id, "🚪 Logged out successfully!", show_alert=True)
-        # Refresh menu
         user = get_user(user_id)
         bot.edit_message_text(
             slay_menu_text(user_id, user['balance'], "✅", get_module_cost("slay"), False, user.get('slay_codes_found', 0)),
@@ -776,8 +952,8 @@ def callback_handler(call):
             f"📊 <b>Your Stats:</b>\n"
             f"👥 Successful: <code>{referral_count}</code>\n"
             f"⏳ Pending: <code>{pending_count}</code>\n"
-            f"💰 Bonus: <code>+{REFERRAL_BONUS} Credits</code> per referral\n\n"
-            f"Share this link with friends and earn credits when they join and stay!\n\n"
+            f"💰 Bonus: <code>+{REFERRAL_BONUS} Credit</code> per referral\n\n"
+            f"Share this link with friends and earn credits when they join!\n\n"
             f"💡 <b>Tip:</b> Each friend gets <b>+{NEW_USER_BONUS} Credits</b> on joining!",
             chat_id=call.message.chat.id,
             message_id=call.message.message_id,
@@ -886,7 +1062,6 @@ def callback_handler(call):
         action = data.replace("admin_", "")
         
         if action == "stats":
-            # Get stats
             conn = sqlite3.connect(DB_PATH, check_same_thread=False)
             c = conn.cursor()
             c.execute('SELECT COUNT(*) FROM users')
@@ -941,30 +1116,34 @@ def callback_handler(call):
             return
         
         if action == "add_coins":
-            msg = bot.send_message(
+            bot.send_message(
                 call.message.chat.id,
                 "💰 <b>Add Credits</b>\n\n"
-                "Please send in format:\n"
-                "<code>/addcoins USER_ID AMOUNT</code>\n\n"
-                "Example: <code>/addcoins 123456789 10</code>\n\n"
-                "Send /cancel to abort.",
+                "<b>Usage:</b>\n"
+                "1️⃣ Add to ALL users:\n"
+                "<code>/addcoins AMOUNT</code>\n"
+                "Example: <code>/addcoins 5</code>\n\n"
+                "2️⃣ Add to specific user:\n"
+                "<code>/addcoins USER_ID AMOUNT</code>\n"
+                "Example: <code>/addcoins 123456789 10</code>",
                 parse_mode="HTML"
             )
-            bot.register_next_step_handler(msg, admin_add_coins_handler)
             bot.answer_callback_query(call.id)
             return
         
         if action == "remove_coins":
-            msg = bot.send_message(
+            bot.send_message(
                 call.message.chat.id,
                 "➖ <b>Remove Credits</b>\n\n"
-                "Please send in format:\n"
-                "<code>/removecoins USER_ID AMOUNT</code>\n\n"
-                "Example: <code>/removecoins 123456789 5</code>\n\n"
-                "Send /cancel to abort.",
+                "<b>Usage:</b>\n"
+                "1️⃣ Remove from ALL users:\n"
+                "<code>/removecoins AMOUNT</code>\n"
+                "Example: <code>/removecoins 5</code>\n\n"
+                "2️⃣ Remove from specific user:\n"
+                "<code>/removecoins USER_ID AMOUNT</code>\n"
+                "Example: <code>/removecoins 123456789 10</code>",
                 parse_mode="HTML"
             )
-            bot.register_next_step_handler(msg, admin_remove_coins_handler)
             bot.answer_callback_query(call.id)
             return
         
@@ -1038,20 +1217,16 @@ def slay_phone_handler(message):
     
     status_msg = bot.reply_to(message, f"📱 Sending OTP to +91{phone}...", reply_markup=kb)
     
-    # Deduct credits
     update_user_balance(user_id, -cost)
     slay_otp_data[user_id] = {"phone": phone, "cost": cost}
     
     def send_otp_thread():
         try:
-            # Send OTP using workingslay
-            from workingslay import send_otp, make_session, generate_master_key
+            from workingslay import send_otp, make_session, generate_master_key, init_session
             
             master_key = generate_master_key()
             session = make_session(master_key)
             
-            # Init session first
-            from workingslay import init_session
             user_key, data_key = init_session(session, master_key)
             if not user_key:
                 bot.edit_message_text(
@@ -1063,7 +1238,6 @@ def slay_phone_handler(message):
                 update_user_balance(user_id, cost)
                 return
             
-            # Send OTP
             success = send_otp(session, user_key, data_key, phone)
             
             if success:
@@ -1131,16 +1305,13 @@ def slay_otp_handler(message):
         try:
             from workingslay import verify_otp, select_pack, select_vibe, save_global_session
             
-            # Verify OTP
             access_token = verify_otp(session, user_key, data_key, otp)
             
             if access_token:
-                # Select pack and vibe
                 select_pack(session, user_key, data_key, access_token)
                 select_vibe(session, user_key, data_key, access_token)
                 save_global_session()
                 
-                # Update user
                 conn = sqlite3.connect(DB_PATH, check_same_thread=False)
                 c = conn.cursor()
                 c.execute('UPDATE users SET slay_logged_in = 1 WHERE user_id = ?', (user_id,))
@@ -1160,7 +1331,6 @@ def slay_otp_handler(message):
                 user_slay_state[user_id] = None
                 del slay_otp_data[user_id]
                 
-                # Start scan
                 start_slay_scan(message, user_id, phone)
                 
             else:
@@ -1188,7 +1358,6 @@ def slay_otp_handler(message):
     threading.Thread(target=verify_thread).start()
 
 def start_slay_scan(message, user_id, phone):
-    """Start the actual scan process"""
     scan_msg = bot.reply_to(
         message,
         f"🔍 **SLAY SCAN STARTED**\n\n"
@@ -1199,7 +1368,6 @@ def start_slay_scan(message, user_id, phone):
         parse_mode="Markdown"
     )
     
-    # Create scan engine
     scan_engine = SlayScanEngine(bot, message.chat.id, user_id)
     slay_engines[user_id] = scan_engine
     
@@ -1225,7 +1393,7 @@ def start_slay_scan(message, user_id, phone):
     
     threading.Thread(target=scan_thread).start()
 
-# ==================== SHOPSY FUNCTIONS (Placeholders) ====================
+# ==================== SHOPSY FUNCTIONS ====================
 def get_shopsy_balance(user_id):
     user = get_user(user_id)
     return user['shopsy_balance'] if user else 0
@@ -1242,119 +1410,6 @@ def get_referral_link(user_id):
     return f"https://t.me/{bot_username}?start=ref_{user_id}"
 
 # ==================== ADMIN HANDLERS ====================
-def admin_add_coins_handler(message):
-    user_id = message.from_user.id
-    if user_id != ADMIN_ID:
-        bot.reply_to(message, "❌ Unauthorized!")
-        return
-    
-    try:
-        parts = message.text.strip().split()
-        if len(parts) != 2:
-            bot.reply_to(message, "❌ Invalid format! Use: /addcoins USER_ID AMOUNT")
-            return
-        
-        target_id = int(parts[0])
-        amount = int(parts[1])
-        
-        if amount <= 0:
-            bot.reply_to(message, "❌ Amount must be positive!")
-            return
-        
-        user = get_user(target_id)
-        if not user:
-            bot.reply_to(message, f"❌ User {target_id} not found!")
-            return
-        
-        update_user_balance(target_id, amount)
-        new_balance = get_user_balance(target_id)
-        
-        bot.reply_to(
-            message,
-            f"✅ <b>Added {amount} Credits</b>\n\n"
-            f"👤 User: {user['first_name']} (ID: {target_id})\n"
-            f"💰 New Balance: <code>{new_balance}</code>",
-            parse_mode="HTML"
-        )
-        
-        try:
-            bot.send_message(
-                target_id,
-                f"🎉 <b>Admin Added Credits!</b>\n\n"
-                f"➕ <code>+{amount} Credits</code> added to your account.\n"
-                f"💰 New Balance: <code>{new_balance}</code>",
-                parse_mode="HTML"
-            )
-        except:
-            pass
-            
-    except ValueError:
-        bot.reply_to(message, "❌ Invalid format! Use: /addcoins USER_ID AMOUNT")
-    except Exception as e:
-        bot.reply_to(message, f"❌ Error: {str(e)[:100]}")
-
-def admin_remove_coins_handler(message):
-    user_id = message.from_user.id
-    if user_id != ADMIN_ID:
-        bot.reply_to(message, "❌ Unauthorized!")
-        return
-    
-    try:
-        parts = message.text.strip().split()
-        if len(parts) != 2:
-            bot.reply_to(message, "❌ Invalid format! Use: /removecoins USER_ID AMOUNT")
-            return
-        
-        target_id = int(parts[0])
-        amount = int(parts[1])
-        
-        if amount <= 0:
-            bot.reply_to(message, "❌ Amount must be positive!")
-            return
-        
-        user = get_user(target_id)
-        if not user:
-            bot.reply_to(message, f"❌ User {target_id} not found!")
-            return
-        
-        current_balance = user['balance']
-        if current_balance < amount:
-            bot.reply_to(
-                message,
-                f"❌ User has insufficient balance!\n"
-                f"Current: <code>{current_balance}</code>\n"
-                f"Requested: <code>{amount}</code>",
-                parse_mode="HTML"
-            )
-            return
-        
-        update_user_balance(target_id, -amount)
-        new_balance = get_user_balance(target_id)
-        
-        bot.reply_to(
-            message,
-            f"✅ <b>Removed {amount} Credits</b>\n\n"
-            f"👤 User: {user['first_name']} (ID: {target_id})\n"
-            f"💰 New Balance: <code>{new_balance}</code>",
-            parse_mode="HTML"
-        )
-        
-        try:
-            bot.send_message(
-                target_id,
-                f"⚠️ <b>Admin Removed Credits</b>\n\n"
-                f"➖ <code>-{amount} Credits</code> removed from your account.\n"
-                f"💰 New Balance: <code>{new_balance}</code>",
-                parse_mode="HTML"
-            )
-        except:
-            pass
-            
-    except ValueError:
-        bot.reply_to(message, "❌ Invalid format! Use: /removecoins USER_ID AMOUNT")
-    except Exception as e:
-        bot.reply_to(message, f"❌ Error: {str(e)[:100]}")
-
 def admin_broadcast_handler(message):
     user_id = message.from_user.id
     if user_id != ADMIN_ID:
@@ -1500,12 +1555,73 @@ def setcost_command(message):
     except Exception as e:
         bot.reply_to(message, f"❌ Error: {str(e)[:100]}")
 
+# ==================== BROADCAST CALLBACKS ====================
+@bot.callback_query_handler(func=lambda call: call.data in ["broadcast_confirm", "broadcast_cancel"])
+def broadcast_callback_handler(call):
+    user_id = call.from_user.id
+    if user_id != ADMIN_ID:
+        bot.answer_callback_query(call.id, "❌ Unauthorized!")
+        return
+    
+    if call.data == "broadcast_cancel":
+        bot.edit_message_text(
+            "❌ Broadcast cancelled.",
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id
+        )
+        bot.answer_callback_query(call.id)
+        return
+    
+    # broadcast_confirm
+    broadcast_msg = getattr(bot, 'user_data', {}).get('broadcast_msg')
+    users = getattr(bot, 'user_data', {}).get('broadcast_users', [])
+    
+    if not broadcast_msg:
+        bot.answer_callback_query(call.id, "❌ No broadcast message found!")
+        return
+    
+    bot.edit_message_text(
+        f"📢 <b>Broadcasting...</b>\n\n"
+        f"Sending to <code>{len(users)}</code> users...",
+        chat_id=call.message.chat.id,
+        message_id=call.message.message_id,
+        parse_mode="HTML"
+    )
+    
+    success = 0
+    failed = 0
+    
+    for uid, in users:
+        try:
+            bot.send_message(uid, broadcast_msg, parse_mode="HTML")
+            success += 1
+            time.sleep(0.05)
+        except:
+            failed += 1
+    
+    bot.edit_message_text(
+        f"✅ <b>Broadcast Complete!</b>\n\n"
+        f"✅ Sent: <code>{success}</code>\n"
+        f"❌ Failed: <code>{failed}</code>",
+        chat_id=call.message.chat.id,
+        message_id=call.message.message_id,
+        parse_mode="HTML"
+    )
+    
+    bot.answer_callback_query(call.id, f"✅ Sent to {success} users")
+
 # ==================== MAIN ====================
 if __name__ == "__main__":
-    logger.info("🤖 Bot started – ALL FEATURES WORKING!")
-    logger.info("🎮 SLAY YOUR PLAY MODULE ADDED")
-    logger.info("💰 1 credit per scan | Auto-stop on code found")
-    logger.info("📊 Referral: +3 credits per referral")
+    logger.info("=" * 50)
+    logger.info("🤖 VIEDIET BOT STARTED")
+    logger.info("=" * 50)
+    logger.info("🎮 SLAY YOUR PLAY MODULE: ENABLED")
+    logger.info("💰 New Users: 0 credits")
+    logger.info("🔗 Referral: +1 credit per referral")
+    logger.info("🔍 Scan: 1 credit per scan")
+    logger.info("👑 Admin: /addcoins, /removecoins, /setcost")
+    logger.info("📢 Broadcast: /addcoins ALL USERS supported")
+    logger.info("=" * 50)
     
     try:
         bot.remove_webhook()
