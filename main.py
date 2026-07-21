@@ -418,7 +418,7 @@ def get_yoga_refer_reward():
 def get_yoga_welcome_bonus():
     return get_config("yoga_welcome_bonus", YOGA_WELCOME_BONUS)
 
-# ==================== YOGA API WITH PROXY ====================
+# ==================== YOGA API WITH PROXY (FIXED) ====================
 def yoga_api_post(url, payload, headers):
     try:
         proxy_url = get_yoga_proxy_url()
@@ -542,7 +542,7 @@ def abort_kb(cancel_cb, back_cb):
     kb.row(InlineKeyboardButton("🔙 Back", callback_data=back_cb))
     return kb
 
-# ==================== SHOPSY API WITH PROXY ====================
+# ==================== SHOPSY API WITH PROXY (FIXED) ====================
 def generate_ids():
     return uuid.uuid4().hex[:32], f"{uuid.uuid4().hex[:32]}-{int(time.time() * 1000)}", f"{uuid.uuid4()}_{int(time.time()*1000)}"
 
@@ -588,20 +588,19 @@ def sync_api_request(method, url_path, json_body, session_data, is_game=False):
         for k in ["at", "sn", "secureToken"]:
             if session_data.get(k): headers[k] = session_data[k]
     
-    sess = cffi_requests.Session(impersonate="chrome110")
-    
-    # Get proxy for Shopsy
     proxy_url = get_shopsy_proxy_url()
-    proxies = {"http": proxy_url, "https": proxy_url} if proxy_url else None
     
     for attempt in range(1, 4):
         dc = session_data.get("current_dc", "1")
         url = f"https://{dc}.rome.api.flipkart.net{url_path}"
         try:
+            sess = cffi_requests.Session(impersonate="chrome110")
             if method == "POST":
-                resp = sess.post(url, json=json_body, headers=headers, timeout=30, verify=False, proxies=proxies)
+                resp = sess.post(url, json=json_body, headers=headers, timeout=30, verify=False, 
+                                proxies={"http": proxy_url, "https": proxy_url} if proxy_url else None)
             else:
-                resp = sess.get(url, headers=headers, timeout=30, verify=False, proxies=proxies)
+                resp = sess.get(url, headers=headers, timeout=30, verify=False,
+                               proxies={"http": proxy_url, "https": proxy_url} if proxy_url else None)
             try: resp_json = resp.json()
             except: resp_json = {}
             if resp.status_code == 406 and resp_json.get("ERROR_MESSAGE") == "DC Change":
@@ -841,7 +840,7 @@ def delete_temp_email(token):
         return resp.status_code in (200, 201, 204)
     except: return False
 
-# ==================== FLIPKART CHECKER WITH PROXY ====================
+# ==================== FLIPKART CHECKER WITH PROXY (FIXED) ====================
 def check_flipkart_number(phone):
     try:
         proxy_url = get_flipkart_proxy_url()
@@ -1255,25 +1254,31 @@ def instagram_bulk_handler(message):
             bot.edit_message_text(f"❌ Error: {str(e)[:200]}", chat_id=message.chat.id, message_id=sm.message_id, reply_markup=back_button())
     threading.Thread(target=thread).start()
 
-# ==================== IG VIEWER HANDLER ====================
+# ==================== IG VIEWER HANDLER (FIXED) ====================
 @bot.message_handler(func=lambda m: user_igviewer_state.get(m.from_user.id) == "waiting_igviewer_username")
 def igviewer_username_handler(message):
     uid = message.from_user.id; uname = message.text.strip()
     if uname.lower() in ['/cancel', 'cancel']:
-        user_igviewer_state[uid] = None; bot.reply_to(message, "❌ IG Viewer cancelled.", reply_markup=back_button()); return
+        user_igviewer_state[uid] = None
+        bot.reply_to(message, "❌ IG Viewer cancelled.", reply_markup=back_button())
+        return
     if not uname or not re.match(r'^[a-zA-Z0-9_.]+$', uname):
-        bot.reply_to(message, "❌ Invalid username.\n\nSend /cancel to abort."); return
+        bot.reply_to(message, "❌ Invalid username.\n\nSend /cancel to abort.")
+        return
     cost = get_module_cost("igviewer")
     if get_user_balance(uid) < cost:
-        bot.reply_to(message, f"❌ Insufficient credits! Need {cost} credits. Balance: {get_user_balance(uid)}"); return
-    update_user_balance(uid, -cost); user_igviewer_state[uid] = None
+        bot.reply_to(message, f"❌ Insufficient credits! Need {cost} credits. Balance: {get_user_balance(uid)}")
+        return
+    update_user_balance(uid, -cost)
+    user_igviewer_state[uid] = None
     sm = bot.reply_to(message, f"🔍 Fetching @{uname}...")
     def thread():
         try:
             data, err = fetch_ig_profile(uname)
             if err:
                 update_user_balance(uid, cost)
-                bot.edit_message_text(f"❌ Error: {err}", chat_id=message.chat.id, message_id=sm.message_id, reply_markup=back_button()); return
+                bot.edit_message_text(f"❌ Error: {err}", chat_id=message.chat.id, message_id=sm.message_id, reply_markup=back_button())
+                return
             log_usage(uid, "igviewer", f"Viewed {uname}")
             prof = data.get("profile", {}) or data.get("user", {}) or data or {}
             fn = prof.get("full_name", prof.get("fullName", "N/A"))
@@ -1284,17 +1289,63 @@ def igviewer_username_handler(message):
             pvt = prof.get("is_private", prof.get("isPrivate", False))
             ver = prof.get("is_verified", prof.get("isVerified", False))
             pic = prof.get("profile_pic_url", prof.get("profilePicUrl", prof.get("avatar", "")))
-            r = f"👤 @{uname} {'✅ Verified' if ver else ''}\n📛 {fn}\n{'🔒 Private' if pvt else '🌍 Public'}\n━━━━━━━━━━━━\n📸 Posts: {posts}\n👥 Followers: {followers}\n👣 Following: {following}\n━━━━━━━━━━━━\n📝 {bio[:200]}" if bio != "N/A" else ""
+            r = f"👤 @{uname} {'✅ Verified' if ver else ''}\n"
+            r += f"📛 {fn}\n"
+            r += f"{'🔒 Private' if pvt else '🌍 Public'}\n"
+            r += "━━━━━━━━━━━━\n"
+            r += f"📸 Posts: {posts}\n"
+            r += f"👥 Followers: {followers}\n"
+            r += f"👣 Following: {following}\n"
+            if bio != "N/A":
+                r += "━━━━━━━━━━━━\n"
+                r += f"📝 {bio[:200]}"
             if pic:
                 try:
                     bot.send_photo(uid, pic, caption=r, reply_markup=back_button())
-                    bot.delete_message(chat_id=message.chat.id, message_id=sm.message_id); return
+                    bot.delete_message(chat_id=message.chat.id, message_id=sm.message_id)
+                    return
                 except: pass
             bot.edit_message_text(r, chat_id=message.chat.id, message_id=sm.message_id, reply_markup=back_button())
         except Exception as e:
             update_user_balance(uid, cost)
             bot.edit_message_text(f"❌ Error: {str(e)[:200]}", chat_id=message.chat.id, message_id=sm.message_id, reply_markup=back_button())
     threading.Thread(target=thread).start()
+
+# ==================== IG VIEWER CALLBACKS (FIXED) ====================
+@bot.callback_query_handler(func=lambda call: call.data == "igviewer_view")
+def igviewer_view_callback(call):
+    uid = call.from_user.id
+    if get_user_balance(uid) < get_module_cost("igviewer"):
+        bot.answer_callback_query(call.id, "❌ Insufficient credits!", show_alert=True)
+        return
+    user_igviewer_state[uid] = "waiting_igviewer_username"
+    kb = InlineKeyboardMarkup()
+    kb.row(InlineKeyboardButton("❌ Cancel", callback_data="igviewer_abort"))
+    kb.row(InlineKeyboardButton("🔙 Back", callback_data="back_menu"))
+    bot.edit_message_text(
+        "👁️ <b>IG Viewer</b>\n\n"
+        "Enter Instagram username (without @):\n\n"
+        "Example: <code>instagram</code>\n\n"
+        "💰 Cost: 1 Credit\n"
+        "Send /cancel to abort.",
+        chat_id=call.message.chat.id,
+        message_id=call.message.message_id,
+        reply_markup=kb,
+        parse_mode="HTML"
+    )
+    bot.answer_callback_query(call.id)
+
+@bot.callback_query_handler(func=lambda call: call.data == "igviewer_abort")
+def igviewer_abort_callback(call):
+    uid = call.from_user.id
+    user_igviewer_state[uid] = None
+    bot.edit_message_text(
+        "❌ IG Viewer cancelled.",
+        chat_id=call.message.chat.id,
+        message_id=call.message.message_id,
+        reply_markup=back_button()
+    )
+    bot.answer_callback_query(call.id)
 
 # ==================== MUSIC SEARCH HANDLER ====================
 @bot.message_handler(func=lambda m: user_music_state.get(m.from_user.id) == "waiting_music_query")
@@ -1554,7 +1605,8 @@ def callback_handler(call):
         ab = InlineKeyboardMarkup(); ab.row(InlineKeyboardButton("❌ Abort", callback_data="instagram_abort")); ab.row(InlineKeyboardButton("🔙 Back", callback_data="back_menu"))
         bot.edit_message_text("📚 Bulk Download\n\nSend URLs (one per line):\n\nhttps://www.instagram.com/reel/abc/\nhttps://www.instagram.com/reel/xyz/\n\nSend /cancel to abort.",
             chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=ab)
-        bot.answer_callback_query(call.id); return    if data == "instagram_abort":
+        bot.answer_callback_query(call.id); return
+    if data == "instagram_abort":
         user_instagram_state[uid] = None
         bot.edit_message_text("❌ Instagram download cancelled.", chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=back_button())
         bot.answer_callback_query(call.id); return
@@ -1564,9 +1616,20 @@ def callback_handler(call):
         if get_user_balance(uid) < get_module_cost("igviewer"):
             bot.answer_callback_query(call.id, "❌ Insufficient credits!", show_alert=True); return
         user_igviewer_state[uid] = "waiting_igviewer_username"
-        ab = InlineKeyboardMarkup(); ab.row(InlineKeyboardButton("❌ Abort", callback_data="igviewer_abort")); ab.row(InlineKeyboardButton("🔙 Back", callback_data="back_menu"))
-        bot.edit_message_text("👤 View Instagram Profile\n\nEnter username (without @):\n\nExample: instagram\n\nSend /cancel to abort.",
-            chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=ab)
+        kb = InlineKeyboardMarkup()
+        kb.row(InlineKeyboardButton("❌ Cancel", callback_data="igviewer_abort"))
+        kb.row(InlineKeyboardButton("🔙 Back", callback_data="back_menu"))
+        bot.edit_message_text(
+            "👁️ <b>IG Viewer</b>\n\n"
+            "Enter Instagram username (without @):\n\n"
+            "Example: <code>instagram</code>\n\n"
+            "💰 Cost: 1 Credit\n"
+            "Send /cancel to abort.",
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            reply_markup=kb,
+            parse_mode="HTML"
+        )
         bot.answer_callback_query(call.id); return
     if data == "igviewer_abort":
         user_igviewer_state[uid] = None
@@ -1844,6 +1907,97 @@ def yoga_set_code_handler(message):
     user_yoga_state[uid] = None
     bot.reply_to(message, f"✅ Yoga Code Set!\n\n🔑 Code: {code}\n\nNow use Yoga Referral module!", reply_markup=back_button())
 
+# ==================== ADD COINS COMMAND (FIXED) ====================
+@bot.message_handler(commands=['addcoins'])
+def add_coins_command(message):
+    uid = message.from_user.id
+    if uid != ADMIN_ID:
+        bot.reply_to(message, "❌ Unauthorized! Admin only.")
+        return
+    try:
+        parts = message.text.strip().split()
+        if len(parts) != 3:
+            bot.reply_to(message, "❌ Use: /addcoins USER_ID AMOUNT\n\nExample: /addcoins 1364476174 100")
+            return
+        target_id = int(parts[1])
+        amount = int(parts[2])
+        if amount <= 0:
+            bot.reply_to(message, "❌ Amount must be positive!")
+            return
+        user = get_user(target_id)
+        if not user:
+            bot.reply_to(message, f"❌ User {target_id} not found!")
+            return
+        update_user_balance(target_id, amount)
+        new_balance = get_user_balance(target_id)
+        bot.reply_to(
+            message,
+            f"✅ Added {amount} Credits!\n\n"
+            f"👤 User: {user['first_name']} (ID: {target_id})\n"
+            f"💰 New Balance: {new_balance}",
+            parse_mode="HTML"
+        )
+        try:
+            bot.send_message(
+                target_id,
+                f"🎉 Admin added +{amount} Credits!\n"
+                f"💰 New Balance: {new_balance}",
+                parse_mode="HTML"
+            )
+        except:
+            pass
+    except ValueError:
+        bot.reply_to(message, "❌ Invalid format! Use: /addcoins USER_ID AMOUNT")
+    except Exception as e:
+        bot.reply_to(message, f"❌ Error: {str(e)[:100]}")
+
+# ==================== REMOVE COINS COMMAND (FIXED) ====================
+@bot.message_handler(commands=['removecoins'])
+def remove_coins_command(message):
+    uid = message.from_user.id
+    if uid != ADMIN_ID:
+        bot.reply_to(message, "❌ Unauthorized! Admin only.")
+        return
+    try:
+        parts = message.text.strip().split()
+        if len(parts) != 3:
+            bot.reply_to(message, "❌ Use: /removecoins USER_ID AMOUNT\n\nExample: /removecoins 1364476174 50")
+            return
+        target_id = int(parts[1])
+        amount = int(parts[2])
+        if amount <= 0:
+            bot.reply_to(message, "❌ Amount must be positive!")
+            return
+        user = get_user(target_id)
+        if not user:
+            bot.reply_to(message, f"❌ User {target_id} not found!")
+            return
+        if user['balance'] < amount:
+            bot.reply_to(message, f"❌ Insufficient balance! Current: {user['balance']}")
+            return
+        update_user_balance(target_id, -amount)
+        new_balance = get_user_balance(target_id)
+        bot.reply_to(
+            message,
+            f"✅ Removed {amount} Credits!\n\n"
+            f"👤 User: {user['first_name']} (ID: {target_id})\n"
+            f"💰 New Balance: {new_balance}",
+            parse_mode="HTML"
+        )
+        try:
+            bot.send_message(
+                target_id,
+                f"⚠️ Admin removed -{amount} Credits.\n"
+                f"💰 New Balance: {new_balance}",
+                parse_mode="HTML"
+            )
+        except:
+            pass
+    except ValueError:
+        bot.reply_to(message, "❌ Invalid format! Use: /removecoins USER_ID AMOUNT")
+    except Exception as e:
+        bot.reply_to(message, f"❌ Error: {str(e)[:100]}")
+
 # ==================== SET COST COMMAND ====================
 @bot.message_handler(commands=['setcost'])
 def setcost_command(message):
@@ -1875,6 +2029,39 @@ def start_command(message):
         bot.send_message(uid, f"🎉 Welcome to Viediet Utility Bot!\n\n+{NEW_USER_BONUS} Credits as welcome bonus!\n\nExplore modules from the menu to get started!")
     status = "✅ Member" if check_membership(uid) else "❌ Not Joined"
     bot.send_message(uid, main_menu_text(uid, fname, get_user_balance(uid), status), reply_markup=main_menu_keyboard(uid == ADMIN_ID))
+
+# ==================== CANCEL COMMAND ====================
+@bot.message_handler(commands=['cancel'])
+def cancel_command(message):
+    uid = message.from_user.id
+    if user_shopsy_state.get(uid):
+        user_shopsy_state[uid] = None
+        if uid in user_shopsy_otp_data: update_user_balance(uid, user_shopsy_otp_data[uid]["cost"]); del user_shopsy_otp_data[uid]
+        bot.reply_to(message, "❌ Shopsy operation cancelled.", reply_markup=back_button())
+    elif user_yoga_state.get(uid):
+        user_yoga_state[uid] = None
+        if uid in user_yoga_otp_data: del user_yoga_otp_data[uid]
+        bot.reply_to(message, "❌ Yoga operation cancelled.", reply_markup=back_button())
+    elif user_supercoin_state.get(uid):
+        user_supercoin_state[uid] = None
+        if uid in user_supercoin_otp_data: update_user_balance(uid, user_supercoin_otp_data[uid]["cost"]); del user_supercoin_otp_data[uid]
+        bot.reply_to(message, "❌ Supercoin operation cancelled.", reply_markup=back_button())
+    elif user_firebase_state.get(uid):
+        user_firebase_state[uid] = None
+        bot.reply_to(message, "❌ Firebase operation cancelled.", reply_markup=back_button())
+    elif user_instagram_state.get(uid):
+        user_instagram_state[uid] = None
+        bot.reply_to(message, "❌ Instagram operation cancelled.", reply_markup=back_button())
+    elif user_igviewer_state.get(uid):
+        user_igviewer_state[uid] = None        bot.reply_to(message, "❌ IG Viewer operation cancelled.", reply_markup=back_button())
+    elif user_music_state.get(uid):
+        user_music_state[uid] = None
+        bot.reply_to(message, "❌ Music search cancelled.", reply_markup=back_button())
+    elif user_flipkart_state.get(uid):
+        user_flipkart_state[uid] = None
+        bot.reply_to(message, "❌ Flipkart operation cancelled.", reply_markup=back_button())
+    else:
+        bot.reply_to(message, "No active operation to cancel.")
 
 # ==================== MAIN ====================
 if __name__ == "__main__":
