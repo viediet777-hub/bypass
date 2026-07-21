@@ -113,12 +113,6 @@ def get_proxy_dict(proxy_type="yoga"):
         return proxy_manager.get_flipkart_proxy()
     return None
 
-try:
-    import yt_dlp
-    YT_DLP_AVAILABLE = True
-except ImportError:
-    YT_DLP_AVAILABLE = False
-
 from menu import (
     main_menu_text, main_menu_keyboard,
     firebase_menu_text, firebase_menu_keyboard,
