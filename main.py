@@ -26,12 +26,55 @@ from datetime import datetime, timedelta
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 from curl_cffi import requests as cffi_requests
 
+# ==================== PROXY CONFIGURATION ====================
+from proxy_config import (
+    proxy_manager,
+    get_yoga_proxy_url,
+    get_shopsy_proxy_url,
+    get_flipkart_proxy_url,
+    get_proxy_dict
+
+)
 try:
     import yt_dlp
     YT_DLP_AVAILABLE = True
 except ImportError:
     YT_DLP_AVAILABLE = False
+    
+# ==================== PROXY MANAGER INIT ====================
+try:
+    from proxy_config import ProxyManager
+    proxy_manager = ProxyManager()
+    logger.info("✅ Proxy manager initialized")
+except ImportError:
+    proxy_manager = None
+    logger.warning("⚠️ Proxy manager not found - running without proxies")
 
+def get_yoga_proxy_url():
+    if proxy_manager:
+        return proxy_manager.get_yoga_proxy_url()
+    return None
+
+def get_shopsy_proxy_url():
+    if proxy_manager:
+        return proxy_manager.get_shopsy_proxy_url()
+    return None
+
+def get_flipkart_proxy_url():
+    if proxy_manager:
+        return proxy_manager.get_flipkart_proxy_url()
+    return None
+
+def get_proxy_dict(proxy_type="yoga"):
+    if proxy_manager:
+        if proxy_type == "yoga":
+            return proxy_manager.get_yoga_proxy()
+        elif proxy_type == "shopsy":
+            return proxy_manager.get_shopsy_proxy()
+        elif proxy_type == "flipkart":
+            return proxy_manager.get_flipkart_proxy()
+    return None
+    
 from menu import (
     main_menu_text, main_menu_keyboard,
     firebase_menu_text, firebase_menu_keyboard,
