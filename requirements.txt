@@ -1,4 +1,6 @@
-pyTelegramBotAPI
-requests
-instaloader
-curl_cffi
+telebot==0.0.5
+requests==2.31.0
+curl_cffi==0.5.10
+instaloader==4.10
+yt-dlp==2024.8.6
+python-telegram-bot==20.3
