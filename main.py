@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-# NRTECNO SYSTEM - VIEDIET BOT v2.0 - FIXED
+# NRTECNO SYSTEM - VIEDIET BOT v2.0 - COMPLETE FIX
 
 import os
 import logging
@@ -65,7 +65,7 @@ if not BOT_TOKEN:
 ADMIN_ID = int(os.environ.get("ADMIN_ID", 1364476174))
 CHANNEL_USERNAME = "viedietlooters"
 
-# NEW: Users start with 0 credits
+# USERS START WITH 0 CREDITS
 NEW_USER_BONUS = 0
 REFERRAL_BONUS = 1  # 1 point per referral
 REFERRAL_STAY_HOURS = 0
@@ -269,6 +269,59 @@ def log_usage(user_id, module, details=""):
               (user_id, module, details, now))
     conn.commit()
     conn.close()
+
+# ==================== REFERRAL CHECK FUNCTION ====================
+def check_and_award_referrals():
+    """Check and award referral bonuses"""
+    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+    c = conn.cursor()
+    now = datetime.now()
+    
+    c.execute('SELECT id, referrer_id, referred_id, join_timestamp FROM pending_referrals')
+    pending = c.fetchall()
+    
+    for pid, referrer_id, referred_id, join_ts in pending:
+        try:
+            join_time = datetime.fromisoformat(join_ts)
+            if (now - join_time) >= timedelta(hours=REFERRAL_STAY_HOURS):
+                # Check if user is valid
+                c.execute('SELECT is_valid FROM users WHERE user_id = ?', (referred_id,))
+                user_row = c.fetchone()
+                if user_row and user_row[0] == 1:
+                    update_user_balance(referrer_id, REFERRAL_BONUS)
+                    c.execute('INSERT INTO referrals (referrer_id, referred_id, join_timestamp, points_awarded, is_valid) VALUES (?, ?, ?, ?, 1)',
+                              (referrer_id, referred_id, join_ts, REFERRAL_BONUS))
+                    c.execute('DELETE FROM pending_referrals WHERE id = ?', (pid,))
+                    conn.commit()
+                    try:
+                        bot.send_message(referrer_id, f"🎉 <b>Referral Bonus!</b>\n\nYou earned <b>+{REFERRAL_BONUS} Credit</b> for referring a user!\n💰 New balance: {get_user_balance(referrer_id)}", parse_mode="HTML")
+                    except:
+                        pass
+        except Exception as e:
+            logger.error(f"Referral award error for pending {pid}: {e}")
+    
+    conn.close()
+
+# ==================== SCHEDULED TASKS ====================
+def run_scheduled_tasks():
+    """Runs scheduled background tasks"""
+    while True:
+        try:
+            check_and_award_referrals()
+            logger.info("[SCHEDULED] Referral check completed")
+        except Exception as e:
+            logger.error(f"[SCHEDULED] Referral check error: {e}")
+        
+        try:
+            conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+            c = conn.cursor()
+            c.execute('DELETE FROM temp_emails WHERE created_at <= datetime("now", "-10 minutes")')
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            logger.error(f"[SCHEDULED] Error cleaning temp emails: {e}")
+        
+        time.sleep(300)
 
 # ==================== BACK BUTTON HELPER ====================
 def back_button():
@@ -535,9 +588,7 @@ def addcoins_command(message):
     try:
         parts = message.text.strip().split()
         if len(parts) == 2:
-            # Format: /addcoins AMOUNT - adds to ALL users
             amount = int(parts[1])
-            
             if amount <= 0:
                 bot.reply_to(message, "❌ Amount must be positive!")
                 return
@@ -559,7 +610,6 @@ def addcoins_command(message):
             return
         
         elif len(parts) == 3:
-            # Format: /addcoins USER_ID AMOUNT - adds to specific user
             target_id = int(parts[1])
             amount = int(parts[2])
             
@@ -624,9 +674,7 @@ def removecoins_command(message):
     try:
         parts = message.text.strip().split()
         if len(parts) == 2:
-            # Format: /removecoins AMOUNT - removes from ALL users
             amount = int(parts[1])
-            
             if amount <= 0:
                 bot.reply_to(message, "❌ Amount must be positive!")
                 return
@@ -648,7 +696,6 @@ def removecoins_command(message):
             return
         
         elif len(parts) == 3:
-            # Format: /removecoins USER_ID AMOUNT - removes from specific user
             target_id = int(parts[1])
             amount = int(parts[2])
             
@@ -1612,6 +1659,10 @@ def broadcast_callback_handler(call):
 
 # ==================== MAIN ====================
 if __name__ == "__main__":
+    # Start scheduled tasks thread
+    task_thread = threading.Thread(target=run_scheduled_tasks, daemon=True)
+    task_thread.start()
+    
     logger.info("=" * 50)
     logger.info("🤖 VIEDIET BOT STARTED")
     logger.info("=" * 50)
@@ -1623,9 +1674,10 @@ if __name__ == "__main__":
     logger.info("📢 Broadcast: /addcoins ALL USERS supported")
     logger.info("=" * 50)
     
+    # Stop any existing polling
     try:
         bot.remove_webhook()
-        time.sleep(1)
+        time.sleep(2)
     except:
         pass
     
