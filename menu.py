@@ -1,5 +1,5 @@
 # menu.py - Complete Menu Functions for Viediet Bot
-# FIXED: Slay Your Play button now visible in dashboard
+# FIXED: Supercoin Fetcher replaced with Slay Your Play
 
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton
 
@@ -65,7 +65,7 @@ def main_menu_keyboard(is_admin=False):
         colored_button("🧘 Yoga Referral", "module_yoga", "success")
     )
     
-    # Row 5 - Referral System & Slay Your Play (FIXED - Both visible)
+    # Row 5 - Referral System & Slay Your Play (REPLACED Supercoin)
     kb.row(
         colored_button("🔗 Referral System", "module_referral", "danger"),
         colored_button("🎮 Slay Your Play", "module_slay", "primary")
