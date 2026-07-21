@@ -1,14 +1,10 @@
 # menu.py - Complete Menu Functions for Viediet Bot
-# UPDATED: Added Slay Your Play Module with Colored Buttons
+# FIXED: Slay Your Play button now visible in dashboard
 
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton
 
 # ==================== COLORED BUTTON HELPER ====================
 def colored_button(text, callback_data, style="default", emoji_id=None):
-    """
-    Creates colored inline keyboard button using Telegram's style parameter
-    style: "primary" (blue), "danger" (red), "success" (green), or "default"
-    """
     button = InlineKeyboardButton(text, callback_data=callback_data)
     if style != "default":
         button.style = style
@@ -69,7 +65,7 @@ def main_menu_keyboard(is_admin=False):
         colored_button("🧘 Yoga Referral", "module_yoga", "success")
     )
     
-    # Row 5 - Referral & Slay Your Play
+    # Row 5 - Referral System & Slay Your Play (FIXED - Both visible)
     kb.row(
         colored_button("🔗 Referral System", "module_referral", "danger"),
         colored_button("🎮 Slay Your Play", "module_slay", "primary")
@@ -83,7 +79,6 @@ def main_menu_keyboard(is_admin=False):
 
 # ==================== BACK BUTTON HELPER ====================
 def back_button():
-    """Returns a standardized back button row"""
     return [colored_button("🔙 Back to Menu", "back_menu", "default")]
 
 # ==================== SLAY YOUR PLAY MENU ====================
@@ -593,13 +588,13 @@ def help_menu_text():
 • Shopsy Mining
 • Yoga Referral
 • Slay Your Play
+• Referral System
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 """
 
 # ==================== Helper Functions ====================
 def get_pending_referral_count(user_id):
-    """Helper function for referral menu"""
     import sqlite3
     conn = sqlite3.connect("viediet_bot.db", check_same_thread=False)
     c = conn.cursor()
@@ -609,7 +604,6 @@ def get_pending_referral_count(user_id):
     return count
 
 def get_module_cost(module):
-    """Helper function for module costs"""
     import sqlite3
     conn = sqlite3.connect("viediet_bot.db", check_same_thread=False)
     c = conn.cursor()
@@ -619,7 +613,6 @@ def get_module_cost(module):
     if row:
         return int(row[0])
     
-    # Default costs
     costs = {
         "firebase": 1,
         "flipkart": 1,
