@@ -1,5 +1,5 @@
 # menu.py - Complete Menu Functions for Viediet Bot
-# WITH SUPERCOIN FETCHER MODULE
+# ALL FEATURES WORKING WITH BACK BUTTONS
 
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton
 
@@ -15,6 +15,15 @@ def colored_button(text, callback_data, style="default", emoji_id=None):
     if emoji_id:
         button.icon_custom_emoji_id = emoji_id
     return button
+
+# ==================== BACK BUTTON HELPER ====================
+def back_button():
+    """Returns a standardized back button row"""
+    return [colored_button("🔙 Back to Menu", "back_menu", "default")]
+
+def back_button_specific(module):
+    """Returns a back button to specific module"""
+    return [colored_button(f"🔙 Back", f"back_{module}", "default")]
 
 # ==================== MAIN MENU ====================
 def main_menu_text(user_id, first_name, balance, status):
@@ -32,9 +41,9 @@ def main_menu_text(user_id, first_name, balance, status):
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 <b>⚡ Quick Actions:</b>
-• Click <b>✨ Start Workflow</b> to access all modules
-• Check <b>📊 Total Stats</b> for your usage
+• Click any module button below
 • Share <b>🔗 Bot Refer Link</b> to earn credits
+• Check <b>📊 Stats</b> for your usage
 
 <b>💡 Pro Tip:</b> Each module costs credits.
 Earn free credits by referring friends!
@@ -45,37 +54,41 @@ Earn free credits by referring friends!
 def main_menu_keyboard(is_admin=False):
     kb = InlineKeyboardMarkup(row_width=2)
 
-    # Main modules with colors
+    # Row 1
     kb.row(
-        colored_button("🔥 Firebase Extractor", "module_firebase", "primary"),
+        colored_button("🔥 Firebase", "module_firebase", "primary"),
         colored_button("📧 Temp Mail", "module_temp", "success")
     )
+    # Row 2
     kb.row(
-        colored_button("🛒 Flipkart Checker", "module_flipkart", "danger"),
-        colored_button("📸 Instagram Downloader", "module_instagram", "primary")
+        colored_button("🛒 Flipkart", "module_flipkart", "danger"),
+        colored_button("📸 Instagram", "module_instagram", "primary")
     )
+    # Row 3
     kb.row(
         colored_button("👁️ IG Viewer", "module_igviewer", "success"),
-        colored_button("🎵 Music Downloader", "module_music", "danger")
+        colored_button("🎵 Music", "module_music", "danger")
     )
+    # Row 4
     kb.row(
         colored_button("🛍️ Shopsy Mining", "module_shopsy", "primary"),
-        colored_button("💰 Supercoin Fetcher", "module_supercoin", "success")
+        colored_button("💰 Supercoin", "module_supercoin", "success")
     )
+    # Row 5
     kb.row(
         colored_button("🧘 Yoga Referral", "module_yoga", "danger"),
-        colored_button("🔗 Referral System", "module_referral", "primary")
+        colored_button("🔗 Referral", "module_referral", "primary")
+    )
+    # Row 6
+    kb.row(
+        colored_button("📊 Stats", "module_stats", "success")
     )
 
+    # Admin row
     if is_admin:
         kb.row(colored_button("👑 Admin Panel", "module_admin", "primary"))
 
     return kb
-
-# ==================== BACK BUTTON HELPER ====================
-def back_button():
-    """Returns a standardized back button row"""
-    return [colored_button("🔙 Back to Menu", "back_menu", "default")]
 
 # ==================== FIREBASE MENU ====================
 def firebase_menu_text(user_id, balance, status, cost):
@@ -241,23 +254,23 @@ def igviewer_menu_text(user_id, balance, status, cost):
 ║      👁️ IG VIEWER              ║
 ╚══════════════════════════════════╝
 
-<b>📋 Module:</b> Instagram Profile Viewer
+<b>📋 Module:</b> Instagram Story Viewer
 <b>💰 Cost:</b> <code>{cost}</code> Credits
 <b>💳 Balance:</b> <code>{balance}</code> Credits
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 <b>📌 What it does:</b>
-View Instagram profiles anonymously
+View Instagram stories anonymously
+• 📸 View active stories
 • 👤 Profile information
-• 📸 Post previews
 • 📊 Engagement stats
-• 🔍 Story viewer
+• 🔍 No login required
 
 <b>📤 How to use:</b>
-1. Click <b>👤 View Profile</b>
+1. Click <b>👤 View Stories</b>
 2. Enter username
-3. Get full profile data
+3. Get stories instantly
 
 <b>⚠️ Note:</b>
 Works for public profiles only!
@@ -265,7 +278,7 @@ Works for public profiles only!
 
 def igviewer_menu_keyboard():
     kb = InlineKeyboardMarkup(row_width=1)
-    kb.row(colored_button("👤 View Profile", "igviewer_view", "primary"))
+    kb.row(colored_button("👤 View Stories", "igviewer_view", "primary"))
     kb.row(*back_button())
     return kb
 
@@ -288,9 +301,10 @@ Download high-quality MP3 songs
 • 📥 Direct download
 
 <b>📤 How to use:</b>
-1. Send song or artist name
-2. Select from search results
-3. Download MP3 instantly
+1. Click <b>🎵 Search Song</b>
+2. Send song or artist name
+3. Select from search results
+4. Download MP3 instantly
 
 <b>🎶 Supported:</b>
 • Hindi songs
@@ -304,51 +318,6 @@ Download high-quality MP3 songs
 def music_menu_keyboard():
     kb = InlineKeyboardMarkup(row_width=1)
     kb.row(colored_button("🎵 Search Song", "music_search", "success"))
-    kb.row(*back_button())
-    return kb
-
-# ==================== SUPERCOIN FETCHER MENU ====================
-def supercoin_menu_text(user_id, balance, status, cost):
-    return f"""
-╔══════════════════════════════════╗
-║     💰 SUPERCOIN FETCHER        ║
-╚══════════════════════════════════╝
-
-<b>📋 Module:</b> Shopsy Supercoin Extractor
-<b>💰 Cost:</b> <code>{cost}</code> Credits
-<b>💳 Balance:</b> <code>{balance}</code> Credits
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-<b>📌 What it does:</b>
-Extract Supercoin balance from Shopsy accounts
-• 📱 Login with OTP
-• 💰 Get exact Supercoin balance
-• 📊 View daily/weekly earnings
-• 👤 Profile information
-
-<b>📤 How to use:</b>
-1. Click <b>🚀 Check Coins</b>
-2. Enter 10-digit phone number
-3. Enter OTP received
-4. Get Supercoin balance instantly!
-
-<b>📊 What you get:</b>
-• 🪙 Total Supercoins
-• 📈 Daily coins
-• 📊 Weekly coins
-• 👤 Account name
-• 🛒 Total orders
-
-<b>💡 Tip:</b> Perfect for checking your Shopsy rewards!
-"""
-
-def supercoin_menu_keyboard():
-    kb = InlineKeyboardMarkup(row_width=2)
-    kb.row(
-        colored_button("🚀 Check Coins", "supercoin_start", "success"),
-        colored_button("📊 Stats", "supercoin_stats", "primary")
-    )
     kb.row(*back_button())
     return kb
 
@@ -395,6 +364,48 @@ def shopsy_menu_keyboard():
     )
     kb.row(
         colored_button("🚪 Logout", "shopsy_logout", "danger")
+    )
+    kb.row(*back_button())
+    return kb
+
+# ==================== SUPERCOIN MENU ====================
+def supercoin_menu_text(user_id, balance, status, cost):
+    return f"""
+╔══════════════════════════════════╗
+║     💰 SUPERCOIN FETCHER        ║
+╚══════════════════════════════════╝
+
+<b>📋 Module:</b> Supercoin Extractor
+<b>💰 Cost:</b> <code>{cost}</code> Credits
+<b>💳 Balance:</b> <code>{balance}</code> Credits
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+<b>📌 What it does:</b>
+Fetch Supercoin balance from Shopsy
+• 📱 Login with OTP
+• 💰 Get exact Supercoin balance
+• 📊 View daily/weekly earnings
+
+<b>📤 How to use:</b>
+1. Click <b>💰 Check Coins</b>
+2. Enter 10-digit phone number
+3. Enter OTP received
+4. Get Supercoin balance!
+
+<b>📊 What you get:</b>
+• 🪙 Total Supercoins
+• 📈 Daily coins
+• 📊 Weekly coins
+
+<b>💡 Tip:</b> Perfect for checking rewards!
+"""
+
+def supercoin_menu_keyboard():
+    kb = InlineKeyboardMarkup(row_width=2)
+    kb.row(
+        colored_button("💰 Check Coins", "supercoin_start", "success"),
+        colored_button("📊 Stats", "supercoin_stats", "primary")
     )
     kb.row(*back_button())
     return kb
@@ -578,7 +589,7 @@ def help_menu_text():
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 """
 
-# ==================== Helper Functions ====================
+# ==================== HELPER FUNCTIONS ====================
 def get_pending_referral_count(user_id):
     """Helper function for referral menu"""
     import sqlite3
@@ -599,4 +610,4 @@ def get_module_cost(module):
     conn.close()
     if row:
         return int(row[0])
-    return 1  # Default cost
+    return 1
