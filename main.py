@@ -152,7 +152,7 @@ YOGA_REFER_REWARD = 4
 YOGA_WELCOME_BONUS = 2
 
 DEFAULT_COSTS = {
-    "firebase": 2, "flipkart": 1, "instagram_single": 1, "instagram_bulk": 1,
+    "firebase": 1, "flipkart": 1, "instagram_single": 1, "instagram_bulk": 1,
     "shopsy": 1, "yoga": 1, "igviewer": 1, "supercoin": 1,
 }
 
