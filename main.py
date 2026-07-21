@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-# NRTECNO SYSTEM - FIREBASE EXTRACTOR ONLY
+# NRTECNO SYSTEM - FIREBASE EXTRACTOR - FULLY FIXED
 
 import os
 import logging
@@ -21,30 +21,6 @@ import uuid
 from datetime import datetime, timedelta
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 
-# ==================== IMPORT MENU ====================
-try:
-    from menu import (
-        main_menu_text, main_menu_keyboard,
-        firebase_menu_text, firebase_menu_keyboard,
-        back_button
-    )
-except ImportError:
-    def main_menu_text(u, f, b, s): return f"Welcome {f}! Balance: {b}"
-    def main_menu_keyboard(a=False): 
-        kb = InlineKeyboardMarkup(row_width=1)
-        kb.row(InlineKeyboardButton("📊 Stats", callback_data="module_stats"))
-        return kb
-    def firebase_menu_text(*a,**k): return "Firebase Module"
-    def firebase_menu_keyboard(): 
-        kb = InlineKeyboardMarkup(row_width=2)
-        kb.row(InlineKeyboardButton("📤 Send APK", callback_data="firebase_send"))
-        kb.row(InlineKeyboardButton("🔙 Back", callback_data="back_menu"))
-        return kb
-    def back_button():
-        kb = InlineKeyboardMarkup()
-        kb.row(InlineKeyboardButton("🔙 Back to Menu", callback_data="back_menu"))
-        return kb
-
 # ==================== CONFIG ====================
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 if not BOT_TOKEN:
@@ -54,10 +30,7 @@ if not BOT_TOKEN:
 ADMIN_ID = int(os.environ.get("ADMIN_ID", 1364476174))
 CHANNEL_USERNAME = "viedietlooters"
 NEW_USER_BONUS = 5
-
-DEFAULT_COSTS = {
-    "firebase": 2,
-}
+FIREBASE_COST = 2
 
 logging.basicConfig(
     level=logging.INFO,
@@ -83,10 +56,6 @@ def init_db():
         last_used TEXT,
         referred_by INTEGER DEFAULT NULL,
         referral_code TEXT UNIQUE
-    )''')
-    c.execute('''CREATE TABLE IF NOT EXISTS config (
-        key TEXT PRIMARY KEY,
-        value TEXT
     )''')
     c.execute('''CREATE TABLE IF NOT EXISTS usage_logs (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -150,27 +119,6 @@ def log_usage(user_id, module, details=""):
     conn.commit()
     conn.close()
 
-def get_config(key, default=None):
-    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
-    c = conn.cursor()
-    c.execute('SELECT value FROM config WHERE key = ?', (key,))
-    row = c.fetchone()
-    conn.close()
-    return row[0] if row else default
-
-def set_config(key, value):
-    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
-    c = conn.cursor()
-    c.execute('REPLACE INTO config (key, value) VALUES (?, ?)', (key, value))
-    conn.commit()
-    conn.close()
-
-def get_module_cost(module):
-    cost = get_config(f"{module}_cost")
-    if cost:
-        return int(cost)
-    return DEFAULT_COSTS.get(module, 1)
-
 # ==================== MEMBERSHIP ====================
 def is_channel_member(user_id):
     try:
@@ -179,13 +127,86 @@ def is_channel_member(user_id):
     except:
         return False
 
-def check_membership(user_id):
-    return is_channel_member(user_id)
-
 # ==================== GLOBAL STATES ====================
 user_firebase_state = {}
 
-# ==================== FIREBASE EXTRACTOR FUNCTIONS (from apkexx.py) ====================
+# ==================== MAIN MENU ====================
+def main_menu_text(user_id, first_name, balance, status):
+    return f"""
+╔══════════════════════════════════╗
+║     🚀 VIEDIET UTILITY BOT      ║
+╚══════════════════════════════════╝
+
+👋 Welcome back, <b>{first_name}</b>!
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+💰 <b>Balance:</b> <code>{balance}</code> Credits
+👤 <b>User ID:</b> <code>{user_id}</code>
+📊 <b>Status:</b> {status}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+<b>⚡ Available Module:</b>
+• 🔥 Firebase Extractor - Extract credentials from APK
+
+<b>💡 Pro Tip:</b> Earn free credits by referring friends!
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+<i>Made with ❤️ by @viedietextraa</i>
+"""
+
+def main_menu_keyboard(is_admin=False):
+    kb = InlineKeyboardMarkup(row_width=1)
+    kb.row(InlineKeyboardButton("🔥 Firebase Extractor", callback_data="module_firebase"))
+    kb.row(InlineKeyboardButton("📊 Stats", callback_data="module_stats"))
+    if is_admin:
+        kb.row(InlineKeyboardButton("👑 Admin", callback_data="module_admin"))
+    return kb
+
+def firebase_menu_text(user_id, balance, status, cost):
+    return f"""
+╔══════════════════════════════════╗
+║     🔥 FIREBASE EXTRACTOR       ║
+╚══════════════════════════════════╝
+
+<b>📋 Module:</b> Firebase Extractor
+<b>💰 Cost:</b> <code>{cost}</code> Credits
+<b>💳 Balance:</b> <code>{balance}</code> Credits
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+<b>📌 What it does:</b>
+Extracts sensitive data from APK files:
+• 🔥 Firebase URLs & Database endpoints
+• 🔑 API Keys (Google, Firebase, etc.)
+• 🔐 Secrets & Tokens
+• 📦 Storage Buckets
+• 📄 JSON Endpoints
+
+<b>📤 How to use:</b>
+1. Click <b>📤 Send APK</b>
+2. Upload your APK file
+3. Wait for analysis (30-60 sec)
+4. Get extracted credentials
+
+<b>⚠️ Warning:</b>
+Only use on APKs you own!
+"""
+
+def firebase_menu_keyboard():
+    kb = InlineKeyboardMarkup(row_width=2)
+    kb.row(
+        InlineKeyboardButton("📤 Send APK", callback_data="firebase_send"),
+        InlineKeyboardButton("🗑️ Remove APK", callback_data="firebase_remove")
+    )
+    kb.row(InlineKeyboardButton("🔙 Back to Menu", callback_data="back_menu"))
+    return kb
+
+def back_button():
+    kb = InlineKeyboardMarkup()
+    kb.row(InlineKeyboardButton("🔙 Back to Menu", callback_data="back_menu"))
+    return kb
+
+# ==================== FIREBASE EXTRACTOR FUNCTIONS ====================
 def get_md5(file_path):
     hash_md5 = hashlib.md5()
     with open(file_path, "rb") as f:
@@ -383,7 +404,7 @@ def start_cmd(message):
     if not existing:
         create_user(user_id, username, first_name)
     
-    if not check_membership(user_id):
+    if not is_channel_member(user_id):
         text = (
             f"🔐 <b>Access Denied</b> 😞!\n\n"
             f"You must join our channel to use this bot.\n\n"
@@ -406,7 +427,7 @@ def start_cmd(message):
 @bot.callback_query_handler(func=lambda call: call.data == "verify_membership")
 def verify_membership_callback(call):
     user_id = call.from_user.id
-    if check_membership(user_id):
+    if is_channel_member(user_id):
         bot.answer_callback_query(call.id, "✅ Verified! You can now use the bot.")
         user = call.from_user
         balance = get_user_balance(user_id)
@@ -424,7 +445,10 @@ def back_to_menu(call):
     balance = get_user_balance(user_id)
     is_admin = (user_id == ADMIN_ID)
     text = main_menu_text(user_id, user.first_name, balance, "ACTIVE")
-    bot.delete_message(call.message.chat.id, call.message.message_id)
+    try:
+        bot.delete_message(call.message.chat.id, call.message.message_id)
+    except:
+        pass
     bot.send_message(call.message.chat.id, text, reply_markup=main_menu_keyboard(is_admin), parse_mode="HTML")
     bot.answer_callback_query(call.id)
 
@@ -436,12 +460,14 @@ def handle_module_callback(call):
     balance = get_user_balance(user_id)
 
     if module == "firebase":
-        if not check_membership(user_id):
+        if not is_channel_member(user_id):
             bot.answer_callback_query(call.id, "❌ Please join channel first!", show_alert=True)
             return
-        cost = get_module_cost("firebase")
-        bot.delete_message(call.message.chat.id, call.message.message_id)
-        text = firebase_menu_text(user_id, balance, "ACTIVE", cost)
+        text = firebase_menu_text(user_id, balance, "ACTIVE", FIREBASE_COST)
+        try:
+            bot.delete_message(call.message.chat.id, call.message.message_id)
+        except:
+            pass
         bot.send_message(call.message.chat.id, text, reply_markup=firebase_menu_keyboard(), parse_mode="HTML")
         bot.answer_callback_query(call.id)
 
@@ -455,41 +481,48 @@ def handle_module_callback(call):
             show_alert=True
         )
 
+    elif module == "admin":
+        if user_id == ADMIN_ID:
+            bot.answer_callback_query(call.id, "👑 Admin panel coming soon!")
+        else:
+            bot.answer_callback_query(call.id, "⛔ Admin only!")
+
 # ==================== FIREBASE CALLBACKS ====================
 @bot.callback_query_handler(func=lambda call: call.data.startswith("firebase_"))
 def handle_firebase_callback(call):
     action = call.data.split("_")[1]
     user_id = call.from_user.id
-    chat_id = call.message.chat.id
-    msg_id = call.message.message_id
     balance = get_user_balance(user_id)
-    cost = get_module_cost("firebase")
 
     if action == "send":
-        if not check_membership(user_id):
+        if not is_channel_member(user_id):
             bot.answer_callback_query(call.id, "❌ Please join channel first!", show_alert=True)
             return
         
-        if balance < cost:
-            bot.answer_callback_query(call.id, f"❌ You need {cost} credits for Firebase analysis.", show_alert=True)
+        if balance < FIREBASE_COST:
+            bot.answer_callback_query(call.id, f"❌ You need {FIREBASE_COST} credits!", show_alert=True)
             return
         
         user_firebase_state[user_id] = True
         bot.answer_callback_query(call.id, "📤 Ready! Send your APK file.")
         
-        kb = InlineKeyboardMarkup()
+        kb = InlineKeyboardMarkup(row_width=1)
         kb.row(InlineKeyboardButton("❌ Cancel", callback_data="firebase_abort"))
         kb.row(InlineKeyboardButton("🔙 Back", callback_data="back_menu"))
         
-        bot.edit_message_text(
+        try:
+            bot.delete_message(call.message.chat.id, call.message.message_id)
+        except:
+            pass
+        
+        bot.send_message(
+            call.message.chat.id,
             f"📤 <b>Send APK</b>\n\n"
             f"Please upload your APK file.\n"
-            f"I will analyze it for Firebase credentials and other sensitive data.\n\n"
-            f"⏱️ Analysis may take 30-60 seconds.\n"
-            f"💰 Cost: {cost} Credits.\n\n"
+            f"I will analyze it for Firebase credentials.\n\n"
+            f"⏱️ Analysis: 30-60 seconds\n"
+            f"💰 Cost: {FIREBASE_COST} Credits\n\n"
             f"Send <b>/cancel</b> to abort.",
-            chat_id=chat_id,
-            message_id=msg_id,
             reply_markup=kb,
             parse_mode="HTML"
         )
@@ -497,33 +530,28 @@ def handle_firebase_callback(call):
     elif action == "remove":
         user_firebase_state[user_id] = False
         bot.answer_callback_query(call.id, "🗑️ Firebase session cleared.")
-        bot.edit_message_text(
-            "🗑️ <b>APK Removed</b>\n\n"
-            "Any pending APK upload has been cleared.\n"
-            "You can send a new APK anytime.",
-            chat_id=chat_id,
-            message_id=msg_id,
-            reply_markup=firebase_menu_keyboard(),
-            parse_mode="HTML"
-        )
+        text = firebase_menu_text(user_id, balance, "ACTIVE", FIREBASE_COST)
+        try:
+            bot.delete_message(call.message.chat.id, call.message.message_id)
+        except:
+            pass
+        bot.send_message(call.message.chat.id, text, reply_markup=firebase_menu_keyboard(), parse_mode="HTML")
 
     elif action == "abort":
         user_firebase_state[user_id] = False
         bot.answer_callback_query(call.id, "❌ Firebase extraction cancelled.")
-        bot.edit_message_text(
-            "❌ Firebase extraction cancelled.",
-            chat_id=chat_id,
-            message_id=msg_id,
-            reply_markup=firebase_menu_keyboard(),
-            parse_mode="HTML"
-        )
+        text = firebase_menu_text(user_id, balance, "ACTIVE", FIREBASE_COST)
+        try:
+            bot.delete_message(call.message.chat.id, call.message.message_id)
+        except:
+            pass
+        bot.send_message(call.message.chat.id, text, reply_markup=firebase_menu_keyboard(), parse_mode="HTML")
 
 # ==================== APK HANDLER ====================
 @bot.message_handler(content_types=['document'])
 def handle_apk(message):
     user_id = message.from_user.id
     
-    # Check if user is in Firebase mode
     if not user_firebase_state.get(user_id, False):
         bot.reply_to(message, "❌ Please click <b>Send APK</b> in the Firebase Extractor module first.", parse_mode="HTML")
         return
@@ -537,19 +565,18 @@ def handle_apk(message):
         bot.reply_to(message, "❌ Max file size: 50 MB.")
         return
 
-    cost = get_module_cost("firebase")
     balance = get_user_balance(user_id)
-    if balance < cost:
-        bot.reply_to(message, f"❌ Insufficient credits! You need {cost} credits. Your balance: {balance}")
+    if balance < FIREBASE_COST:
+        bot.reply_to(message, f"❌ Insufficient credits! Need {FIREBASE_COST} credits. Balance: {balance}")
         user_firebase_state[user_id] = False
         return
 
-    # Deduct credits
-    update_user_balance(user_id, -cost)
+    update_user_balance(user_id, -FIREBASE_COST)
     processing_msg = bot.reply_to(
         message, 
         "⏳ <b>Analyzing APK...</b>\n\n"
-        "🔍 Scanning for credentials (30-60 seconds)...",
+        "🔍 Scanning for credentials...\n"
+        "⏱️ This may take 30-60 seconds.",
         parse_mode="HTML"
     )
 
@@ -562,7 +589,6 @@ def handle_apk(message):
             f.write(downloaded_file)
         file_size = doc.file_size
 
-        # Analyze APK using functions from apkexx.py
         results, num_dex_strings = analyze_apk(tmp_path)
         reply = format_results(results, tmp_path, file_size, num_dex_strings)
         
@@ -580,8 +606,7 @@ def handle_apk(message):
         
     except Exception as e:
         logger.error(f"APK analysis error: {e}")
-        # Refund credits on error
-        update_user_balance(user_id, cost)
+        update_user_balance(user_id, FIREBASE_COST)
         bot.edit_message_text(
             f"❌ <b>Analysis failed!</b>\n\nError: {str(e)[:200]}",
             chat_id=message.chat.id,
@@ -597,7 +622,7 @@ def handle_apk(message):
                 pass
         user_firebase_state[user_id] = False
 
-# ==================== GET TOTAL USERS ====================
+# ==================== STATS FUNCTIONS ====================
 def get_total_users():
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
     c = conn.cursor()
@@ -628,7 +653,7 @@ def cancel_cmd(message):
     user_id = message.from_user.id
     if user_firebase_state.get(user_id):
         user_firebase_state[user_id] = False
-        bot.reply_to(message, "❌ Firebase upload cancelled.")
+        bot.reply_to(message, "❌ Firebase upload cancelled.", reply_markup=back_button())
     else:
         bot.reply_to(message, "No active operation to cancel.")
 
@@ -645,12 +670,6 @@ if __name__ == "__main__":
     
     try:
         bot.remove_webhook()
-        time.sleep(2)
-    except:
-        pass
-    
-    try:
-        bot.stop_polling()
         time.sleep(2)
     except:
         pass
