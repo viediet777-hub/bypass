@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-# VIEDIET UTILITY BOT - ALL FEATURES WORKING
+# VIEDIET UTILITY BOT - ALL FEATURES WORKING WITH PROXY
 
 import os
 import logging
@@ -27,54 +27,98 @@ from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 from curl_cffi import requests as cffi_requests
 
 # ==================== PROXY CONFIGURATION ====================
-from proxy_config import (
-    proxy_manager,
-    get_yoga_proxy_url,
-    get_shopsy_proxy_url,
-    get_flipkart_proxy_url,
-    get_proxy_dict
+class ProxyManager:
+    """Proxy manager for Yoga, Shopsy, and Flipkart services"""
+    
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._yoga_index = 0
+        
+        # Your proxy credentials
+        self.host = "dc.decodo.com"
+        self.user = "sptu9f11ur"
+        self.passwd = "0c_nm5z3eVm4jJEddL"
+        
+        # Proxy ports
+        self.yoga_ports = list(range(10001, 10011))  # 10001-10010
+        self.shopsy_ports = [10013, 10014]  # 10013-10014
+        self.flipkart_ports = [10011, 10012]  # 10011-10012
+        
+    def get_proxy_url(self, port):
+        """Convert to proxy URL format"""
+        return f"http://{self.user}:{self.passwd}@{self.host}:{port}"
+    
+    def get_proxy_dict(self, port):
+        """Get proxy dict for requests"""
+        return {
+            "http": self.get_proxy_url(port),
+            "https": self.get_proxy_url(port)
+        }
+    
+    # ==================== YOGA PROXIES ====================
+    def get_yoga_proxy(self):
+        """Get next Yoga proxy (round-robin)"""
+        with self._lock:
+            port = self.yoga_ports[self._yoga_index]
+            self._yoga_index = (self._yoga_index + 1) % len(self.yoga_ports)
+            return self.get_proxy_dict(port)
+    
+    def get_yoga_proxy_url(self):
+        """Get next Yoga proxy URL string"""
+        with self._lock:
+            port = self.yoga_ports[self._yoga_index]
+            self._yoga_index = (self._yoga_index + 1) % len(self.yoga_ports)
+            return self.get_proxy_url(port)
+    
+    # ==================== SHOPSY PROXIES ====================
+    def get_shopsy_proxy(self):
+        """Get random Shopsy proxy"""
+        port = random.choice(self.shopsy_ports)
+        return self.get_proxy_dict(port)
+    
+    def get_shopsy_proxy_url(self):
+        """Get random Shopsy proxy URL string"""
+        port = random.choice(self.shopsy_ports)
+        return self.get_proxy_url(port)
+    
+    # ==================== FLIPKART PROXIES ====================
+    def get_flipkart_proxy(self):
+        """Get random Flipkart proxy"""
+        port = random.choice(self.flipkart_ports)
+        return self.get_proxy_dict(port)
+    
+    def get_flipkart_proxy_url(self):
+        """Get random Flipkart proxy URL string"""
+        port = random.choice(self.flipkart_ports)
+        return self.get_proxy_url(port)
 
-)
+# Initialize proxy manager
+proxy_manager = ProxyManager()
+
+def get_yoga_proxy_url():
+    return proxy_manager.get_yoga_proxy_url()
+
+def get_shopsy_proxy_url():
+    return proxy_manager.get_shopsy_proxy_url()
+
+def get_flipkart_proxy_url():
+    return proxy_manager.get_flipkart_proxy_url()
+
+def get_proxy_dict(proxy_type="yoga"):
+    if proxy_type == "yoga":
+        return proxy_manager.get_yoga_proxy()
+    elif proxy_type == "shopsy":
+        return proxy_manager.get_shopsy_proxy()
+    elif proxy_type == "flipkart":
+        return proxy_manager.get_flipkart_proxy()
+    return None
+
 try:
     import yt_dlp
     YT_DLP_AVAILABLE = True
 except ImportError:
     YT_DLP_AVAILABLE = False
-    
-# ==================== PROXY MANAGER INIT ====================
-try:
-    from proxy_config import ProxyManager
-    proxy_manager = ProxyManager()
-    logger.info("✅ Proxy manager initialized")
-except ImportError:
-    proxy_manager = None
-    logger.warning("⚠️ Proxy manager not found - running without proxies")
 
-def get_yoga_proxy_url():
-    if proxy_manager:
-        return proxy_manager.get_yoga_proxy_url()
-    return None
-
-def get_shopsy_proxy_url():
-    if proxy_manager:
-        return proxy_manager.get_shopsy_proxy_url()
-    return None
-
-def get_flipkart_proxy_url():
-    if proxy_manager:
-        return proxy_manager.get_flipkart_proxy_url()
-    return None
-
-def get_proxy_dict(proxy_type="yoga"):
-    if proxy_manager:
-        if proxy_type == "yoga":
-            return proxy_manager.get_yoga_proxy()
-        elif proxy_type == "shopsy":
-            return proxy_manager.get_shopsy_proxy()
-        elif proxy_type == "flipkart":
-            return proxy_manager.get_flipkart_proxy()
-    return None
-    
 from menu import (
     main_menu_text, main_menu_keyboard,
     firebase_menu_text, firebase_menu_keyboard,
@@ -374,10 +418,12 @@ def get_yoga_refer_reward():
 def get_yoga_welcome_bonus():
     return get_config("yoga_welcome_bonus", YOGA_WELCOME_BONUS)
 
-# ==================== YOGA API ====================
+# ==================== YOGA API WITH PROXY ====================
 def yoga_api_post(url, payload, headers):
     try:
-        resp = requests.post(url, json=payload, headers=headers, timeout=30)
+        proxy_url = get_yoga_proxy_url()
+        proxies = {"http": proxy_url, "https": proxy_url} if proxy_url else None
+        resp = requests.post(url, json=payload, headers=headers, timeout=30, proxies=proxies)
         if resp.status_code in (200, 201):
             try: return resp.json(), None
             except: return None, "Invalid JSON response"
@@ -405,7 +451,9 @@ def yoga_send_otp(phone, did, sid):
             "sourceData": {"type": "portal", "utm_source": "web_app"},
             "experimentMetaInfo": {"deviceId": did, "sessionId": sid}, "registerUser": False,
         }
-        resp = requests.post(YOGA_LOGIN_URL, json=payload, headers=headers, timeout=30)
+        proxy_url = get_yoga_proxy_url()
+        proxies = {"http": proxy_url, "https": proxy_url} if proxy_url else None
+        resp = requests.post(YOGA_LOGIN_URL, json=payload, headers=headers, timeout=30, proxies=proxies)
         if resp.status_code in (200, 201):
             try:
                 j = resp.json()
@@ -494,7 +542,7 @@ def abort_kb(cancel_cb, back_cb):
     kb.row(InlineKeyboardButton("🔙 Back", callback_data=back_cb))
     return kb
 
-# ==================== SHOPSY API ====================
+# ==================== SHOPSY API WITH PROXY ====================
 def generate_ids():
     return uuid.uuid4().hex[:32], f"{uuid.uuid4().hex[:32]}-{int(time.time() * 1000)}", f"{uuid.uuid4()}_{int(time.time()*1000)}"
 
@@ -521,6 +569,7 @@ def sync_api_request(method, url_path, json_body, session_data, is_game=False):
     device_id = session_data.get("device_id") or uuid.uuid4().hex[:32]
     visit_id = session_data.get("visit_id") or f"{uuid.uuid4().hex[:32]}-{int(time.time() * 1000)}"
     app_sess = session_data.get("app_session_id") or f"{uuid.uuid4()}_{int(time.time()*1000)}"
+    
     if is_game:
         headers = {
             "x-user-agent": f"Mozilla/5.0 (Linux; Android 9; OPPO:CPH2083 Build/{device_id[:13]}) FKUA/Retail/2291170/Android/Mobile (OPPO/OPPO:CPH2083/{device_id})",
@@ -538,13 +587,21 @@ def sync_api_request(method, url_path, json_body, session_data, is_game=False):
         }
         for k in ["at", "sn", "secureToken"]:
             if session_data.get(k): headers[k] = session_data[k]
+    
     sess = cffi_requests.Session(impersonate="chrome110")
+    
+    # Get proxy for Shopsy
+    proxy_url = get_shopsy_proxy_url()
+    proxies = {"http": proxy_url, "https": proxy_url} if proxy_url else None
+    
     for attempt in range(1, 4):
         dc = session_data.get("current_dc", "1")
         url = f"https://{dc}.rome.api.flipkart.net{url_path}"
         try:
-            if method == "POST": resp = sess.post(url, json=json_body, headers=headers, timeout=30, verify=False)
-            else: resp = sess.get(url, headers=headers, timeout=30, verify=False)
+            if method == "POST":
+                resp = sess.post(url, json=json_body, headers=headers, timeout=30, verify=False, proxies=proxies)
+            else:
+                resp = sess.get(url, headers=headers, timeout=30, verify=False, proxies=proxies)
             try: resp_json = resp.json()
             except: resp_json = {}
             if resp.status_code == 406 and resp_json.get("ERROR_MESSAGE") == "DC Change":
@@ -784,13 +841,20 @@ def delete_temp_email(token):
         return resp.status_code in (200, 201, 204)
     except: return False
 
-# ==================== FLIPKART CHECKER ====================
+# ==================== FLIPKART CHECKER WITH PROXY ====================
 def check_flipkart_number(phone):
     try:
-        resp = requests.post("https://1.rome.api.flipkart.com/api/6/user/signup/status",
+        proxy_url = get_flipkart_proxy_url()
+        proxies = {"http": proxy_url, "https": proxy_url} if proxy_url else None
+        
+        resp = requests.post(
+            "https://1.rome.api.flipkart.com/api/6/user/signup/status",
             json={"loginId": phone, "loginIdPrefix": "+91"},
             headers={"Content-Type": "application/json", "User-Agent": "Mozilla/5.0 (Linux; Android 10; SM-G975F)",
-                "FK-TENANT-ID": "FLIPKART", "X-Request-Id": str(uuid.uuid4())}, timeout=15)
+                "FK-TENANT-ID": "FLIPKART", "X-Request-Id": str(uuid.uuid4())}, 
+            timeout=15,
+            proxies=proxies
+        )
         if resp.status_code == 200:
             d = resp.json()
             s = d.get("status", "UNKNOWN")
@@ -910,6 +974,7 @@ def shopsy_otp_handler(message):
             user_shopsy_state[uid] = None
             if uid in user_shopsy_otp_data: del user_shopsy_otp_data[uid]
     threading.Thread(target=thread).start()
+
 # ==================== SUPERCOIN HANDLERS ====================
 @bot.message_handler(func=lambda m: user_supercoin_state.get(m.from_user.id) == "waiting_supercoin_phone")
 def supercoin_phone_handler(message):
@@ -985,6 +1050,7 @@ def supercoin_otp_handler(message):
             user_supercoin_state[uid] = None
             if uid in user_supercoin_otp_data: del user_supercoin_otp_data[uid]
     threading.Thread(target=thread).start()
+
 # ==================== YOGA HANDLERS ====================
 @bot.message_handler(func=lambda m: user_yoga_state.get(m.from_user.id) == "waiting_yoga_phone")
 def yoga_phone_handler(message):
@@ -1078,6 +1144,7 @@ def yoga_otp_handler(message):
     def cleanup():
         if uid in user_yoga_otp_data: del user_yoga_otp_data[uid]
     threading.Thread(target=thread).start()
+
 # ==================== FLIPKART HANDLER ====================
 @bot.message_handler(func=lambda m: user_flipkart_state.get(m.from_user.id) == "waiting_flipkart_number")
 def flipkart_number_handler(message):
@@ -1187,6 +1254,7 @@ def instagram_bulk_handler(message):
             shutil.rmtree(tmpdir, ignore_errors=True)
             bot.edit_message_text(f"❌ Error: {str(e)[:200]}", chat_id=message.chat.id, message_id=sm.message_id, reply_markup=back_button())
     threading.Thread(target=thread).start()
+
 # ==================== IG VIEWER HANDLER ====================
 @bot.message_handler(func=lambda m: user_igviewer_state.get(m.from_user.id) == "waiting_igviewer_username")
 def igviewer_username_handler(message):
@@ -1320,6 +1388,7 @@ def firebase_apk_handler(message):
             shutil.rmtree(tmpdir, ignore_errors=True); update_user_balance(uid, cost)
             bot.edit_message_text(f"❌ Analysis failed: {str(e)[:200]}", chat_id=message.chat.id, message_id=sm.message_id, reply_markup=back_button())
     threading.Thread(target=thread).start()
+
 # ==================== CALLBACK QUERY HANDLER ====================
 @bot.callback_query_handler(func=lambda call: True)
 def callback_handler(call):
@@ -1456,6 +1525,7 @@ def callback_handler(call):
         conn.commit(); conn.close()
         bot.edit_message_text("🗑️ Email deleted!", chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=temp_menu_keyboard())
         bot.answer_callback_query(call.id); return
+
     # FLIPKART
     if data == "flipkart_check":
         user_flipkart_state[uid] = "waiting_flipkart_number"
@@ -1484,8 +1554,7 @@ def callback_handler(call):
         ab = InlineKeyboardMarkup(); ab.row(InlineKeyboardButton("❌ Abort", callback_data="instagram_abort")); ab.row(InlineKeyboardButton("🔙 Back", callback_data="back_menu"))
         bot.edit_message_text("📚 Bulk Download\n\nSend URLs (one per line):\n\nhttps://www.instagram.com/reel/abc/\nhttps://www.instagram.com/reel/xyz/\n\nSend /cancel to abort.",
             chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=ab)
-        bot.answer_callback_query(call.id); return
-    if data == "instagram_abort":
+        bot.answer_callback_query(call.id); return    if data == "instagram_abort":
         user_instagram_state[uid] = None
         bot.edit_message_text("❌ Instagram download cancelled.", chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=back_button())
         bot.answer_callback_query(call.id); return
@@ -1541,6 +1610,7 @@ def callback_handler(call):
                 shutil.rmtree(tmpdir, ignore_errors=True)
                 bot.edit_message_text(f"❌ Error: {str(ex)[:200]}", chat_id=call.message.chat.id, message_id=sm.message_id, reply_markup=back_button())
         threading.Thread(target=t).start(); bot.answer_callback_query(call.id); return
+
     # SHOPSY
     if data == "shopsy_start":
         if get_shopsy_login_status(uid):
@@ -1598,7 +1668,7 @@ def callback_handler(call):
         c = conn.cursor(); c.execute('SELECT COUNT(*), COALESCE(SUM(coins_earned),0), COALESCE(SUM(gems_earned),0), COALESCE(SUM(games_played),0) FROM shopsy_mining_history WHERE user_id = ?', (uid,))
         row = c.fetchone(); conn.close()
         txt = f"🛍️ Stats:\n📱 Phone: +91{phone if phone else 'N/A'}\n🪙 Balance: {get_shopsy_balance(uid)}\n🎮 Sessions: {row[0]}\n💎 Gems: {row[2]}\n🕹️ Games: {row[3]}" if row else f"🛍️ Stats:\n📱 Phone: +91{phone if phone else 'N/A'}\n🪙 Balance: {get_shopsy_balance(uid)}"
-        bot.answer_callback_query(call.id, txt, show_alert=True); bot.answer_callback_query(call.id); return
+        bot.answer_callback_query(call.id, txt, show_alert=True); return
 
     if data == "shopsy_logout":
         logout_shopsy_user(uid)
@@ -1713,6 +1783,7 @@ def callback_handler(call):
         bot.answer_callback_query(call.id); return
 
     bot.answer_callback_query(call.id)
+
 # ==================== ADMIN HANDLERS ====================
 def admin_add_coins_handler(message):
     uid = message.from_user.id
@@ -1808,7 +1879,8 @@ def start_command(message):
 # ==================== MAIN ====================
 if __name__ == "__main__":
     logger.info("🤖 Viediet Utility Bot starting...")
-    logger.info("✅ All features enabled")
+    logger.info("✅ All features enabled with proxy support")
+    logger.info("🔄 Yoga, Shopsy, Flipkart using proxy rotation")
     logger.info("💰 Credit refund on failure enabled")
     logger.info("🔄 Abort and Back buttons for all features")
     try: bot.remove_webhook()
