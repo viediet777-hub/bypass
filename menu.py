@@ -1,13 +1,22 @@
 # menu.py - Complete Menu Functions for Viediet Bot
+# ADDED: Slay Your Play Module
 
-from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
+from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton
 
-def colored_button(text, callback_data, style="default"):
+# ==================== COLORED BUTTON HELPER ====================
+def colored_button(text, callback_data, style="default", emoji_id=None):
+    """
+    Creates colored inline keyboard button using Telegram's style parameter
+    style: "primary" (blue), "danger" (red), "success" (green), or "default"
+    """
     button = InlineKeyboardButton(text, callback_data=callback_data)
     if style != "default":
         button.style = style
+    if emoji_id:
+        button.icon_custom_emoji_id = emoji_id
     return button
 
+# ==================== MAIN MENU ====================
 def main_menu_text(user_id, first_name, balance, status):
     return f"""
 ╔══════════════════════════════════╗
@@ -23,9 +32,9 @@ def main_menu_text(user_id, first_name, balance, status):
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 <b>⚡ Quick Actions:</b>
-• Click modules below to access features
-• Check <b>📊 Stats</b> for your usage
-• Share <b>🔗 Referral Link</b> to earn credits
+• Click <b>✨ Start Workflow</b> to access all modules
+• Check <b>📊 Total Stats</b> for your usage
+• Share <b>🔗 Bot Refer Link</b> to earn credits
 
 <b>💡 Pro Tip:</b> Each module costs credits.
 Earn free credits by referring friends!
@@ -35,13 +44,15 @@ Earn free credits by referring friends!
 
 def main_menu_keyboard(is_admin=False):
     kb = InlineKeyboardMarkup(row_width=2)
+
+    # Main modules with colors
     kb.row(
         colored_button("🔥 Firebase Extractor", "module_firebase", "primary"),
         colored_button("📧 Temp Mail", "module_temp", "success")
     )
     kb.row(
         colored_button("🛒 Flipkart Checker", "module_flipkart", "danger"),
-        colored_button("📸 Insta Downloader", "module_instagram", "primary")
+        colored_button("📸 Instagram Downloader", "module_instagram", "primary")
     )
     kb.row(
         colored_button("👁️ IG Viewer", "module_igviewer", "success"),
@@ -52,16 +63,73 @@ def main_menu_keyboard(is_admin=False):
         colored_button("🧘 Yoga Referral", "module_yoga", "success")
     )
     kb.row(
-        colored_button("⭐ Supercoin Fetcher", "module_supercoin", "danger"),
-        colored_button("🔗 Referral System", "module_referral", "primary")
+        colored_button("🔗 Referral System", "module_referral", "danger"),
+        colored_button("🎮 Slay Your Play", "module_slay", "primary")
     )
+
     if is_admin:
         kb.row(colored_button("👑 Admin Panel", "module_admin", "primary"))
+
     return kb
 
+# ==================== BACK BUTTON HELPER ====================
 def back_button():
+    """Returns a standardized back button row"""
     return [colored_button("🔙 Back to Menu", "back_menu", "default")]
 
+# ==================== SLAY YOUR PLAY MENU ====================
+def slay_menu_text(user_id, balance, status, cost, has_session=False):
+    session_status = "✅ Active" if has_session else "❌ Not Active"
+    return f"""
+╔══════════════════════════════════╗
+║     🎮 SLAY YOUR PLAY           ║
+╚══════════════════════════════════╝
+
+<b>📋 Module:</b> Slay Your Play Code Tester
+<b>💰 Cost:</b> <code>{cost}</code> Credits per scan
+<b>💳 Balance:</b> <code>{balance}</code> Credits
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+<b>📌 What it does:</b>
+Tests random 12-digit codes on SlayYourPlay
+• 🔍 Automated code testing
+• 🎯 Finds valid promo codes
+• 💰 Auto-submit reward
+• 🛑 Auto-stop on valid code
+
+<b>📊 Status:</b> {session_status}
+
+<b>📤 How to use:</b>
+1. Click <b>🎮 Start Scan</b>
+2. Enter 10-digit mobile number
+3. Enter OTP received
+4. Auto-scan starts
+5. Stops when valid code found!
+
+<b>⚡ Features:</b>
+• 1 credit = 1 scan
+• Auto-stop on valid code
+• Proxy support
+• Real-time updates
+
+<b>💡 Tip:</b> Make sure you have proxy file!
+"""
+
+def slay_menu_keyboard():
+    kb = InlineKeyboardMarkup(row_width=2)
+    kb.row(
+        colored_button("🎮 Start Scan", "slay_start", "success"),
+        colored_button("📊 Status", "slay_status", "primary")
+    )
+    kb.row(
+        colored_button("🔄 Refresh Session", "slay_refresh", "primary"),
+        colored_button("🚪 Logout", "slay_logout", "danger")
+    )
+    kb.row(*back_button())
+    return kb
+
+# ==================== FIREBASE MENU ====================
 def firebase_menu_text(user_id, balance, status, cost):
     return f"""
 ╔══════════════════════════════════╗
@@ -96,11 +164,12 @@ def firebase_menu_keyboard():
     kb = InlineKeyboardMarkup(row_width=2)
     kb.row(
         colored_button("📤 Send APK", "firebase_send", "primary"),
-        colored_button("🗑️ Cancel", "firebase_remove", "danger")
+        colored_button("🗑️ Remove APK", "firebase_remove", "danger")
     )
     kb.row(*back_button())
     return kb
 
+# ==================== TEMP MAIL MENU ====================
 def temp_menu_text(user_id):
     return f"""
 ╔══════════════════════════════════╗
@@ -136,11 +205,12 @@ def temp_menu_keyboard():
     )
     kb.row(
         colored_button("🔑 Get OTP", "temp_otp", "danger"),
-        colored_button("🗑️ Delete", "temp_delete", "danger")
+        colored_button("🗑️ Delete Email", "temp_delete", "danger")
     )
     kb.row(*back_button())
     return kb
 
+# ==================== FLIPKART MENU ====================
 def flipkart_menu_text(user_id, balance, status, cost):
     return f"""
 ╔══════════════════════════════════╗
@@ -178,6 +248,7 @@ def flipkart_menu_keyboard():
     kb.row(*back_button())
     return kb
 
+# ==================== INSTAGRAM MENU ====================
 def instagram_menu_text(user_id, balance, status, cost):
     return f"""
 ╔══════════════════════════════════╗
@@ -215,6 +286,7 @@ def instagram_menu_keyboard():
     kb.row(*back_button())
     return kb
 
+# ==================== IG VIEWER MENU ====================
 def igviewer_menu_text(user_id, balance, status, cost):
     return f"""
 ╔══════════════════════════════════╗
@@ -223,7 +295,7 @@ def igviewer_menu_text(user_id, balance, status, cost):
 
 <b>📋 Module:</b> Instagram Profile Viewer
 <b>💰 Cost:</b> <code>{cost}</code> Credits
-<b>💳 Balance:</code> <code>{balance}</code> Credits
+<b>💳 Balance:</b> <code>{balance}</code> Credits
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -249,6 +321,7 @@ def igviewer_menu_keyboard():
     kb.row(*back_button())
     return kb
 
+# ==================== MUSIC MENU ====================
 def music_menu_text(user_id):
     return f"""
 ╔══════════════════════════════════╗
@@ -267,14 +340,15 @@ Download high-quality MP3 songs
 • 📥 Direct download
 
 <b>📤 How to use:</b>
-1. Click <b>🎵 Search Song</b>
-2. Send song or artist name
-3. Select from search results
-4. Download MP3 instantly
+1. Send song or artist name
+2. Select from search results
+3. Download MP3 instantly
 
 <b>🎶 Supported:</b>
-• Hindi songs • English songs
-• Regional songs • All genres
+• Hindi songs
+• English songs
+• Regional songs
+• All genres
 
 <b>💡 Tip:</b> Unlimited free downloads!
 """
@@ -285,6 +359,7 @@ def music_menu_keyboard():
     kb.row(*back_button())
     return kb
 
+# ==================== SHOPSY MENU ====================
 def shopsy_menu_text(user_id, balance, status, shopsy_balance, is_logged_in):
     login_status = "✅ Logged In" if is_logged_in else "❌ Not Logged In"
     return f"""
@@ -293,7 +368,7 @@ def shopsy_menu_text(user_id, balance, status, shopsy_balance, is_logged_in):
 ╚══════════════════════════════════╝
 
 <b>📋 Module:</b> Shopsy Auto-Mining
-<b>💰 Cost:</b> 1 Credit
+<b>💰 Cost:</b> <code>{get_module_cost('shopsy')}</code> Credits
 <b>💳 Balance:</b> <code>{balance}</code> Credits
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -331,40 +406,7 @@ def shopsy_menu_keyboard():
     kb.row(*back_button())
     return kb
 
-def supercoin_menu_text(user_id, balance, status, cost):
-    return f"""
-╔══════════════════════════════════╗
-║      ⭐ SUPERCOIN FETCHER       ║
-╚══════════════════════════════════╝
-
-<b>📋 Module:</b> Supercoin Fetcher
-<b>💰 Cost:</b> <code>{cost}</code> Credits
-<b>💳 Balance:</b> <code>{balance}</code> Credits
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-<b>📌 What it does:</b>
-Fetch Supercoin balance from Shopsy
-• 💰 Check your Supercoin balance
-• 📊 Daily & weekly earnings
-• 🔐 Login via OTP
-
-<b>📤 How to use:</b>
-1. Click <b>⭐ Fetch Balance</b>
-2. Enter 10-digit phone number
-3. Enter OTP received
-4. Get your Supercoin balance!
-
-<b>💡 Tip:</b>
-Link your Shopsy account to track earnings!
-"""
-
-def supercoin_menu_keyboard():
-    kb = InlineKeyboardMarkup(row_width=1)
-    kb.row(colored_button("⭐ Fetch Balance", "supercoin_start", "primary"))
-    kb.row(*back_button())
-    return kb
-
+# ==================== YOGA MENU ====================
 def yoga_menu_text(user_id, balance, status, yoga_code, reward, cost):
     code_display = f"`{yoga_code}`" if yoga_code else "❌ Not Set"
     return f"""
@@ -411,7 +453,8 @@ def yoga_menu_keyboard():
     kb.row(*back_button())
     return kb
 
-def referral_menu_text(user_id, balance, referral_count, pending_count):
+# ==================== REFERRAL MENU ====================
+def referral_menu_text(user_id, balance, referral_count):
     return f"""
 ╔══════════════════════════════════╗
 ║      🔗 REFERRAL SYSTEM         ║
@@ -426,11 +469,11 @@ def referral_menu_text(user_id, balance, referral_count, pending_count):
 • Share your referral link
 • Friends join via your link
 • They stay 24 hours
-• You earn <b>+3 Credits</b>!
+• You earn <b>+{3} Credits</b>!
 
 <b>📊 Your Stats:</b>
 👥 <b>Referrals:</b> <code>{referral_count}</code>
-⏳ <b>Pending:</b> <code>{pending_count}</code>
+⏳ <b>Pending:</b> <code>{get_pending_referral_count(user_id)}</code>
 💰 <b>Bonus per referral:</b> <code>+3 Credits</code>
 
 <b>🎁 Friend gets:</b> <b>+5 Credits</b> on joining!
@@ -451,6 +494,7 @@ def referral_menu_keyboard():
     kb.row(*back_button())
     return kb
 
+# ==================== ADMIN MENU ====================
 def admin_panel_text():
     return f"""
 ╔══════════════════════════════════╗
@@ -501,6 +545,7 @@ def admin_panel_keyboard():
     kb.row(*back_button())
     return kb
 
+# ==================== HELP MENU ====================
 def help_menu_text():
     return """
 ╔══════════════════════════════════╗
@@ -535,12 +580,14 @@ def help_menu_text():
 • Music Downloader
 • Shopsy Mining
 • Yoga Referral
-• Supercoin Fetcher
+• Slay Your Play
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 """
 
+# ==================== Helper Functions ====================
 def get_pending_referral_count(user_id):
+    """Helper function for referral menu"""
     import sqlite3
     conn = sqlite3.connect("viediet_bot.db", check_same_thread=False)
     c = conn.cursor()
@@ -550,6 +597,7 @@ def get_pending_referral_count(user_id):
     return count
 
 def get_module_cost(module):
+    """Helper function for module costs"""
     import sqlite3
     conn = sqlite3.connect("viediet_bot.db", check_same_thread=False)
     c = conn.cursor()
@@ -558,4 +606,16 @@ def get_module_cost(module):
     conn.close()
     if row:
         return int(row[0])
-    return 1
+    
+    # Default costs
+    costs = {
+        "firebase": 1,
+        "flipkart": 1,
+        "instagram_single": 1,
+        "instagram_bulk": 1,
+        "shopsy": 1,
+        "yoga": 1,
+        "igviewer": 1,
+        "slay": 1
+    }
+    return costs.get(module, 1)
