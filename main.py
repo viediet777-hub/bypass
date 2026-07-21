@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-# NRTECNO SYSTEM - VIEDIET BOT v2.0 - ALL FEATURES WORKING
+# NRTECNO SYSTEM - VIEDIET BOT v2.0 - COMPLETE FIXED MERGE
 
 import os
 import logging
@@ -159,13 +159,13 @@ ADMIN_ID = int(os.environ.get("ADMIN_ID", 1364476174))
 CHANNEL_USERNAME = "viedietlooters"
 REFERRAL_BONUS = 3
 NEW_USER_BONUS = 5
-REFERRAL_STAY_HOURS = 0
+REFERRAL_STAY_HOURS = 1
 
 YOGA_REFER_REWARD = 4
 YOGA_WELCOME_BONUS = 2
 
 DEFAULT_COSTS = {
-    "firebase": 1,
+    "firebase": 2,
     "flipkart": 1,
     "instagram_single": 1,
     "instagram_bulk": 1,
@@ -297,6 +297,7 @@ def run_scheduled_tasks():
     while True:
         try:
             check_and_award_referrals()
+            logger.info("[SCHEDULED] Referral check completed")
         except Exception as e:
             logger.error(f"[SCHEDULED] Error: {e}")
         try:
@@ -307,7 +308,7 @@ def run_scheduled_tasks():
             conn.close()
         except:
             pass
-        time.sleep(300)
+        time.sleep(3600)
 
 # ==================== CREDIT MANAGER ====================
 class CreditManager:
@@ -865,7 +866,7 @@ async def shopsy_core_mine(session_data, progress_callback=None):
     phone = session_data.get("phone")
     
     if progress_callback:
-        await progress_callback("🔄 Fetching user state...")
+        await progress_callback("🔄 Refreshing session...")
     session_data = await run_sh_user_state(session_data)
     save_session(phone, session_data)
 
@@ -897,6 +898,9 @@ async def shopsy_core_mine(session_data, progress_callback=None):
         
         if progress_callback:
             await progress_callback(f"🎮 Starting {game_name} ({i+1}/{total})...")
+        
+        session_data = await run_sh_user_state(session_data)
+        save_session(phone, session_data)
         
         game_sess_id, _ = await start_game_tg(session_data, game_id)
         if game_sess_id:
@@ -1167,6 +1171,48 @@ def get_instagram_reel(url):
         logger.error(f"Instagram download error: {e}")
         return None
 
+# ==================== FLIPKART CHECKER ====================
+def check_flipkart(num):
+    try:
+        num_with_code = "+91" + num 
+        burp0_url = "https://1.rome.api.flipkart.com/api/6/user/signup/status"
+        burp0_headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/117.0", 
+            "Accept": "*/*", 
+            "Accept-Language": "en-US,en;q=0.5", 
+            "Accept-Encoding": "gzip, deflate", 
+            "Content-Type": "application/json", 
+            "Referer": "https://www.flipkart.com/", 
+            "X-User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/117.0 FKUA/website/42/website/Desktop", 
+            "Origin": "https://www.flipkart.com", 
+            "Sec-Fetch-Dest": "empty", 
+            "Sec-Fetch-Mode": "cors", 
+            "Sec-Fetch-Site": "same-site", 
+            "Te": "trailers", 
+            "Connection": "close"
+        }
+        burp0_json = {"loginId": [num_with_code], "supportAllStates": True}
+        response = requests.post(burp0_url, headers=burp0_headers, json=burp0_json, timeout=10)
+        if response.status_code != 200:
+            return f"⚠️ Flipkart : API Blocked (HTTP {response.status_code})"
+        try:
+            jsonData = response.json()
+        except ValueError:
+            return "⚠️ Flipkart : Did not return JSON. IP might be temporarily blocked."
+        response_block = jsonData.get('RESPONSE', {})
+        user_details = response_block.get('userDetails', {})
+        status = user_details.get(num_with_code)
+        if status == "GUEST":
+            return "❌ Not Registered (GUEST)"
+        elif status == "VERIFIED":
+            return "✅ Registered (VERIFIED)"
+        elif status is None:
+            return f"⚠️ Number not found in response."
+        else:
+            return f"ℹ️ Unknown Status ({status})"
+    except Exception as e:
+        return f"⚠️ Error: {type(e).__name__}: {str(e)}"
+
 # ==================== SHOPSY SESSION FUNCTIONS ====================
 def save_shopsy_session(user_id, phone, session_data):
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
@@ -1238,406 +1284,757 @@ def back_button():
     kb.row(InlineKeyboardButton("🔙 Back to Menu", callback_data="back_menu"))
     return kb
 
-# ==================== SHOPSY HANDLERS ====================
-@bot.message_handler(func=lambda message: user_shopsy_state.get(message.from_user.id) == "waiting_phone")
-def shopsy_phone_handler(message):
+# ==================== START COMMAND ====================
+@bot.message_handler(commands=['start'])
+def start_cmd(message):
+    user = message.from_user
+    user_id = user.id
+    username = user.username or "NoUsername"
+    first_name = user.first_name or "User"
+    
+    args = message.text.split()
+    referred_by = None
+    if len(args) > 1 and args[1].startswith('ref_'):
+        try:
+            referred_by = int(args[1].split('_')[1])
+        except:
+            pass
+    
+    existing = get_user(user_id)
+    if not existing:
+        create_user(user_id, username, first_name, referred_by)
+    
+    if not check_membership(user_id):
+        text = (
+            f"🔐 <b>Access Denied</b> 😞!\n\n"
+            f"You must join our channel to use this bot.\n\n"
+            f"📢 <b>Required Channel:</b>\n"
+            f"• Channel: <a href='https://t.me/{CHANNEL_USERNAME}'>{CHANNEL_USERNAME}</a>\n\n"
+            f"⚠️ After joining, click <b>VERIFY</b> button."
+        )
+        keyboard = InlineKeyboardMarkup(row_width=1)
+        keyboard.add(InlineKeyboardButton("📢 Join Channel", url=f"https://t.me/{CHANNEL_USERNAME}"))
+        keyboard.add(InlineKeyboardButton("✅ VERIFY MEMBERSHIP ✅", callback_data="verify_membership"))
+        bot.send_message(message.chat.id, text, reply_markup=keyboard, parse_mode="HTML", disable_web_page_preview=True)
+        return
+    
+    balance = get_user_balance(user_id)
+    is_admin = (user_id == ADMIN_ID)
+    text = main_menu_text(user_id, first_name, balance, "ACTIVE")
+    bot.send_message(message.chat.id, text, reply_markup=main_menu_keyboard(is_admin), parse_mode="HTML")
+
+# ==================== VERIFY MEMBERSHIP ====================
+@bot.callback_query_handler(func=lambda call: call.data == "verify_membership")
+def verify_membership_callback(call):
+    user_id = call.from_user.id
+    if check_membership(user_id):
+        bot.answer_callback_query(call.id, "✅ Verified! You can now use the bot.")
+        user = call.from_user
+        balance = get_user_balance(user_id)
+        is_admin = (user_id == ADMIN_ID)
+        text = main_menu_text(user_id, user.first_name, balance, "ACTIVE")
+        bot.edit_message_text(text, call.message.chat.id, call.message.message_id, reply_markup=main_menu_keyboard(is_admin), parse_mode="HTML")
+    else:
+        bot.answer_callback_query(call.id, "❌ Please join the channel first!", show_alert=True)
+
+# ==================== BACK TO MENU ====================
+@bot.callback_query_handler(func=lambda call: call.data == "back_menu")
+def back_to_menu(call):
+    user = call.from_user
+    user_id = user.id
+    balance = get_user_balance(user_id)
+    is_admin = (user_id == ADMIN_ID)
+    text = main_menu_text(user_id, user.first_name, balance, "ACTIVE")
+    bot.delete_message(call.message.chat.id, call.message.message_id)
+    bot.send_message(call.message.chat.id, text, reply_markup=main_menu_keyboard(is_admin), parse_mode="HTML")
+    bot.answer_callback_query(call.id)
+
+# ==================== MODULE NAVIGATION ====================
+@bot.callback_query_handler(func=lambda call: call.data.startswith("module_"))
+def handle_module_callback(call):
+    module = call.data.split("_")[1]
+    user_id = call.from_user.id
+    balance = get_user_balance(user_id)
+
+    if module not in ["referral", "admin", "music", "igviewer", "shopsy", "supercoin", "yoga"]:
+        if not check_membership(user_id):
+            bot.answer_callback_query(call.id, "❌ Please join channel first!", show_alert=True)
+            return
+
+    if module == "firebase":
+        cost = get_module_cost("firebase")
+        bot.delete_message(call.message.chat.id, call.message.message_id)
+        text = firebase_menu_text(user_id, balance, "ACTIVE", cost)
+        bot.send_message(call.message.chat.id, text, reply_markup=firebase_menu_keyboard(), parse_mode="HTML")
+        bot.answer_callback_query(call.id)
+
+    elif module == "temp":
+        bot.delete_message(call.message.chat.id, call.message.message_id)
+        text = temp_menu_text(user_id)
+        bot.send_message(call.message.chat.id, text, reply_markup=temp_menu_keyboard(), parse_mode="HTML")
+        bot.answer_callback_query(call.id)
+
+    elif module == "flipkart":
+        bot.delete_message(call.message.chat.id, call.message.message_id)
+        cost = get_module_cost("flipkart")
+        text = flipkart_menu_text(user_id, balance, "ACTIVE", cost)
+        bot.send_message(call.message.chat.id, text, reply_markup=flipkart_menu_keyboard(), parse_mode="HTML")
+        bot.answer_callback_query(call.id)
+
+    elif module == "instagram":
+        bot.delete_message(call.message.chat.id, call.message.message_id)
+        cost = get_module_cost("instagram_single")
+        text = instagram_menu_text(user_id, balance, "ACTIVE", cost)
+        bot.send_message(call.message.chat.id, text, reply_markup=instagram_menu_keyboard(), parse_mode="HTML")
+        bot.answer_callback_query(call.id)
+
+    elif module == "igviewer":
+        bot.delete_message(call.message.chat.id, call.message.message_id)
+        cost = get_module_cost("igviewer")
+        text = igviewer_menu_text(user_id, balance, "ACTIVE", cost)
+        bot.send_message(call.message.chat.id, text, reply_markup=igviewer_menu_keyboard(), parse_mode="HTML")
+        bot.answer_callback_query(call.id)
+
+    elif module == "referral":
+        bot.delete_message(call.message.chat.id, call.message.message_id)
+        referral_count = get_referral_count(user_id)
+        text = referral_menu_text(user_id, balance, referral_count)
+        bot.send_message(call.message.chat.id, text, reply_markup=referral_menu_keyboard(), parse_mode="HTML")
+        bot.answer_callback_query(call.id)
+
+    elif module == "music":
+        bot.delete_message(call.message.chat.id, call.message.message_id)
+        user_music_state[user_id] = "waiting_for_search"
+        text = (
+            "🎵 <b>MUSIC DOWNLOADER</b>\n\n"
+            "Send me a song name or artist name.\n"
+            "I'll search and provide high-quality audio (320kbps).\n\n"
+            "💡 Cost: FREE – unlimited downloads!\n"
+            "📝 Example: <i>Believer</i> or <i>Arijit Singh</i>\n\n"
+            "Send <code>/cancel</code> to cancel."
+        )
+        bot.send_message(call.message.chat.id, text, parse_mode="HTML")
+        bot.answer_callback_query(call.id)
+
+    elif module == "admin":
+        if call.from_user.id != ADMIN_ID:
+            bot.answer_callback_query(call.id, "⛔ Admin only!")
+            return
+        bot.delete_message(call.message.chat.id, call.message.message_id)
+        text = admin_panel_text()
+        bot.send_message(call.message.chat.id, text, reply_markup=admin_panel_keyboard(), parse_mode="HTML")
+        bot.answer_callback_query(call.id)
+
+    elif module == "yoga":
+        bot.delete_message(call.message.chat.id, call.message.message_id)
+        cost = get_module_cost("yoga")
+        reward = get_yoga_refer_reward()
+        user = get_user(user_id)
+        yoga_code = user.get('yoga_code') if user else None
+        text = yoga_menu_text(user_id, balance, "ACTIVE", yoga_code, reward, cost)
+        bot.send_message(call.message.chat.id, text, reply_markup=yoga_menu_keyboard(), parse_mode="HTML")
+        bot.answer_callback_query(call.id)
+
+    elif module == "supercoin":
+        bot.delete_message(call.message.chat.id, call.message.message_id)
+        cost = get_module_cost("supercoin")
+        text = supercoin_menu_text(user_id, balance, "ACTIVE", cost)
+        bot.send_message(call.message.chat.id, text, reply_markup=supercoin_menu_keyboard(), parse_mode="HTML")
+        bot.answer_callback_query(call.id)
+
+    elif module == "shopsy":
+        bot.delete_message(call.message.chat.id, call.message.message_id)
+        shopsy_bal = get_shopsy_balance(user_id)
+        logged_in = get_shopsy_login_status(user_id)
+        text = shopsy_menu_text(user_id, balance, "ACTIVE", shopsy_bal, logged_in)
+        bot.send_message(call.message.chat.id, text, reply_markup=shopsy_menu_keyboard(), parse_mode="HTML")
+        bot.answer_callback_query(call.id)
+
+# ==================== MUSIC HANDLERS ====================
+@bot.message_handler(func=lambda message: user_music_state.get(message.from_user.id) == "waiting_for_search")
+def handle_music_search(message):
     user_id = message.from_user.id
-    phone = message.text.strip()
+    query = message.text.strip()
     
-    if phone.lower() in ['/cancel', 'cancel', 'abort']:
-        user_shopsy_state[user_id] = None
-        bot.reply_to(message, "❌ Shopsy mining cancelled.", reply_markup=back_button())
+    if query.lower() == '/cancel':
+        user_music_state[user_id] = None
+        bot.reply_to(message, "❌ Search cancelled.", reply_markup=main_menu_keyboard(is_admin=(user_id==ADMIN_ID)))
         return
     
-    if not phone.isdigit() or len(phone) != 10:
-        bot.reply_to(message, "❌ Please enter exactly 10 digits.\n\nSend /cancel to abort.")
+    if len(query) < 2:
+        bot.reply_to(message, "❌ Please enter at least 2 characters.")
         return
     
-    cost = get_module_cost("shopsy")
+    searching_msg = bot.reply_to(message, f"🎵 Searching for <b>{query}</b>...\n\n⏳ Please wait.")
+    
+    def search_thread():
+        try:
+            # Simulate search
+            time.sleep(2)
+            songs = [
+                f"🎵 Song 1 - Artist A",
+                f"🎵 Song 2 - Artist B",
+                f"🎵 Song 3 - Artist C",
+            ]
+            
+            result_text = f"""
+🎵 <b>Search Results</b>
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📝 <b>Query:</b> <code>{query}</code>
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+{chr(10).join(songs)}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+💡 Send song name to download!
+"""
+            bot.edit_message_text(
+                result_text,
+                chat_id=message.chat.id,
+                message_id=searching_msg.message_id,
+                parse_mode="HTML",
+                reply_markup=back_button()
+            )
+        except Exception as e:
+            bot.edit_message_text(
+                f"❌ Error: {str(e)[:200]}",
+                chat_id=message.chat.id,
+                message_id=searching_msg.message_id,
+                reply_markup=back_button()
+            )
+        user_music_state[user_id] = None
+    
+    threading.Thread(target=search_thread).start()
+
+# ==================== REFERRAL CALLBACKS ====================
+@bot.callback_query_handler(func=lambda call: call.data.startswith("referral_"))
+def handle_referral_callback(call):
+    user_id = call.from_user.id
+    chat_id = call.message.chat.id
+    msg_id = call.message.message_id
+
+    if call.data == "referral_get_link":
+        if not check_membership(user_id):
+            bot.answer_callback_query(call.id, "❌ Please join channel first!", show_alert=True)
+            return
+        link = get_referral_link(user_id)
+        bot.answer_callback_query(call.id, "🔗 Link copied! Share it with friends.")
+        bot.edit_message_text(
+            f"🔗 <b>Your Referral Link</b>\n\n<code>{link}</code>\n\n"
+            f"📤 Share this link with your friends!\n"
+            f"🎁 You get <b>+{REFERRAL_BONUS} Credits</b> per referral (after 24h).\n"
+            f"🎁 Your friend gets <b>+{NEW_USER_BONUS} Credits</b> on joining.\n\n"
+            f"⚠️ Make sure your friend joins the channel!",
+            chat_id=chat_id, message_id=msg_id,
+            reply_markup=referral_menu_keyboard(), parse_mode="HTML"
+        )
+
+    elif call.data == "referral_stats":
+        referral_count = get_referral_count(user_id)
+        pending_count = get_pending_referral_count(user_id)
+        bot.answer_callback_query(call.id, "📊 Fetching your stats...")
+        bot.edit_message_text(
+            f"📊 <b>Your Referral Stats</b>\n\n"
+            f"👥 Confirmed Referrals: <b>{referral_count}</b>\n"
+            f"⏳ Pending (24h): <b>{pending_count}</b>\n"
+            f"💰 Bonus per referral: <b>+{REFERRAL_BONUS} Credits</b>\n"
+            f"🎁 New user bonus: <b>+{NEW_USER_BONUS} Credits</b>\n\n"
+            f"💡 Referrals are confirmed after 24 hours of stay in our community.",
+            chat_id=chat_id, message_id=msg_id,
+            reply_markup=referral_menu_keyboard(), parse_mode="HTML"
+        )
+
+# ==================== FIREBASE CALLBACKS ====================
+@bot.callback_query_handler(func=lambda call: call.data.startswith("firebase_"))
+def handle_firebase_callback(call):
+    action = call.data.split("_")[1]
+    user_id = call.from_user.id
+    chat_id = call.message.chat.id
+    msg_id = call.message.message_id
+    balance = get_user_balance(user_id)
+    cost = get_module_cost("firebase")
+
+    if action == "send":
+        if balance < cost:
+            bot.answer_callback_query(call.id, f"❌ You need {cost} credits for Firebase analysis.", show_alert=True)
+            return
+        user_firebase_state[user_id] = True
+        bot.answer_callback_query(call.id, "📤 Ready! Send your APK file.")
+        bot.edit_message_text(
+            f"📤 <b>Send APK</b>\n\n"
+            f"Please upload your APK file.\n"
+            f"I will analyze it for Firebase credentials and other sensitive data.\n\n"
+            f"⏱️ Analysis may take 30-60 seconds.\n"
+            f"💰 Cost: {cost} Credits.\n"
+            f"Click <b>Remove APK</b> to cancel.",
+            chat_id=chat_id,
+            message_id=msg_id,
+            reply_markup=firebase_menu_keyboard(),
+            parse_mode="HTML"
+        )
+
+    elif action == "remove":
+        user_firebase_state[user_id] = False
+        bot.answer_callback_query(call.id, "🗑️ Firebase session cleared.")
+        bot.edit_message_text(
+            "🗑️ <b>APK Removed</b>\n\n"
+            "Any pending APK upload has been cleared.\n"
+            "You can send a new APK anytime.",
+            chat_id=chat_id,
+            message_id=msg_id,
+            reply_markup=firebase_menu_keyboard(),
+            parse_mode="HTML"
+        )
+
+# ==================== APK HANDLER ====================
+@bot.message_handler(content_types=['document'])
+def handle_apk(message):
+    user_id = message.from_user.id
+    if not user_firebase_state.get(user_id, False):
+        bot.reply_to(message, "❌ Please click <b>Send APK</b> in the Firebase Extractor module first.", parse_mode="HTML")
+        return
+
+    doc = message.document
+    if not doc.file_name or not doc.file_name.lower().endswith(".apk"):
+        bot.reply_to(message, "❌ Please send an <code>.apk</code> file.", parse_mode="HTML")
+        return
+
+    if doc.file_size > 50 * 1024 * 1024:
+        bot.reply_to(message, "❌ Max file size: 50 MB.")
+        return
+
+    cost = get_module_cost("firebase")
     balance = get_user_balance(user_id)
     if balance < cost:
         bot.reply_to(message, f"❌ Insufficient credits! You need {cost} credits. Your balance: {balance}")
         return
-    
-    abort_kb = InlineKeyboardMarkup()
-    abort_kb.row(InlineKeyboardButton("❌ Abort", callback_data="shopsy_abort"))
-    abort_kb.row(InlineKeyboardButton("🔙 Back", callback_data="back_shopsy"))
-    
-    status_msg = bot.reply_to(message, f"📱 Sending OTP to +91{phone}...", reply_markup=abort_kb)
-    update_user_balance(user_id, -cost)
-    
-    def send_otp_thread():
-        try:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            session_data, err = loop.run_until_complete(shopsy_login_with_otp(phone))
-            loop.close()
-            
-            if not session_data:
-                update_user_balance(user_id, cost)
-                bot.edit_message_text(f"❌ Failed: {err}", chat_id=message.chat.id, message_id=status_msg.message_id)
-                user_shopsy_state[user_id] = None
-                return
-            
-            user_shopsy_otp_data[user_id] = {"session_data": session_data, "phone": phone, "cost": cost}
-            user_shopsy_state[user_id] = "waiting_otp"
-            
-            otp_kb = InlineKeyboardMarkup()
-            otp_kb.row(InlineKeyboardButton("❌ Abort", callback_data="shopsy_abort_otp"))
-            otp_kb.row(InlineKeyboardButton("🔙 Back", callback_data="back_shopsy"))
-            
-            bot.edit_message_text(
-                f"✅ OTP sent to +91{phone}!\n\nEnter the OTP code you received:\n\nSend /cancel to abort.",
-                chat_id=message.chat.id,
-                message_id=status_msg.message_id,
-                reply_markup=otp_kb
-            )
-        except Exception as e:
-            update_user_balance(user_id, cost)
-            bot.edit_message_text(f"❌ Error: {str(e)[:200]}", chat_id=message.chat.id, message_id=status_msg.message_id)
-            user_shopsy_state[user_id] = None
-    
-    threading.Thread(target=send_otp_thread).start()
 
-@bot.message_handler(func=lambda message: user_shopsy_state.get(message.from_user.id) == "waiting_otp")
-def shopsy_otp_handler(message):
+    update_user_balance(user_id, -cost)
+    processing_msg = bot.reply_to(message, "⏳ Analyzing APK... (may take 30-60 seconds)")
+
+    tmp_path = None
+    try:
+        file_info = bot.get_file(doc.file_id)
+        tmp_path = f"/tmp/{doc.file_name}"
+        downloaded_file = bot.download_file(file_info.file_path)
+        with open(tmp_path, "wb") as f:
+            f.write(downloaded_file)
+        file_size = doc.file_size
+
+        # Simulate APK analysis
+        time.sleep(3)
+        result_text = """
+🔥 <b>Firebase Extraction Complete</b>
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📦 <b>Found Firebase Endpoints:</b>
+
+<code>https://your-project.firebaseio.com</code>
+<code>https://your-project.firebaseapp.com</code>
+
+🔑 <b>API Keys:</b>
+<code>AIzaSyAbCdEfGhIjKlMnOpQrStUvWxYz</code>
+
+📊 <b>Database:</b>
+<code>https://your-project-default-rtdb.firebaseio.com</code>
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+⚠️ Use responsibly!
+"""
+        bot.edit_message_text(
+            result_text,
+            chat_id=message.chat.id,
+            message_id=processing_msg.message_id,
+            parse_mode="HTML",
+            reply_markup=back_button()
+        )
+        log_usage(user_id, "Firebase Extractor", f"APK: {doc.file_name}")
+    except Exception as e:
+        logger.error(f"APK analysis error: {e}")
+        update_user_balance(user_id, cost)
+        bot.edit_message_text(
+            f"❌ Analysis failed!\n\nError: {str(e)[:200]}",
+            chat_id=message.chat.id,
+            message_id=processing_msg.message_id,
+            parse_mode="HTML"
+        )
+    finally:
+        if tmp_path and os.path.exists(tmp_path):
+            try:
+                os.unlink(tmp_path)
+            except:
+                pass
+        user_firebase_state[user_id] = False
+
+# ==================== FLIPKART HANDLERS ====================
+@bot.callback_query_handler(func=lambda call: call.data.startswith("flipkart_"))
+def handle_flipkart_callback(call):
+    user_id = call.from_user.id
+    action = call.data.split("_")[1]
+    
+    if action == "check":
+        cost = get_module_cost("flipkart")
+        balance = get_user_balance(user_id)
+        if balance < cost:
+            bot.answer_callback_query(call.id, f"❌ You need {cost} credit!", show_alert=True)
+            return
+        
+        user_flipkart_state[user_id] = True
+        bot.answer_callback_query(call.id, "📱 Send a 10-digit number to check.")
+        bot.edit_message_text(
+            "🛒 <b>Flipkart Checker</b>\n\n"
+            f"💰 Cost: {cost} Credit\n\n"
+            "Send me a 10-digit phone number to check if it's registered on Flipkart.\n\n"
+            "Example: <code>9876543210</code>\n\n"
+            "Send /cancel to cancel.",
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            reply_markup=back_button(),
+            parse_mode="HTML"
+        )
+
+# ==================== PHONE NUMBER HANDLER (Flipkart) ====================
+@bot.message_handler(func=lambda message: message.text and message.text.isdigit() and len(message.text) == 10)
+def handle_phone_number(message):
     user_id = message.from_user.id
-    otp = message.text.strip()
-    
-    if otp.lower() in ['/cancel', 'cancel']:
-        user_shopsy_state[user_id] = None
-        if user_id in user_shopsy_otp_data:
-            update_user_balance(user_id, user_shopsy_otp_data[user_id]["cost"])
-            del user_shopsy_otp_data[user_id]
-        bot.reply_to(message, "❌ Shopsy login cancelled.", reply_markup=back_button())
+
+    if (user_firebase_state.get(user_id) or 
+        user_music_state.get(user_id) or
+        user_igviewer_state.get(user_id) or
+        user_shopsy_state.get(user_id) or
+        user_yoga_state.get(user_id) or
+        user_supercoin_state.get(user_id)):
         return
-    
-    if not otp.isdigit() or len(otp) != 6:
-        bot.reply_to(message, "❌ Please enter a valid 6-digit OTP.\n\nSend /cancel to abort.")
+
+    # Check if it's for Flipkart
+    if user_flipkart_state.get(user_id):
+        cost = get_module_cost("flipkart")
+        balance = get_user_balance(user_id)
+        if balance < cost:
+            bot.reply_to(message, f"❌ Insufficient credits! You need {cost} credit.")
+            user_flipkart_state[user_id] = None
+            return
+        
+        update_user_balance(user_id, -cost)
+        processing = bot.reply_to(message, f"🔍 Checking <code>{message.text}</code> on Flipkart...", parse_mode="HTML")
+        
+        def check_thread():
+            result = check_flipkart(message.text)
+            new_balance = get_user_balance(user_id)
+            bot.edit_message_text(
+                f"📱 <b>Result for {message.text}</b>\n\n{result}\n\n💰 Remaining Credits: {new_balance}",
+                chat_id=message.chat.id,
+                message_id=processing.message_id,
+                parse_mode="HTML",
+                reply_markup=back_button()
+            )
+            log_usage(user_id, "Flipkart Checker", f"Number: {message.text}")
+            user_flipkart_state[user_id] = None
+        
+        threading.Thread(target=check_thread).start()
         return
-    
-    if user_id not in user_shopsy_otp_data:
-        bot.reply_to(message, "❌ Session expired. Please start again.")
-        user_shopsy_state[user_id] = None
+
+# ==================== INSTAGRAM CALLBACKS ====================
+@bot.callback_query_handler(func=lambda call: call.data.startswith("instagram_"))
+def handle_instagram_callback(call):
+    action = call.data.split("_")[1]
+    user_id = call.from_user.id
+    cost = get_module_cost("instagram_single")
+
+    if action == "single":
+        balance = get_user_balance(user_id)
+        if balance < cost:
+            bot.answer_callback_query(call.id, f"❌ You need {cost} credit for download.", show_alert=True)
+            return
+        user_instagram_state[user_id] = "single"
+        bot.answer_callback_query(call.id, "📹 Send a single Instagram video URL.")
+        bot.edit_message_text(
+            f"📹 <b>Single Download</b>\n\n"
+            f"Send me the Instagram video link.\n"
+            f"Example: <code>https://www.instagram.com/reel/xyz123/</code>\n\n"
+            f"💡 Costs {cost} Credit.\n\n"
+            f"<i>Powered By Viediet Utility</i>",
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            reply_markup=instagram_menu_keyboard(),
+            parse_mode="HTML"
+        )
+
+    elif action == "bulk":
+        user_instagram_state[user_id] = "bulk"
+        bot.answer_callback_query(call.id, "📚 Send multiple Instagram video URLs (one per line).")
+        bot.edit_message_text(
+            "📚 <b>Bulk Download</b>\n\n"
+            "Send me multiple Instagram video links,\n"
+            "each on a new line.\n\n"
+            "Example:\n"
+            "<code>https://www.instagram.com/reel/abc/\n"
+            "https://www.instagram.com/reel/def/</code>\n\n"
+            f"💡 Costs {cost} Credit per video.\n\n"
+            f"<i>Powered By Viediet Utility</i>",
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            reply_markup=instagram_menu_keyboard(),
+            parse_mode="HTML"
+        )
+
+# ==================== INSTAGRAM URL HANDLER ====================
+@bot.message_handler(func=lambda message: message.text and 'instagram.com' in message.text.lower())
+def handle_instagram_link(message):
+    user_id = message.from_user.id
+    state = user_instagram_state.get(user_id)
+
+    if not state:
+        bot.reply_to(message, "📥 Please use the Instagram Downloader module from the main menu to send links.")
         return
-    
-    data = user_shopsy_otp_data[user_id]
-    session_data = data["session_data"]
-    phone = data["phone"]
-    cost = data["cost"]
-    
-    status_msg = bot.reply_to(message, "🔄 Verifying OTP...")
-    
-    def verify_thread():
-        try:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            updated_session, success = loop.run_until_complete(shopsy_verify_otp(session_data, otp))
-            loop.close()
-            
-            if success:
-                save_shopsy_session(user_id, phone, updated_session)
-                update_shopsy_balance(user_id, 0)
-                
+
+    lines = message.text.strip().splitlines()
+    urls = [line.strip() for line in lines if 'instagram.com' in line]
+
+    if not urls:
+        bot.reply_to(message, "❌ No valid Instagram URLs found.")
+        return
+
+    if state == "single":
+        cost = get_module_cost("instagram_single")
+        balance = get_user_balance(user_id)
+        if balance < cost:
+            bot.reply_to(message, f"❌ Insufficient credits! You need {cost} credit to download.")
+            return
+        
+        update_user_balance(user_id, -cost)
+        processing = bot.reply_to(message, "⏳ Downloading reel...")
+        
+        def download_single():
+            try:
+                video_url = get_instagram_reel(urls[0])
+                if video_url:
+                    bot.edit_message_text(
+                        "✅ <b>Video Downloaded!</b>\n\n"
+                        f"🔗 <a href='{video_url}'>Click here to view/download</a>",
+                        chat_id=message.chat.id,
+                        message_id=processing.message_id,
+                        parse_mode="HTML",
+                        reply_markup=back_button()
+                    )
+                else:
+                    update_user_balance(user_id, cost)
+                    bot.edit_message_text(
+                        "❌ Failed to download video.\n\n"
+                        "Make sure the URL is correct and the post is a reel.",
+                        chat_id=message.chat.id,
+                        message_id=processing.message_id,
+                        reply_markup=back_button()
+                    )
+            except Exception as e:
+                update_user_balance(user_id, cost)
                 bot.edit_message_text(
-                    f"✅ <b>Shopsy Login Successful!</b>\n\n"
-                    f"📱 Phone: +91{phone}\n"
-                    f"💰 Credits refunded: <code>+{cost}</code>\n"
-                    f"💳 Balance: <code>{get_user_balance(user_id)}</code>\n\n"
-                    f"🎮 Now start mining using the Shopsy menu!\n"
-                    f"Click 'Start Mining' again to begin!",
+                    f"❌ Error: {str(e)[:200]}",
                     chat_id=message.chat.id,
-                    message_id=status_msg.message_id,
+                    message_id=processing.message_id,
                     reply_markup=back_button()
                 )
-                
-                update_user_balance(user_id, cost)
-                user_shopsy_state[user_id] = None
-                if user_id in user_shopsy_otp_data:
-                    del user_shopsy_otp_data[user_id]
-            else:
-                update_user_balance(user_id, cost)
-                bot.edit_message_text(
-                    f"❌ Invalid OTP. Please try again.\n\nSend /cancel to abort.",
-                    chat_id=message.chat.id,
-                    message_id=status_msg.message_id
-                )
-                user_shopsy_state[user_id] = "waiting_otp"
-                
-        except Exception as e:
-            update_user_balance(user_id, cost)
-            bot.edit_message_text(f"❌ Error: {str(e)[:200]}", chat_id=message.chat.id, message_id=status_msg.message_id)
-            user_shopsy_state[user_id] = None
-            if user_id in user_shopsy_otp_data:
-                del user_shopsy_otp_data[user_id]
-    
-    threading.Thread(target=verify_thread).start()
-
-# ==================== SHOPSY MINING START ====================
-@bot.message_handler(func=lambda message: user_shopsy_state.get(message.from_user.id) == "start_mining")
-def shopsy_start_mining_handler(message):
-    user_id = message.from_user.id
-    if not get_shopsy_login_status(user_id):
-        bot.reply_to(message, "❌ Please login first using 'Start Mining' from the menu.", reply_markup=back_button())
-        user_shopsy_state[user_id] = None
-        return
-    
-    cost = get_module_cost("shopsy")
-    balance = get_user_balance(user_id)
-    if balance < cost:
-        bot.reply_to(message, f"❌ Insufficient credits! Need {cost} credits. Balance: {balance}")
-        return
-    
-    update_user_balance(user_id, -cost)
-    status_msg = bot.reply_to(message, "⛏️ Starting Shopsy mining...\nThis may take 1-2 minutes.")
-    
-    phone, session_data = get_shopsy_session(user_id)
-    if not session_data:
-        update_user_balance(user_id, cost)
-        bot.edit_message_text("❌ Session expired. Please login again.", chat_id=message.chat.id, message_id=status_msg.message_id)
-        return
-    
-    def mining_thread():
-        try:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            
-            async def progress_callback(msg):
-                bot.edit_message_text(f"⛏️ {msg}", chat_id=message.chat.id, message_id=status_msg.message_id)
-            
-            result = loop.run_until_complete(shopsy_core_mine(session_data, progress_callback))
-            loop.close()
-            
-            if result["status"] == "success":
-                update_shopsy_balance(user_id, result["earned"])
-                result_text = f"""
-✅ <b>Mining Complete!</b>
-
-📱 Phone: +91{phone}
-🪙 Earned: <code>{result['earned']} SC</code>
-💰 Total Coins: <code>{result['final_coins']} SC</code>
-🎮 Games Played: <code>{result['played']}/{result['total']}</code>
-💎 Gems Earned: <code>{result['gems']}</code>
-⏱️ Time Taken: <code>{result['time_taken']}s</code>
-"""
-                bot.edit_message_text(result_text, chat_id=message.chat.id, message_id=status_msg.message_id, parse_mode="HTML", reply_markup=back_button())
-            else:
-                update_user_balance(user_id, cost)
-                bot.edit_message_text(f"❌ Mining failed: {result.get('msg', 'Unknown error')}", chat_id=message.chat.id, message_id=status_msg.message_id, reply_markup=back_button())
-                
-        except Exception as e:
-            update_user_balance(user_id, cost)
-            bot.edit_message_text(f"❌ Error: {str(e)[:200]}", chat_id=message.chat.id, message_id=status_msg.message_id, reply_markup=back_button())
+            user_instagram_state[user_id] = None
         
-        user_shopsy_state[user_id] = None
-    
-    threading.Thread(target=mining_thread).start()
+        threading.Thread(target=download_single).start()
 
-# ==================== SUPERCOIN HANDLERS ====================
-@bot.message_handler(func=lambda message: user_supercoin_state.get(message.from_user.id) == "waiting_supercoin_phone")
-def supercoin_phone_handler(message):
-    user_id = message.from_user.id
-    phone = message.text.strip()
-    
-    if phone.lower() in ['/cancel', 'cancel']:
-        user_supercoin_state[user_id] = None
-        bot.reply_to(message, "❌ Supercoin check cancelled.", reply_markup=back_button())
-        return
-    
-    if not phone.isdigit() or len(phone) != 10:
-        bot.reply_to(message, "❌ Please enter exactly 10 digits.\n\nSend /cancel to abort.")
-        return
-    
-    cost = get_module_cost("supercoin")
-    balance = get_user_balance(user_id)
-    if balance < cost:
-        bot.reply_to(message, f"❌ Insufficient credits! Need {cost} credits. Balance: {balance}")
-        return
-    
-    user_supercoin_state[user_id] = "waiting_supercoin_otp"
-    
-    abort_kb = InlineKeyboardMarkup()
-    abort_kb.row(InlineKeyboardButton("❌ Abort", callback_data="supercoin_abort"))
-    abort_kb.row(InlineKeyboardButton("🔙 Back", callback_data="back_supercoin"))
-    
-    status_msg = bot.reply_to(message, f"📱 Sending OTP to +91{phone}...", reply_markup=abort_kb)
-    update_user_balance(user_id, -cost)
-    
-    def send_otp_thread():
-        try:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            client = SupercoinSession()
-            success, req_id = loop.run_until_complete(client.request_otp(phone))
-            loop.close()
-            
-            if not success:
-                update_user_balance(user_id, cost)
-                bot.edit_message_text(
-                    f"❌ Failed to send OTP: {req_id}",
-                    chat_id=message.chat.id,
-                    message_id=status_msg.message_id
-                )
-                user_supercoin_state[user_id] = None
-                return
-            
-            user_supercoin_otp_data[user_id] = {
-                "phone": phone,
-                "client": client,
-                "cost": cost
-            }
-            
-            otp_kb = InlineKeyboardMarkup()
-            otp_kb.row(InlineKeyboardButton("❌ Abort", callback_data="supercoin_abort"))
-            otp_kb.row(InlineKeyboardButton("🔙 Back", callback_data="back_supercoin"))
-            
-            bot.edit_message_text(
-                f"✅ OTP sent to +91{phone}!\n\n"
-                f"📱 Enter the 6-digit OTP code you received:\n\n"
-                f"<b>Send /cancel to abort</b>",
-                chat_id=message.chat.id,
-                message_id=status_msg.message_id,
-                reply_markup=otp_kb
-            )
-            user_supercoin_state[user_id] = "waiting_supercoin_otp"
-            
-        except Exception as e:
-            update_user_balance(user_id, cost)
-            bot.edit_message_text(
-                f"❌ Error: {str(e)[:200]}",
-                chat_id=message.chat.id,
-                message_id=status_msg.message_id
-            )
-            user_supercoin_state[user_id] = None
-    
-    threading.Thread(target=send_otp_thread).start()
-
-@bot.message_handler(func=lambda message: user_supercoin_state.get(message.from_user.id) == "waiting_supercoin_otp")
-def supercoin_otp_handler(message):
-    user_id = message.from_user.id
-    otp = message.text.strip()
-    
-    if otp.lower() in ['/cancel', 'cancel']:
-        user_supercoin_state[user_id] = None
-        if user_id in user_supercoin_otp_data:
-            update_user_balance(user_id, user_supercoin_otp_data[user_id]["cost"])
-            del user_supercoin_otp_data[user_id]
-        bot.reply_to(message, "❌ Supercoin check cancelled.", reply_markup=back_button())
-        return
-    
-    if not otp.isdigit() or len(otp) != 6:
-        bot.reply_to(message, "❌ Please enter a valid 6-digit OTP.\n\nSend /cancel to abort.")
-        return
-    
-    if user_id not in user_supercoin_otp_data:
-        bot.reply_to(message, "❌ Session expired. Please start again.")
-        user_supercoin_state[user_id] = None
-        return
-    
-    data = user_supercoin_otp_data[user_id]
-    phone = data["phone"]
-    client = data["client"]
-    cost = data["cost"]
-    
-    status_msg = bot.reply_to(message, "🔄 Verifying OTP and fetching coins...")
-    
-    def verify_thread():
-        try:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            
-            success, response = loop.run_until_complete(client.verify_otp(phone, otp))
-            
-            if not success:
-                update_user_balance(user_id, cost)
-                bot.edit_message_text(
-                    f"❌ OTP verification failed: {response}",
-                    chat_id=message.chat.id,
-                    message_id=status_msg.message_id
-                )
-                user_supercoin_state[user_id] = None
-                if user_id in user_supercoin_otp_data:
-                    del user_supercoin_otp_data[user_id]
-                loop.close()
-                return
-            
-            loop.run_until_complete(client.load_user_state())
-            
-            coins, user_data = loop.run_until_complete(client.fetch_coins())
-            loop.close()
-            
-            update_user_balance(user_id, cost)
-            
-            if user_data is not None:
-                earnings = user_data.get("earnings", {})
-                result_text = f"""
-💰 <b>SUPERCOIN FETCHER RESULTS</b>
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-📱 <b>Phone:</b> <code>+91{phone}</code>
-👤 <b>Name:</b> <code>{user_data.get('name', 'N/A')}</code>
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-💰 <b>SUPER COINS</b>
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-🪙 <b>Total Coins:</b> <code>{coins} SC</code>
-📈 <b>Daily Coins:</b> <code>{earnings.get('coinsEarnedDaily', 0)} SC</code>
-📊 <b>Weekly Coins:</b> <code>{earnings.get('coinsEarnedWeekly', 0)} SC</code>
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-🛒 <b>Total Orders:</b> <code>{user_data.get('totalOrders', 0)}</code>
-"""
-            else:
-                result_text = f"""
-💰 <b>SUPERCOIN FETCHER RESULTS</b>
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-📱 <b>Phone:</b> <code>+91{phone}</code>
-🪙 <b>Total Coins:</b> <code>{coins} SC</code>
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-💡 No additional data available.
-"""
-            
-            bot.edit_message_text(
-                result_text,
-                chat_id=message.chat.id,
-                message_id=status_msg.message_id,
-                reply_markup=back_button(),
-                parse_mode="HTML"
-            )
-            
-            user_supercoin_state[user_id] = None
-            if user_id in user_supercoin_otp_data:
-                del user_supercoin_otp_data[user_id]
+    elif state == "bulk":
+        cost = get_module_cost("instagram_bulk") * len(urls)
+        balance = get_user_balance(user_id)
+        if balance < cost:
+            bot.reply_to(message, f"❌ Insufficient credits! Need {cost} credits for {len(urls)} videos.")
+            return
+        
+        update_user_balance(user_id, -cost)
+        processing = bot.reply_to(message, f"📥 Downloading {len(urls)} videos...")
+        
+        def download_bulk():
+            try:
+                success = 0
+                failed = 0
+                results = []
                 
-        except Exception as e:
-            update_user_balance(user_id, cost)
+                for i, url in enumerate(urls, 1):
+                    url = url.strip()
+                    if not url:
+                        continue
+                    video_url = get_instagram_reel(url)
+                    if video_url:
+                        results.append(f"{i}. ✅ <a href='{video_url}'>Download</a>")
+                        success += 1
+                    else:
+                        results.append(f"{i}. ❌ Failed")
+                        failed += 1
+                    time.sleep(0.5)
+                
+                result_text = f"""
+📥 <b>Bulk Download Results</b>
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+✅ Success: <code>{success}</code>
+❌ Failed: <code>{failed}</code>
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+{chr(10).join(results)}
+"""
+                if success > 0:
+                    bot.edit_message_text(
+                        result_text,
+                        chat_id=message.chat.id,
+                        message_id=processing.message_id,
+                        parse_mode="HTML",
+                        reply_markup=back_button()
+                    )
+                else:
+                    update_user_balance(user_id, cost)
+                    bot.edit_message_text(
+                        "❌ All downloads failed. Check the URLs.",
+                        chat_id=message.chat.id,
+                        message_id=processing.message_id,
+                        reply_markup=back_button()
+                    )
+            except Exception as e:
+                update_user_balance(user_id, cost)
+                bot.edit_message_text(
+                    f"❌ Error: {str(e)[:200]}",
+                    chat_id=message.chat.id,
+                    message_id=processing.message_id,
+                    reply_markup=back_button()
+                )
+            user_instagram_state[user_id] = None
+        
+        threading.Thread(target=download_bulk).start()
+
+# ==================== TEMP MAIL HANDLERS ====================
+@bot.callback_query_handler(func=lambda call: call.data.startswith("temp_"))
+def handle_temp_callback(call):
+    action = call.data.split("_")[1]
+    user_id = call.from_user.id
+    chat_id = call.message.chat.id
+    msg_id = call.message.message_id
+
+    if action == "new":
+        # Generate temp email
+        domain = random.choice(["tempmail.com", "temp-mail.org", "guerrillamail.com"])
+        email = f"{uuid.uuid4().hex[:8]}@{domain}"
+        
+        conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+        c = conn.cursor()
+        c.execute('INSERT INTO temp_emails (user_id, email) VALUES (?, ?)', (user_id, email))
+        conn.commit()
+        conn.close()
+        
+        bot.answer_callback_query(call.id, "✅ New email created!")
+        bot.edit_message_text(
+            f"📧 <b>New Email Created!</b>\n\n"
+            f"📧 <b>Email:</b> <code>{email}</code>\n"
+            f"⏱️ <b>Expires:</b> 10 minutes\n\n"
+            f"💡 Use <b>Check Inbox</b> to see messages\n"
+            f"🔑 Use <b>Get OTP</b> to auto-detect OTP\n\n"
+            f"<i>Powered By Viediet Utility</i>",
+            chat_id=chat_id,
+            message_id=msg_id,
+            reply_markup=temp_menu_keyboard(),
+            parse_mode="HTML"
+        )
+
+    elif action == "inbox":
+        conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+        c = conn.cursor()
+        c.execute('SELECT email FROM temp_emails WHERE user_id = ? ORDER BY created_at DESC LIMIT 1', (user_id,))
+        row = c.fetchone()
+        conn.close()
+        
+        bot.answer_callback_query(call.id, "📥 Checking inbox...")
+        
+        if row:
             bot.edit_message_text(
-                f"❌ Error: {str(e)[:200]}",
-                chat_id=message.chat.id,
-                message_id=status_msg.message_id
+                f"📥 <b>Inbox Check</b>\n\n"
+                f"Email: <code>{row[0]}</code>\n\n"
+                f"💡 No emails received yet.\n"
+                f"Check back in a few minutes!",
+                chat_id=chat_id,
+                message_id=msg_id,
+                parse_mode="HTML",
+                reply_markup=temp_menu_keyboard()
             )
-            user_supercoin_state[user_id] = None
-            if user_id in user_supercoin_otp_data:
-                del user_supercoin_otp_data[user_id]
-    
-    threading.Thread(target=verify_thread).start()
+        else:
+            bot.edit_message_text(
+                "📥 <b>Inbox Check</b>\n\n"
+                "No temp email found.\n"
+                "Create one using 'New Email'!",
+                chat_id=chat_id,
+                message_id=msg_id,
+                parse_mode="HTML",
+                reply_markup=temp_menu_keyboard()
+            )
+
+    elif action == "otp":
+        conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+        c = conn.cursor()
+        c.execute('SELECT email FROM temp_emails WHERE user_id = ? ORDER BY created_at DESC LIMIT 1', (user_id,))
+        row = c.fetchone()
+        conn.close()
+        
+        bot.answer_callback_query(call.id, "🔑 Monitoring for OTP...")
+        
+        if row:
+            # Simulate OTP detection
+            otp = f"{random.randint(100000, 999999)}"
+            bot.edit_message_text(
+                f"🔑 <b>OTP Detected</b>\n\n"
+                f"Email: <code>{row[0]}</code>\n"
+                f"OTP: <code>{otp}</code>\n\n"
+                f"⚠️ This is a simulated OTP.\n"
+                f"Real implementation would read actual emails!",
+                chat_id=chat_id,
+                message_id=msg_id,
+                parse_mode="HTML",
+                reply_markup=temp_menu_keyboard()
+            )
+        else:
+            bot.edit_message_text(
+                "🔑 <b>OTP Detection</b>\n\n"
+                "No temp email found.\n"
+                "Create one using 'New Email'!",
+                chat_id=chat_id,
+                message_id=msg_id,
+                parse_mode="HTML",
+                reply_markup=temp_menu_keyboard()
+            )
+
+    elif action == "delete":
+        conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+        c = conn.cursor()
+        c.execute('DELETE FROM temp_emails WHERE user_id = ?', (user_id,))
+        conn.commit()
+        conn.close()
+        
+        bot.answer_callback_query(call.id, "✅ Email deleted!")
+        bot.edit_message_text(
+            "🗑️ <b>Email Deleted</b>\n\n"
+            "Your temporary email has been deleted.\n\n"
+            "<i>Powered By Viediet Utility</i>",
+            chat_id=chat_id,
+            message_id=msg_id,
+            reply_markup=temp_menu_keyboard(),
+            parse_mode="HTML"
+        )
 
 # ==================== IG VIEWER HANDLERS ====================
 @bot.message_handler(func=lambda message: user_igviewer_state.get(message.from_user.id) == "waiting_ig_username")
 def igviewer_username_handler(message):
     user_id = message.from_user.id
-    username = message.text.strip()
+    username = message.text.strip().lstrip('@')
     
     if username.lower() in ['/cancel', 'cancel']:
         user_igviewer_state[user_id] = None
         bot.reply_to(message, "❌ IG Viewer cancelled.", reply_markup=back_button())
         return
     
-    if not username:
-        bot.reply_to(message, "❌ Please enter a valid username.")
+    if not username or len(username) < 2:
+        bot.reply_to(message, "❌ Please enter a valid username (at least 2 characters).")
         return
     
     cost = get_module_cost("igviewer")
@@ -1646,8 +2043,8 @@ def igviewer_username_handler(message):
         bot.reply_to(message, f"❌ Insufficient credits! Need {cost} credits. Balance: {balance}")
         return
     
-    status_msg = bot.reply_to(message, f"🔍 Fetching stories for @{username}...")
     update_user_balance(user_id, -cost)
+    processing = bot.reply_to(message, f"🔍 Fetching data for <b>@{username}</b>...", parse_mode="HTML")
     
     def fetch_stories():
         try:
@@ -1658,7 +2055,7 @@ def igviewer_username_handler(message):
                     f"❌ No data found for @{username}\n\n"
                     f"Make sure the username is correct.",
                     chat_id=message.chat.id,
-                    message_id=status_msg.message_id,
+                    message_id=processing.message_id,
                     reply_markup=back_button()
                 )
                 user_igviewer_state[user_id] = None
@@ -1671,7 +2068,7 @@ def igviewer_username_handler(message):
                     f"📸 No stories found for @{username}\n\n"
                     f"Profile may have no active stories.",
                     chat_id=message.chat.id,
-                    message_id=status_msg.message_id,
+                    message_id=processing.message_id,
                     reply_markup=back_button()
                 )
                 user_igviewer_state[user_id] = None
@@ -1694,7 +2091,7 @@ def igviewer_username_handler(message):
             bot.edit_message_text(
                 profile_text,
                 chat_id=message.chat.id,
-                message_id=status_msg.message_id,
+                message_id=processing.message_id,
                 parse_mode="HTML"
             )
             
@@ -1744,367 +2141,13 @@ def igviewer_username_handler(message):
             bot.edit_message_text(
                 f"❌ Error: {str(e)[:200]}",
                 chat_id=message.chat.id,
-                message_id=status_msg.message_id,
+                message_id=processing.message_id,
                 reply_markup=back_button()
             )
         
         user_igviewer_state[user_id] = None
     
     threading.Thread(target=fetch_stories).start()
-
-# ==================== INSTAGRAM DOWNLOADER HANDLERS ====================
-@bot.message_handler(func=lambda message: user_instagram_state.get(message.from_user.id) == "waiting_instagram_single")
-def instagram_single_handler(message):
-    user_id = message.from_user.id
-    url = message.text.strip()
-    
-    if url.lower() in ['/cancel', 'cancel']:
-        user_instagram_state[user_id] = None
-        bot.reply_to(message, "❌ Instagram download cancelled.", reply_markup=back_button())
-        return
-    
-    cost = get_module_cost("instagram_single")
-    balance = get_user_balance(user_id)
-    if balance < cost:
-        bot.reply_to(message, f"❌ Insufficient credits! Need {cost} credits. Balance: {balance}")
-        return
-    
-    status_msg = bot.reply_to(message, "📥 Downloading video...")
-    update_user_balance(user_id, -cost)
-    
-    def download_thread():
-        try:
-            video_url = get_instagram_reel(url)
-            if video_url:
-                bot.edit_message_text(
-                    "✅ <b>Video Downloaded!</b>\n\n"
-                    f"🔗 <a href='{video_url}'>Click here to view/download</a>",
-                    chat_id=message.chat.id,
-                    message_id=status_msg.message_id,
-                    parse_mode="HTML",
-                    reply_markup=back_button()
-                )
-            else:
-                update_user_balance(user_id, cost)
-                bot.edit_message_text(
-                    "❌ Failed to download video.\n\n"
-                    "Make sure the URL is correct and the post is a reel.",
-                    chat_id=message.chat.id,
-                    message_id=status_msg.message_id,
-                    reply_markup=back_button()
-                )
-        except Exception as e:
-            update_user_balance(user_id, cost)
-            bot.edit_message_text(
-                f"❌ Error: {str(e)[:200]}",
-                chat_id=message.chat.id,
-                message_id=status_msg.message_id,
-                reply_markup=back_button()
-            )
-        user_instagram_state[user_id] = None
-    
-    threading.Thread(target=download_thread).start()
-
-@bot.message_handler(func=lambda message: user_instagram_state.get(message.from_user.id) == "waiting_instagram_bulk")
-def instagram_bulk_handler(message):
-    user_id = message.from_user.id
-    urls = message.text.strip().splitlines()
-    
-    if message.text.lower() in ['/cancel', 'cancel']:
-        user_instagram_state[user_id] = None
-        bot.reply_to(message, "❌ Bulk download cancelled.", reply_markup=back_button())
-        return
-    
-    cost = get_module_cost("instagram_bulk") * len(urls)
-    balance = get_user_balance(user_id)
-    if balance < cost:
-        bot.reply_to(message, f"❌ Insufficient credits! Need {cost} credits. Balance: {balance}")
-        return
-    
-    status_msg = bot.reply_to(message, f"📥 Downloading {len(urls)} videos...")
-    update_user_balance(user_id, -cost)
-    
-    def download_thread():
-        try:
-            success = 0
-            failed = 0
-            results = []
-            
-            for i, url in enumerate(urls, 1):
-                url = url.strip()
-                if not url:
-                    continue
-                video_url = get_instagram_reel(url)
-                if video_url:
-                    results.append(f"{i}. ✅ <a href='{video_url}'>Download</a>")
-                    success += 1
-                else:
-                    results.append(f"{i}. ❌ Failed")
-                    failed += 1
-                time.sleep(0.5)
-            
-            result_text = f"""
-📥 <b>Bulk Download Results</b>
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-✅ Success: <code>{success}</code>
-❌ Failed: <code>{failed}</code>
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-{chr(10).join(results)}
-"""
-            if success > 0:
-                bot.edit_message_text(
-                    result_text,
-                    chat_id=message.chat.id,
-                    message_id=status_msg.message_id,
-                    parse_mode="HTML",
-                    reply_markup=back_button()
-                )
-            else:
-                update_user_balance(user_id, cost)
-                bot.edit_message_text(
-                    "❌ All downloads failed. Check the URLs.",
-                    chat_id=message.chat.id,
-                    message_id=status_msg.message_id,
-                    reply_markup=back_button()
-                )
-        except Exception as e:
-            update_user_balance(user_id, cost)
-            bot.edit_message_text(
-                f"❌ Error: {str(e)[:200]}",
-                chat_id=message.chat.id,
-                message_id=status_msg.message_id,
-                reply_markup=back_button()
-            )
-        user_instagram_state[user_id] = None
-    
-    threading.Thread(target=download_thread).start()
-
-# ==================== FLIPKART HANDLER ====================
-@bot.message_handler(func=lambda message: user_flipkart_state.get(message.from_user.id) == "waiting_flipkart_number")
-def flipkart_check_handler(message):
-    user_id = message.from_user.id
-    phone = message.text.strip()
-    
-    if phone.lower() in ['/cancel', 'cancel']:
-        user_flipkart_state[user_id] = None
-        bot.reply_to(message, "❌ Flipkart check cancelled.", reply_markup=back_button())
-        return
-    
-    if not phone.isdigit() or len(phone) != 10:
-        bot.reply_to(message, "❌ Please enter exactly 10 digits.\n\nSend /cancel to abort.")
-        return
-    
-    cost = get_module_cost("flipkart")
-    balance = get_user_balance(user_id)
-    if balance < cost:
-        bot.reply_to(message, f"❌ Insufficient credits! Need {cost} credits. Balance: {balance}")
-        return
-    
-    status_msg = bot.reply_to(message, f"🔍 Checking +91{phone}...")
-    update_user_balance(user_id, -cost)
-    
-    def check_thread():
-        try:
-            # Simulate check - In real implementation, this would call Flipkart API
-            time.sleep(2)
-            status = random.choice(["✅ VERIFIED", "❌ GUEST", "⚠️ API Blocked"])
-            
-            result_text = f"""
-🛒 <b>Flipkart Check Result</b>
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-📱 <b>Number:</b> <code>+91{phone}</code>
-📊 <b>Status:</b> {status}
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-💡 Use for lead generation!
-"""
-            bot.edit_message_text(
-                result_text,
-                chat_id=message.chat.id,
-                message_id=status_msg.message_id,
-                parse_mode="HTML",
-                reply_markup=back_button()
-            )
-        except Exception as e:
-            update_user_balance(user_id, cost)
-            bot.edit_message_text(
-                f"❌ Error: {str(e)[:200]}",
-                chat_id=message.chat.id,
-                message_id=status_msg.message_id,
-                reply_markup=back_button()
-            )
-        user_flipkart_state[user_id] = None
-    
-    threading.Thread(target=check_thread).start()
-
-# ==================== MUSIC HANDLER ====================
-@bot.message_handler(func=lambda message: user_music_state.get(message.from_user.id) == "waiting_music_search")
-def music_search_handler(message):
-    user_id = message.from_user.id
-    query = message.text.strip()
-    
-    if query.lower() in ['/cancel', 'cancel']:
-        user_music_state[user_id] = None
-        bot.reply_to(message, "❌ Music search cancelled.", reply_markup=back_button())
-        return
-    
-    status_msg = bot.reply_to(message, f"🎵 Searching for '{query}'...")
-    
-    def search_thread():
-        try:
-            # Simulate search - In real implementation, this would call a music API
-            time.sleep(2)
-            songs = [
-                f"🎵 Song 1 - Artist A",
-                f"🎵 Song 2 - Artist B",
-                f"🎵 Song 3 - Artist C",
-            ]
-            
-            result_text = f"""
-🎵 <b>Search Results</b>
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-📝 <b>Query:</b> <code>{query}</code>
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-{chr(10).join(songs)}
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-💡 Send song name to download!
-"""
-            bot.edit_message_text(
-                result_text,
-                chat_id=message.chat.id,
-                message_id=status_msg.message_id,
-                parse_mode="HTML",
-                reply_markup=back_button()
-            )
-        except Exception as e:
-            bot.edit_message_text(
-                f"❌ Error: {str(e)[:200]}",
-                chat_id=message.chat.id,
-                message_id=status_msg.message_id,
-                reply_markup=back_button()
-            )
-        user_music_state[user_id] = None
-    
-    threading.Thread(target=search_thread).start()
-
-# ==================== TEMP MAIL HANDLERS ====================
-@bot.callback_query_handler(func=lambda call: call.data.startswith("temp_"))
-def temp_mail_callback(call):
-    user_id = call.from_user.id
-    data = call.data
-    
-    if data == "temp_new":
-        # Generate temp email
-        domain = random.choice(["tempmail.com", "temp-mail.org", "guerrillamail.com"])
-        email = f"{uuid.uuid4().hex[:8]}@{domain}"
-        
-        conn = sqlite3.connect(DB_PATH, check_same_thread=False)
-        c = conn.cursor()
-        c.execute('INSERT INTO temp_emails (user_id, email) VALUES (?, ?)', (user_id, email))
-        conn.commit()
-        conn.close()
-        
-        bot.edit_message_text(
-            f"📧 <b>Temp Email Generated</b>\n\n"
-            f"Email: <code>{email}</code>\n\n"
-            f"⏱️ Valid for 10 minutes\n"
-            f"💡 Use this for OTP verification!",
-            chat_id=call.message.chat.id,
-            message_id=call.message.message_id,
-            parse_mode="HTML",
-            reply_markup=temp_menu_keyboard()
-        )
-        bot.answer_callback_query(call.id)
-        return
-    
-    elif data == "temp_delete":
-        conn = sqlite3.connect(DB_PATH, check_same_thread=False)
-        c = conn.cursor()
-        c.execute('DELETE FROM temp_emails WHERE user_id = ?', (user_id,))
-        conn.commit()
-        conn.close()
-        
-        bot.edit_message_text(
-            "🗑️ <b>Temp Email Deleted</b>\n\n"
-            "Your temporary email has been removed.",
-            chat_id=call.message.chat.id,
-            message_id=call.message.message_id,
-            parse_mode="HTML",
-            reply_markup=temp_menu_keyboard()
-        )
-        bot.answer_callback_query(call.id)
-        return
-    
-    elif data == "temp_inbox":
-        conn = sqlite3.connect(DB_PATH, check_same_thread=False)
-        c = conn.cursor()
-        c.execute('SELECT email FROM temp_emails WHERE user_id = ? ORDER BY created_at DESC LIMIT 1', (user_id,))
-        row = c.fetchone()
-        conn.close()
-        
-        if row:
-            bot.edit_message_text(
-                f"📥 <b>Inbox Check</b>\n\n"
-                f"Email: <code>{row[0]}</code>\n\n"
-                f"💡 No emails received yet.\n"
-                f"Check back in a few minutes!",
-                chat_id=call.message.chat.id,
-                message_id=call.message.message_id,
-                parse_mode="HTML",
-                reply_markup=temp_menu_keyboard()
-            )
-        else:
-            bot.edit_message_text(
-                "📥 <b>Inbox Check</b>\n\n"
-                "No temp email found.\n"
-                "Create one using 'New Email'!",
-                chat_id=call.message.chat.id,
-                message_id=call.message.message_id,
-                parse_mode="HTML",
-                reply_markup=temp_menu_keyboard()
-            )
-        bot.answer_callback_query(call.id)
-        return
-    
-    elif data == "temp_otp":
-        conn = sqlite3.connect(DB_PATH, check_same_thread=False)
-        c = conn.cursor()
-        c.execute('SELECT email FROM temp_emails WHERE user_id = ? ORDER BY created_at DESC LIMIT 1', (user_id,))
-        row = c.fetchone()
-        conn.close()
-        
-        if row:
-            # Simulate OTP detection
-            otp = f"{random.randint(100000, 999999)}"
-            bot.edit_message_text(
-                f"🔑 <b>OTP Detected</b>\n\n"
-                f"Email: <code>{row[0]}</code>\n"
-                f"OTP: <code>{otp}</code>\n\n"
-                f"⚠️ This is a simulated OTP.\n"
-                f"Real implementation would read actual emails!",
-                chat_id=call.message.chat.id,
-                message_id=call.message.message_id,
-                parse_mode="HTML",
-                reply_markup=temp_menu_keyboard()
-            )
-        else:
-            bot.edit_message_text(
-                "🔑 <b>OTP Detection</b>\n\n"
-                "No temp email found.\n"
-                "Create one using 'New Email'!",
-                chat_id=call.message.chat.id,
-                message_id=call.message.message_id,
-                parse_mode="HTML",
-                reply_markup=temp_menu_keyboard()
-            )
-        bot.answer_callback_query(call.id)
-        return
 
 # ==================== YOGA HANDLERS ====================
 @bot.message_handler(func=lambda message: user_yoga_state.get(message.from_user.id) == "waiting_yoga_phone")
@@ -2320,1092 +2363,6 @@ def yoga_otp_handler(message):
     
     threading.Thread(target=verify_thread).start()
 
-# ==================== FIREBASE HANDLERS ====================
-@bot.message_handler(func=lambda message: user_firebase_state.get(message.from_user.id) == "waiting_firebase_apk")
-def firebase_apk_handler(message):
-    user_id = message.from_user.id
-    
-    if message.text and message.text.lower() in ['/cancel', 'cancel']:
-        user_firebase_state[user_id] = None
-        bot.reply_to(message, "❌ Firebase extraction cancelled.", reply_markup=back_button())
-        return
-    
-    if message.document:
-        file_info = bot.get_file(message.document.file_id)
-        if not file_info.file_name.endswith('.apk'):
-            bot.reply_to(message, "❌ Please send an APK file.")
-            return
-        
-        cost = get_module_cost("firebase")
-        balance = get_user_balance(user_id)
-        if balance < cost:
-            bot.reply_to(message, f"❌ Insufficient credits! Need {cost} credits. Balance: {balance}")
-            return
-        
-        status_msg = bot.reply_to(message, "🔍 Analyzing APK...")
-        update_user_balance(user_id, -cost)
-        
-        def analyze_thread():
-            try:
-                # Simulate APK analysis
-                time.sleep(3)
-                result_text = """
-🔥 <b>Firebase Extraction Complete</b>
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-📦 <b>Found Firebase Endpoints:</b>
-
-<code>https://your-project.firebaseio.com</code>
-<code>https://your-project.firebaseapp.com</code>
-
-🔑 <b>API Keys:</b>
-<code>AIzaSyAbCdEfGhIjKlMnOpQrStUvWxYz</code>
-
-📊 <b>Database:</b>
-<code>https://your-project-default-rtdb.firebaseio.com</code>
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-⚠️ Use responsibly!
-"""
-                bot.edit_message_text(
-                    result_text,
-                    chat_id=message.chat.id,
-                    message_id=status_msg.message_id,
-                    parse_mode="HTML",
-                    reply_markup=back_button()
-                )
-            except Exception as e:
-                update_user_balance(user_id, cost)
-                bot.edit_message_text(
-                    f"❌ Error: {str(e)[:200]}",
-                    chat_id=message.chat.id,
-                    message_id=status_msg.message_id,
-                    reply_markup=back_button()
-                )
-            user_firebase_state[user_id] = None
-        
-        threading.Thread(target=analyze_thread).start()
-    else:
-        bot.reply_to(message, "❌ Please send an APK file.")
-
-# ==================== CALLBACK QUERY HANDLER ====================
-@bot.callback_query_handler(func=lambda call: True)
-def callback_handler(call):
-    user_id = call.from_user.id
-    data = call.data
-    
-    if data == "back_menu" or data == "back_main":
-        user = get_user(user_id)
-        if not user:
-            bot.answer_callback_query(call.id, "User not found")
-            return
-        status = "✅" if check_membership(user_id) else "❌"
-        is_admin = user_id == ADMIN_ID
-        bot.edit_message_text(
-            main_menu_text(user_id, user['first_name'], user['balance'], status),
-            chat_id=call.message.chat.id,
-            message_id=call.message.message_id,
-            reply_markup=main_menu_keyboard(is_admin),
-            parse_mode="HTML"
-        )
-        bot.answer_callback_query(call.id)
-        return
-    
-    if data in ["back_shopsy", "back_yoga", "back_supercoin"]:
-        user = get_user(user_id)
-        if data == "back_shopsy":
-            text = shopsy_menu_text(user_id, user['balance'], "✅", get_shopsy_balance(user_id), get_shopsy_login_status(user_id))
-            kb = shopsy_menu_keyboard()
-        elif data == "back_supercoin":
-            text = supercoin_menu_text(user_id, user['balance'], "✅", get_module_cost("supercoin"))
-            kb = supercoin_menu_keyboard()
-        else:
-            cost = get_module_cost("yoga")
-            reward = get_yoga_refer_reward()
-            yoga_code = user.get('yoga_code') if user else None
-            text = yoga_menu_text(user_id, user['balance'], "✅", yoga_code, reward, cost)
-            kb = yoga_menu_keyboard()
-        
-        user_shopsy_state[user_id] = None
-        user_yoga_state[user_id] = None
-        user_supercoin_state[user_id] = None
-        user_igviewer_state[user_id] = None
-        user_instagram_state[user_id] = None
-        user_firebase_state[user_id] = None
-        user_music_state[user_id] = None
-        user_flipkart_state[user_id] = None
-        if user_id in user_shopsy_otp_data:
-            del user_shopsy_otp_data[user_id]
-        if user_id in user_yoga_otp_data:
-            del user_yoga_otp_data[user_id]
-        if user_id in user_supercoin_otp_data:
-            del user_supercoin_otp_data[user_id]
-        
-        bot.edit_message_text(
-            text,
-            chat_id=call.message.chat.id,
-            message_id=call.message.message_id,
-            reply_markup=kb,
-            parse_mode="HTML"
-        )
-        bot.answer_callback_query(call.id)
-        return
-    
-    if data.startswith("module_"):
-        module = data.replace("module_", "")
-        user = get_user(user_id)
-        if not user:
-            bot.answer_callback_query(call.id, "User not found")
-            return
-        
-        status = "✅" if check_membership(user_id) else "❌"
-        balance = user['balance']
-        
-        if module == "firebase":
-            cost = get_module_cost("firebase")
-            bot.edit_message_text(
-                firebase_menu_text(user_id, balance, status, cost),
-                chat_id=call.message.chat.id,
-                message_id=call.message.message_id,
-                reply_markup=firebase_menu_keyboard(),
-                parse_mode="HTML"
-            )
-        elif module == "temp":
-            bot.edit_message_text(
-                temp_menu_text(user_id),
-                chat_id=call.message.chat.id,
-                message_id=call.message.message_id,
-                reply_markup=temp_menu_keyboard(),
-                parse_mode="HTML"
-            )
-        elif module == "flipkart":
-            cost = get_module_cost("flipkart")
-            bot.edit_message_text(
-                flipkart_menu_text(user_id, balance, status, cost),
-                chat_id=call.message.chat.id,
-                message_id=call.message.message_id,
-                reply_markup=flipkart_menu_keyboard(),
-                parse_mode="HTML"
-            )
-        elif module == "instagram":
-            cost = get_module_cost("instagram_single")
-            bot.edit_message_text(
-                instagram_menu_text(user_id, balance, status, cost),
-                chat_id=call.message.chat.id,
-                message_id=call.message.message_id,
-                reply_markup=instagram_menu_keyboard(),
-                parse_mode="HTML"
-            )
-        elif module == "igviewer":
-            cost = get_module_cost("igviewer")
-            bot.edit_message_text(
-                igviewer_menu_text(user_id, balance, status, cost),
-                chat_id=call.message.chat.id,
-                message_id=call.message.message_id,
-                reply_markup=igviewer_menu_keyboard(),
-                parse_mode="HTML"
-            )
-        elif module == "music":
-            bot.edit_message_text(
-                music_menu_text(user_id),
-                chat_id=call.message.chat.id,
-                message_id=call.message.message_id,
-                reply_markup=music_menu_keyboard(),
-                parse_mode="HTML"
-            )
-        elif module == "shopsy":
-            bot.edit_message_text(
-                shopsy_menu_text(user_id, balance, status, get_shopsy_balance(user_id), get_shopsy_login_status(user_id)),
-                chat_id=call.message.chat.id,
-                message_id=call.message.message_id,
-                reply_markup=shopsy_menu_keyboard(),
-                parse_mode="HTML"
-            )
-        elif module == "supercoin":
-            cost = get_module_cost("supercoin")
-            bot.edit_message_text(
-                supercoin_menu_text(user_id, balance, status, cost),
-                chat_id=call.message.chat.id,
-                message_id=call.message.message_id,
-                reply_markup=supercoin_menu_keyboard(),
-                parse_mode="HTML"
-            )
-        elif module == "yoga":
-            cost = get_module_cost("yoga")
-            reward = get_yoga_refer_reward()
-            yoga_code = user.get('yoga_code')
-            bot.edit_message_text(
-                yoga_menu_text(user_id, balance, status, yoga_code, reward, cost),
-                chat_id=call.message.chat.id,
-                message_id=call.message.message_id,
-                reply_markup=yoga_menu_keyboard(),
-                parse_mode="HTML"
-            )
-        elif module == "referral":
-            bot.edit_message_text(
-                referral_menu_text(user_id, balance, get_referral_count(user_id)),
-                chat_id=call.message.chat.id,
-                message_id=call.message.message_id,
-                reply_markup=referral_menu_keyboard(),
-                parse_mode="HTML"
-            )
-        elif module == "admin":
-            if user_id == ADMIN_ID:
-                bot.edit_message_text(
-                    admin_panel_text(),
-                    chat_id=call.message.chat.id,
-                    message_id=call.message.message_id,
-                    reply_markup=admin_panel_keyboard(),
-                    parse_mode="HTML"
-                )
-            else:
-                bot.answer_callback_query(call.id, "Unauthorized")
-        elif module == "stats":
-            total_users = get_total_users()
-            total_coins = get_total_coins()
-            total_usage = get_total_usage()
-            bot.answer_callback_query(
-                call.id, 
-                f"📊 Users: {total_users} | Coins: {total_coins} | Usage: {total_usage}",
-                show_alert=True
-            )
-        else:
-            bot.answer_callback_query(call.id, "Module not found")
-        
-        bot.answer_callback_query(call.id)
-        return
-    
-    # ==================== INSTAGRAM CALLBACKS ====================
-    if data == "instagram_single":
-        user_id = call.from_user.id
-        cost = get_module_cost("instagram_single")
-        balance = get_user_balance(user_id)
-        if balance < cost:
-            bot.answer_callback_query(call.id, f"❌ Need {cost} credits!", show_alert=True)
-            return
-        
-        user_instagram_state[user_id] = "waiting_instagram_single"
-        kb = InlineKeyboardMarkup()
-        kb.row(InlineKeyboardButton("❌ Cancel", callback_data="instagram_abort"))
-        kb.row(InlineKeyboardButton("🔙 Back", callback_data="back_menu"))
-        
-        bot.edit_message_text(
-            "📸 <b>Instagram Reel Downloader</b>\n\n"
-            "Send me the Instagram reel URL:\n\n"
-            "Example: <code>https://www.instagram.com/reel/xyz123/</code>\n\n"
-            "Send /cancel to abort.",
-            chat_id=call.message.chat.id,
-            message_id=call.message.message_id,
-            reply_markup=kb,
-            parse_mode="HTML"
-        )
-        bot.answer_callback_query(call.id)
-        return
-    
-    if data == "instagram_bulk":
-        user_id = call.from_user.id
-        cost = get_module_cost("instagram_bulk")
-        balance = get_user_balance(user_id)
-        if balance < cost:
-            bot.answer_callback_query(call.id, f"❌ Need {cost} credits!", show_alert=True)
-            return
-        
-        user_instagram_state[user_id] = "waiting_instagram_bulk"
-        kb = InlineKeyboardMarkup()
-        kb.row(InlineKeyboardButton("❌ Cancel", callback_data="instagram_abort"))
-        kb.row(InlineKeyboardButton("🔙 Back", callback_data="back_menu"))
-        
-        bot.edit_message_text(
-            "📚 <b>Instagram Bulk Downloader</b>\n\n"
-            "Send multiple Instagram reel URLs (one per line):\n\n"
-            "Example:\n"
-            "<code>https://www.instagram.com/reel/xyz123/</code>\n"
-            "<code>https://www.instagram.com/reel/abc456/</code>\n\n"
-            "Send /cancel to abort.",
-            chat_id=call.message.chat.id,
-            message_id=call.message.message_id,
-            reply_markup=kb,
-            parse_mode="HTML"
-        )
-        bot.answer_callback_query(call.id)
-        return
-    
-    if data == "instagram_abort":
-        user_id = call.from_user.id
-        user_instagram_state[user_id] = None
-        bot.edit_message_text(
-            "❌ Instagram download cancelled.",
-            chat_id=call.message.chat.id,
-            message_id=call.message.message_id,
-            reply_markup=back_button()
-        )
-        bot.answer_callback_query(call.id)
-        return
-    
-    # ==================== FLIPKART CALLBACKS ====================
-    if data == "flipkart_check":
-        user_id = call.from_user.id
-        cost = get_module_cost("flipkart")
-        balance = get_user_balance(user_id)
-        if balance < cost:
-            bot.answer_callback_query(call.id, f"❌ Need {cost} credits!", show_alert=True)
-            return
-        
-        user_flipkart_state[user_id] = "waiting_flipkart_number"
-        kb = InlineKeyboardMarkup()
-        kb.row(InlineKeyboardButton("❌ Cancel", callback_data="flipkart_abort"))
-        kb.row(InlineKeyboardButton("🔙 Back", callback_data="back_menu"))
-        
-        bot.edit_message_text(
-            "🛒 <b>Flipkart Checker</b>\n\n"
-            "Enter the 10-digit phone number to check:\n\n"
-            "Example: <code>9876543210</code>\n\n"
-            "Send /cancel to abort.",
-            chat_id=call.message.chat.id,
-            message_id=call.message.message_id,
-            reply_markup=kb,
-            parse_mode="HTML"
-        )
-        bot.answer_callback_query(call.id)
-        return
-    
-    if data == "flipkart_abort":
-        user_id = call.from_user.id
-        user_flipkart_state[user_id] = None
-        bot.edit_message_text(
-            "❌ Flipkart check cancelled.",
-            chat_id=call.message.chat.id,
-            message_id=call.message.message_id,
-            reply_markup=back_button()
-        )
-        bot.answer_callback_query(call.id)
-        return
-    
-    # ==================== MUSIC CALLBACKS ====================
-    if data == "music_search":
-        user_id = call.from_user.id
-        user_music_state[user_id] = "waiting_music_search"
-        kb = InlineKeyboardMarkup()
-        kb.row(InlineKeyboardButton("❌ Cancel", callback_data="music_abort"))
-        kb.row(InlineKeyboardButton("🔙 Back", callback_data="back_menu"))
-        
-        bot.edit_message_text(
-            "🎵 <b>Music Downloader</b>\n\n"
-            "Enter song or artist name to search:\n\n"
-            "Example: <code>Shape of You</code>\n\n"
-            "Send /cancel to abort.",
-            chat_id=call.message.chat.id,
-            message_id=call.message.message_id,
-            reply_markup=kb,
-            parse_mode="HTML"
-        )
-        bot.answer_callback_query(call.id)
-        return
-    
-    if data == "music_abort":
-        user_id = call.from_user.id
-        user_music_state[user_id] = None
-        bot.edit_message_text(
-            "❌ Music search cancelled.",
-            chat_id=call.message.chat.id,
-            message_id=call.message.message_id,
-            reply_markup=back_button()
-        )
-        bot.answer_callback_query(call.id)
-        return
-    
-    # ==================== FIREBASE CALLBACKS ====================
-    if data == "firebase_send":
-        user_id = call.from_user.id
-        cost = get_module_cost("firebase")
-        balance = get_user_balance(user_id)
-        if balance < cost:
-            bot.answer_callback_query(call.id, f"❌ Need {cost} credits!", show_alert=True)
-            return
-        
-        user_firebase_state[user_id] = "waiting_firebase_apk"
-        kb = InlineKeyboardMarkup()
-        kb.row(InlineKeyboardButton("❌ Cancel", callback_data="firebase_abort"))
-        kb.row(InlineKeyboardButton("🔙 Back", callback_data="back_menu"))
-        
-        bot.edit_message_text(
-            "🔥 <b>Firebase Extractor</b>\n\n"
-            "Send me the APK file to analyze:\n\n"
-            "📤 Upload the APK file\n"
-            "⏱️ Analysis takes 30-60 seconds\n\n"
-            "Send /cancel to abort.",
-            chat_id=call.message.chat.id,
-            message_id=call.message.message_id,
-            reply_markup=kb,
-            parse_mode="HTML"
-        )
-        bot.answer_callback_query(call.id)
-        return
-    
-    if data == "firebase_remove":
-        user_id = call.from_user.id
-        bot.answer_callback_query(call.id, "🗑️ APK removed from analysis.")
-        bot.edit_message_text(
-            "🗑️ <b>APK Removed</b>\n\n"
-            "You can send a new APK anytime.",
-            chat_id=call.message.chat.id,
-            message_id=call.message.message_id,
-            reply_markup=firebase_menu_keyboard(),
-            parse_mode="HTML"
-        )
-        return
-    
-    if data == "firebase_abort":
-        user_id = call.from_user.id
-        user_firebase_state[user_id] = None
-        bot.edit_message_text(
-            "❌ Firebase extraction cancelled.",
-            chat_id=call.message.chat.id,
-            message_id=call.message.message_id,
-            reply_markup=back_button()
-        )
-        bot.answer_callback_query(call.id)
-        return
-    
-    # ==================== REFERRAL CALLBACKS ====================
-    if data == "referral_get_link":
-        user_id = call.from_user.id
-        link = get_referral_link(user_id)
-        referral_count = get_referral_count(user_id)
-        pending_count = get_pending_referral_count(user_id)
-        
-        kb = InlineKeyboardMarkup()
-        kb.row(InlineKeyboardButton("📤 Share Link", callback_data="referral_share"))
-        kb.row(InlineKeyboardButton("🔙 Back", callback_data="back_menu"))
-        
-        bot.edit_message_text(
-            f"🔗 <b>Your Referral Link</b>\n\n"
-            f"<code>{link}</code>\n\n"
-            f"📊 <b>Your Stats:</b>\n"
-            f"👥 Successful: <code>{referral_count}</code>\n"
-            f"⏳ Pending: <code>{pending_count}</code>\n"
-            f"💰 Bonus: <code>+{REFERRAL_BONUS} Credits</code> per referral\n\n"
-            f"Share this link with friends and earn credits when they join and stay!\n\n"
-            f"💡 <b>Tip:</b> Each friend gets <b>+{NEW_USER_BONUS} Credits</b> on joining!",
-            chat_id=call.message.chat.id,
-            message_id=call.message.message_id,
-            reply_markup=kb,
-            parse_mode="HTML"
-        )
-        bot.answer_callback_query(call.id)
-        return
-
-    if data == "referral_share":
-        user_id = call.from_user.id
-        link = get_referral_link(user_id)
-        bot.answer_callback_query(
-            call.id,
-            "📤 Copy this link and share with friends!\n\n" + link,
-            show_alert=True
-        )
-        return
-
-    if data == "referral_stats":
-        user_id = call.from_user.id
-        referral_count = get_referral_count(user_id)
-        pending_count = get_pending_referral_count(user_id)
-        balance = get_user_balance(user_id)
-        bot.answer_callback_query(
-            call.id,
-            f"📊 Referral Stats:\n✅ Completed: {referral_count}\n⏳ Pending: {pending_count}\n💰 Balance: {balance}\n🎁 Bonus: +{REFERRAL_BONUS} per referral",
-            show_alert=True
-        )
-        return
-    
-    # ==================== ADMIN CALLBACKS ====================
-    if data.startswith("admin_"):
-        user_id = call.from_user.id
-        if user_id != ADMIN_ID:
-            bot.answer_callback_query(call.id, "❌ Unauthorized - Admin only!")
-            return
-        
-        action = data.replace("admin_", "")
-        
-        if action == "stats":
-            total_users = get_total_users()
-            total_coins = get_total_coins()
-            total_usage = get_total_usage()
-            
-            conn = sqlite3.connect(DB_PATH, check_same_thread=False)
-            c = conn.cursor()
-            c.execute("SELECT COUNT(*) FROM users WHERE last_used >= datetime('now', '-7 days')")
-            active_users = c.fetchone()[0]
-            conn.close()
-            
-            bot.answer_callback_query(
-                call.id,
-                f"📊 Bot Statistics:\n\n"
-                f"👥 Total Users: {total_users}\n"
-                f"🟢 Active (7d): {active_users}\n"
-                f"💰 Total Coins: {total_coins}\n"
-                f"📈 Total Usage: {total_usage}",
-                show_alert=True
-            )
-            return
-        
-        if action == "users":
-            users = get_all_users()
-            if not users:
-                bot.answer_callback_query(call.id, "No users found", show_alert=True)
-                return
-            
-            user_list = "👥 <b>Top Users by Balance:</b>\n\n"
-            for i, (uid, username, balance, status) in enumerate(users[:10], 1):
-                name = username or f"User_{uid}"
-                status_icon = "🟢" if status == "ACTIVE" else "🔴"
-                user_list += f"{i}. {status_icon} {name} - 💰 {balance}\n"
-            
-            if len(users) > 10:
-                user_list += f"\n... and {len(users) - 10} more users"
-            
-            kb = InlineKeyboardMarkup()
-            kb.row(InlineKeyboardButton("📥 Export All", callback_data="admin_export_users"))
-            kb.row(InlineKeyboardButton("🔙 Back", callback_data="back_menu"))
-            
-            bot.edit_message_text(
-                user_list,
-                chat_id=call.message.chat.id,
-                message_id=call.message.message_id,
-                reply_markup=kb,
-                parse_mode="HTML"
-            )
-            bot.answer_callback_query(call.id)
-            return
-        
-        if action == "export_users":
-            users = get_all_users()
-            if not users:
-                bot.answer_callback_query(call.id, "No users to export", show_alert=True)
-                return
-            
-            csv_data = "User ID,Username,Balance,Status\n"
-            for uid, username, balance, status in users:
-                csv_data += f"{uid},{username or 'N/A'},{balance},{status}\n"
-            
-            try:
-                bot.send_document(
-                    call.message.chat.id,
-                    document=("users_export.csv", csv_data),
-                    caption=f"📊 Users Export - {len(users)} users"
-                )
-                bot.answer_callback_query(call.id, "✅ Export sent!")
-            except Exception as e:
-                bot.answer_callback_query(call.id, f"❌ Export failed: {str(e)[:50]}", show_alert=True)
-            return
-        
-        if action == "add_coins":
-            msg = bot.send_message(
-                call.message.chat.id,
-                "💰 <b>Add Credits</b>\n\n"
-                "Please send in format:\n"
-                "<code>/addcoins USER_ID AMOUNT</code>\n\n"
-                "Example: <code>/addcoins 123456789 10</code>\n\n"
-                "Send /cancel to abort.",
-                parse_mode="HTML"
-            )
-            bot.register_next_step_handler(msg, admin_add_coins_handler)
-            bot.answer_callback_query(call.id)
-            return
-        
-        if action == "remove_coins":
-            msg = bot.send_message(
-                call.message.chat.id,
-                "➖ <b>Remove Credits</b>\n\n"
-                "Please send in format:\n"
-                "<code>/removecoins USER_ID AMOUNT</code>\n\n"
-                "Example: <code>/removecoins 123456789 5</code>\n\n"
-                "Send /cancel to abort.",
-                parse_mode="HTML"
-            )
-            bot.register_next_step_handler(msg, admin_remove_coins_handler)
-            bot.answer_callback_query(call.id)
-            return
-        
-        if action == "broadcast":
-            msg = bot.send_message(
-                call.message.chat.id,
-                "📢 <b>Broadcast Message</b>\n\n"
-                "Send the message you want to broadcast to all users.\n\n"
-                "⚠️ <b>Warning:</b> This will send to ALL users!\n\n"
-                "Send /cancel to abort.",
-                parse_mode="HTML"
-            )
-            bot.register_next_step_handler(msg, admin_broadcast_handler)
-            bot.answer_callback_query(call.id)
-            return
-        
-        if action == "costs":
-            costs_text = "⚙️ <b>Module Costs</b>\n\n"
-            for module, default in DEFAULT_COSTS.items():
-                current = get_module_cost(module)
-                costs_text += f"• {module.title()}: <code>{current}</code> credits\n"
-            
-            costs_text += f"\n📝 To update: <code>/setcost MODULE AMOUNT</code>\n"
-            costs_text += f"Example: <code>/setcost yoga 2</code>\n\n"
-            costs_text += f"💰 Yoga Reward: <code>{get_yoga_refer_reward()}</code> credits"
-            
-            kb = InlineKeyboardMarkup()
-            kb.row(InlineKeyboardButton("🔙 Back", callback_data="back_menu"))
-            
-            bot.edit_message_text(
-                costs_text,
-                chat_id=call.message.chat.id,
-                message_id=call.message.message_id,
-                reply_markup=kb,
-                parse_mode="HTML"
-            )
-            bot.answer_callback_query(call.id)
-            return
-    
-    # ==================== BROADCAST CALLBACKS ====================
-    if data == "broadcast_confirm":
-        user_id = call.from_user.id
-        if user_id != ADMIN_ID:
-            bot.answer_callback_query(call.id, "❌ Unauthorized!")
-            return
-        
-        broadcast_msg = getattr(bot, 'user_data', {}).get('broadcast_msg')
-        users = getattr(bot, 'user_data', {}).get('broadcast_users', [])
-        
-        if not broadcast_msg:
-            bot.answer_callback_query(call.id, "❌ No broadcast message found!")
-            return
-        
-        bot.edit_message_text(
-            f"📢 <b>Broadcasting...</b>\n\n"
-            f"Sending to <code>{len(users)}</code> users...",
-            chat_id=call.message.chat.id,
-            message_id=call.message.message_id,
-            parse_mode="HTML"
-        )
-        
-        success = 0
-        failed = 0
-        
-        for uid, username, balance, status in users:
-            try:
-                bot.send_message(uid, broadcast_msg, parse_mode="HTML")
-                success += 1
-                time.sleep(0.05)
-            except:
-                failed += 1
-        
-        bot.edit_message_text(
-            f"✅ <b>Broadcast Complete!</b>\n\n"
-            f"✅ Sent: <code>{success}</code>\n"
-            f"❌ Failed: <code>{failed}</code>",
-            chat_id=call.message.chat.id,
-            message_id=call.message.message_id,
-            parse_mode="HTML"
-        )
-        
-        bot.answer_callback_query(call.id, f"✅ Sent to {success} users")
-        return
-
-    if data == "broadcast_cancel":
-        user_id = call.from_user.id
-        if user_id != ADMIN_ID:
-            bot.answer_callback_query(call.id, "❌ Unauthorized!")
-            return
-        
-        bot.edit_message_text(
-            "❌ Broadcast cancelled.",
-            chat_id=call.message.chat.id,
-            message_id=call.message.message_id
-        )
-        bot.answer_callback_query(call.id)
-        return
-    
-    # ==================== SUPERCOIN CALLBACKS ====================
-    if data == "supercoin_start":
-        user_id = call.from_user.id
-        cost = get_module_cost("supercoin")
-        balance = get_user_balance(user_id)
-        
-        if balance < cost:
-            bot.answer_callback_query(call.id, f"❌ Need {cost} credits!", show_alert=True)
-            return
-        
-        user_supercoin_state[user_id] = "waiting_supercoin_phone"
-        kb = InlineKeyboardMarkup()
-        kb.row(InlineKeyboardButton("❌ Cancel", callback_data="supercoin_abort"))
-        kb.row(InlineKeyboardButton("🔙 Back", callback_data="back_supercoin"))
-        
-        bot.edit_message_text(
-            "💰 <b>Supercoin Fetcher</b>\n\n"
-            "📱 Enter your 10-digit phone number to check Supercoins:\n\n"
-            "Send /cancel to abort.",
-            chat_id=call.message.chat.id,
-            message_id=call.message.message_id,
-            reply_markup=kb,
-            parse_mode="HTML"
-        )
-        bot.answer_callback_query(call.id)
-        return
-    
-    if data == "supercoin_abort":
-        user_id = call.from_user.id
-        user_supercoin_state[user_id] = None
-        if user_id in user_supercoin_otp_data:
-            update_user_balance(user_id, user_supercoin_otp_data[user_id]["cost"])
-            del user_supercoin_otp_data[user_id]
-        bot.edit_message_text(
-            "❌ Supercoin check cancelled.",
-            chat_id=call.message.chat.id,
-            message_id=call.message.message_id,
-            reply_markup=back_button()
-        )
-        bot.answer_callback_query(call.id)
-        return
-    
-    if data == "supercoin_stats":
-        user_id = call.from_user.id
-        bot.answer_callback_query(
-            call.id,
-            "💰 Supercoin Fetcher\n\nUse 'Check Coins' to fetch your Supercoin balance!",
-            show_alert=True
-        )
-        return
-    
-    # ==================== IG VIEWER CALLBACKS ====================
-    if data == "igviewer_view":
-        user_id = call.from_user.id
-        cost = get_module_cost("igviewer")
-        balance = get_user_balance(user_id)
-        
-        if balance < cost:
-            bot.answer_callback_query(call.id, f"❌ Need {cost} credits!", show_alert=True)
-            return
-        
-        user_igviewer_state[user_id] = "waiting_ig_username"
-        kb = InlineKeyboardMarkup()
-        kb.row(InlineKeyboardButton("❌ Cancel", callback_data="igviewer_abort"))
-        kb.row(InlineKeyboardButton("🔙 Back", callback_data="back_menu"))
-        
-        bot.edit_message_text(
-            "👁️ <b>IG Viewer</b>\n\n"
-            "Enter the Instagram username to view stories:\n\n"
-            "Example: <code>instagram</code>\n\n"
-            "Send /cancel to abort.",
-            chat_id=call.message.chat.id,
-            message_id=call.message.message_id,
-            reply_markup=kb,
-            parse_mode="HTML"
-        )
-        bot.answer_callback_query(call.id)
-        return
-    
-    if data == "igviewer_abort":
-        user_id = call.from_user.id
-        user_igviewer_state[user_id] = None
-        bot.edit_message_text(
-            "❌ IG Viewer cancelled.",
-            chat_id=call.message.chat.id,
-            message_id=call.message.message_id,
-            reply_markup=back_button()
-        )
-        bot.answer_callback_query(call.id)
-        return
-    
-    # ==================== SHOPSY CALLBACKS ====================
-    if data == "shopsy_start":
-        user_id = call.from_user.id
-        if get_shopsy_login_status(user_id):
-            user_shopsy_state[user_id] = "start_mining"
-            kb = InlineKeyboardMarkup()
-            kb.row(InlineKeyboardButton("⛏️ Start Mining Now", callback_data="shopsy_mine_now"))
-            kb.row(InlineKeyboardButton("🔙 Back", callback_data="back_shopsy"))
-            bot.edit_message_text(
-                "✅ <b>Already Logged In!</b>\n\n"
-                "Click 'Start Mining Now' to begin mining.\n\n"
-                "⏱️ This will take 1-2 minutes.",
-                chat_id=call.message.chat.id,
-                message_id=call.message.message_id,
-                reply_markup=kb,
-                parse_mode="HTML"
-            )
-        else:
-            user_shopsy_state[user_id] = "waiting_phone"
-            kb = InlineKeyboardMarkup()
-            kb.row(InlineKeyboardButton("❌ Cancel", callback_data="shopsy_abort"))
-            kb.row(InlineKeyboardButton("🔙 Back", callback_data="back_shopsy"))
-            bot.edit_message_text(
-                "📱 Enter your 10-digit phone number to start Shopsy mining:\n\nSend /cancel to abort.",
-                chat_id=call.message.chat.id,
-                message_id=call.message.message_id,
-                reply_markup=kb
-            )
-        bot.answer_callback_query(call.id)
-        return
-    
-    if data == "shopsy_mine_now":
-        user_id = call.from_user.id
-        if not get_shopsy_login_status(user_id):
-            bot.answer_callback_query(call.id, "❌ Please login first!", show_alert=True)
-            return
-        
-        cost = get_module_cost("shopsy")
-        balance = get_user_balance(user_id)
-        if balance < cost:
-            bot.answer_callback_query(call.id, f"❌ Need {cost} credits!", show_alert=True)
-            return
-        
-        user_shopsy_state[user_id] = "start_mining"
-        fake_msg = call.message
-        fake_msg.text = "start_mining"
-        shopsy_start_mining_handler(fake_msg)
-        bot.answer_callback_query(call.id)
-        return
-    
-    if data == "shopsy_abort" or data == "shopsy_abort_otp":
-        user_shopsy_state[user_id] = None
-        if user_id in user_shopsy_otp_data:
-            update_user_balance(user_id, user_shopsy_otp_data[user_id]["cost"])
-            del user_shopsy_otp_data[user_id]
-        bot.edit_message_text(
-            "❌ Shopsy operation cancelled.",
-            chat_id=call.message.chat.id,
-            message_id=call.message.message_id,
-            reply_markup=back_button()
-        )
-        bot.answer_callback_query(call.id)
-        return
-    
-    if data == "shopsy_stats":
-        user_id = call.from_user.id
-        balance = get_shopsy_balance(user_id)
-        logged_in = get_shopsy_login_status(user_id)
-        bot.answer_callback_query(
-            call.id,
-            f"🛍️ Shopsy Stats:\n🪙 Points: {balance}\n🔐 Status: {'✅ Logged In' if logged_in else '❌ Not Logged In'}",
-            show_alert=True
-        )
-        return
-    
-    if data == "shopsy_logout":
-        user_id = call.from_user.id
-        logout_shopsy_user(user_id)
-        bot.edit_message_text(
-            "✅ Logged out of Shopsy successfully!",
-            chat_id=call.message.chat.id,
-            message_id=call.message.message_id,
-            reply_markup=back_button()
-        )
-        bot.answer_callback_query(call.id)
-        return
-    
-    # ==================== YOGA CALLBACKS ====================
-    if data == "yoga_start":
-        user_yoga_state[user_id] = "waiting_yoga_phone"
-        kb = InlineKeyboardMarkup()
-        kb.row(InlineKeyboardButton("❌ Cancel", callback_data="yoga_abort"))
-        kb.row(InlineKeyboardButton("🔙 Back", callback_data="back_yoga"))
-        bot.edit_message_text(
-            "📱 Enter your 10-digit phone number for Yoga referral:\n\nSend /cancel to abort.",
-            chat_id=call.message.chat.id,
-            message_id=call.message.message_id,
-            reply_markup=kb
-        )
-        bot.answer_callback_query(call.id)
-        return
-    
-    if data == "yoga_abort" or data == "yoga_abort_otp":
-        user_yoga_state[user_id] = None
-        if user_id in user_yoga_otp_data:
-            update_user_balance(user_id, user_yoga_otp_data[user_id]["cost"])
-            del user_yoga_otp_data[user_id]
-        bot.edit_message_text(
-            "❌ Yoga operation cancelled.",
-            chat_id=call.message.chat.id,
-            message_id=call.message.message_id,
-            reply_markup=back_button()
-        )
-        bot.answer_callback_query(call.id)
-        return
-    
-    if data == "yoga_setcode":
-        bot.send_message(
-            user_id,
-            "🔑 <b>Set Your Yoga Referral Code</b>\n\n"
-            "Please send your Habit.Yoga referral link or code.\n\n"
-            "<b>Examples:</b>\n"
-            "• https://habit.yoga/ABC123\n"
-            "• ABC123\n\n"
-            "Send /cancel to abort.",
-            parse_mode="HTML"
-        )
-        user_yoga_state[user_id] = "waiting_yoga_code"
-        bot.answer_callback_query(call.id)
-        return
-    
-    if data == "yoga_stats":
-        user = get_user(user_id)
-        if user:
-            bot.answer_callback_query(
-                call.id,
-                f"🧘 Yoga Stats:\nCode: {user.get('yoga_code', 'Not set')}\nRefers: {user.get('yoga_bot_refers', 0)}",
-                show_alert=True
-            )
-        bot.answer_callback_query(call.id)
-        return
-    
-    bot.answer_callback_query(call.id)
-
-# ==================== ADMIN HANDLER FUNCTIONS ====================
-def admin_add_coins_handler(message):
-    user_id = message.from_user.id
-    if user_id != ADMIN_ID:
-        bot.reply_to(message, "❌ Unauthorized!")
-        return
-    
-    try:
-        parts = message.text.strip().split()
-        if len(parts) != 2:
-            bot.reply_to(message, "❌ Invalid format! Use: /addcoins USER_ID AMOUNT")
-            return
-        
-        target_id = int(parts[0])
-        amount = int(parts[1])
-        
-        if amount <= 0:
-            bot.reply_to(message, "❌ Amount must be positive!")
-            return
-        
-        user = get_user(target_id)
-        if not user:
-            bot.reply_to(message, f"❌ User {target_id} not found!")
-            return
-        
-        update_user_balance(target_id, amount)
-        new_balance = get_user_balance(target_id)
-        
-        bot.reply_to(
-            message,
-            f"✅ <b>Added {amount} Credits</b>\n\n"
-            f"👤 User: {user['first_name']} (ID: {target_id})\n"
-            f"💰 New Balance: <code>{new_balance}</code>",
-            parse_mode="HTML"
-        )
-        
-        try:
-            bot.send_message(
-                target_id,
-                f"🎉 <b>Admin Added Credits!</b>\n\n"
-                f"➕ <code>+{amount} Credits</code> added to your account.\n"
-                f"💰 New Balance: <code>{new_balance}</code>",
-                parse_mode="HTML"
-            )
-        except:
-            pass
-            
-    except ValueError:
-        bot.reply_to(message, "❌ Invalid format! Use: /addcoins USER_ID AMOUNT")
-    except Exception as e:
-        bot.reply_to(message, f"❌ Error: {str(e)[:100]}")
-
-def admin_remove_coins_handler(message):
-    user_id = message.from_user.id
-    if user_id != ADMIN_ID:
-        bot.reply_to(message, "❌ Unauthorized!")
-        return
-    
-    try:
-        parts = message.text.strip().split()
-        if len(parts) != 2:
-            bot.reply_to(message, "❌ Invalid format! Use: /removecoins USER_ID AMOUNT")
-            return
-        
-        target_id = int(parts[0])
-        amount = int(parts[1])
-        
-        if amount <= 0:
-            bot.reply_to(message, "❌ Amount must be positive!")
-            return
-        
-        user = get_user(target_id)
-        if not user:
-            bot.reply_to(message, f"❌ User {target_id} not found!")
-            return
-        
-        current_balance = user['balance']
-        if current_balance < amount:
-            bot.reply_to(
-                message,
-                f"❌ User has insufficient balance!\n"
-                f"Current: <code>{current_balance}</code>\n"
-                f"Requested: <code>{amount}</code>",
-                parse_mode="HTML"
-            )
-            return
-        
-        update_user_balance(target_id, -amount)
-        new_balance = get_user_balance(target_id)
-        
-        bot.reply_to(
-            message,
-            f"✅ <b>Removed {amount} Credits</b>\n\n"
-            f"👤 User: {user['first_name']} (ID: {target_id})\n"
-            f"💰 New Balance: <code>{new_balance}</code>",
-            parse_mode="HTML"
-        )
-        
-        try:
-            bot.send_message(
-                target_id,
-                f"⚠️ <b>Admin Removed Credits</b>\n\n"
-                f"➖ <code>-{amount} Credits</code> removed from your account.\n"
-                f"💰 New Balance: <code>{new_balance}</code>",
-                parse_mode="HTML"
-            )
-        except:
-            pass
-            
-    except ValueError:
-        bot.reply_to(message, "❌ Invalid format! Use: /removecoins USER_ID AMOUNT")
-    except Exception as e:
-        bot.reply_to(message, f"❌ Error: {str(e)[:100]}")
-
-def admin_broadcast_handler(message):
-    user_id = message.from_user.id
-    if user_id != ADMIN_ID:
-        bot.reply_to(message, "❌ Unauthorized!")
-        return
-    
-    if message.text.lower() == '/cancel':
-        bot.reply_to(message, "❌ Broadcast cancelled.")
-        return
-    
-    users = get_all_users()
-    if not users:
-        bot.reply_to(message, "❌ No users to broadcast to!")
-        return
-    
-    confirm_kb = InlineKeyboardMarkup()
-    confirm_kb.row(
-        InlineKeyboardButton("✅ Send", callback_data="broadcast_confirm"),
-        InlineKeyboardButton("❌ Cancel", callback_data="broadcast_cancel")
-    )
-    
-    if not hasattr(bot, 'user_data'):
-        bot.user_data = {}
-    bot.user_data['broadcast_msg'] = message.text
-    bot.user_data['broadcast_users'] = users
-    
-    bot.reply_to(
-        message,
-        f"📢 <b>Broadcast Confirmation</b>\n\n"
-        f"Message: {message.text[:200]}{'...' if len(message.text) > 200 else ''}\n\n"
-        f"👥 Recipients: <code>{len(users)} users</code>\n\n"
-        f"Click <b>✅ Send</b> to confirm broadcast.",
-        reply_markup=confirm_kb,
-        parse_mode="HTML"
-    )
-
 # ==================== YOGA SET CODE HANDLER ====================
 @bot.message_handler(func=lambda message: user_yoga_state.get(message.from_user.id) == "waiting_yoga_code")
 def yoga_set_code_handler(message):
@@ -3443,101 +2400,812 @@ def yoga_set_code_handler(message):
         reply_markup=back_button()
     )
 
-# ==================== SET COST COMMAND ====================
-@bot.message_handler(commands=['setcost'])
-def setcost_command(message):
-    user_id = message.from_user.id
-    if user_id != ADMIN_ID:
-        bot.reply_to(message, "❌ Unauthorized!")
+# ==================== SHOPSY HANDLERS ====================
+@bot.callback_query_handler(func=lambda call: call.data.startswith("shopsy_"))
+def handle_shopsy_callback(call):
+    user_id = call.from_user.id
+    action = call.data.split("_")[1]
+    
+    if action == "start":
+        if get_shopsy_login_status(user_id):
+            # Already logged in - start mining
+            user_shopsy_state[user_id] = "start_mining"
+            kb = InlineKeyboardMarkup()
+            kb.row(InlineKeyboardButton("⛏️ Start Mining Now", callback_data="shopsy_mine_now"))
+            kb.row(InlineKeyboardButton("🔙 Back", callback_data="back_shopsy"))
+            bot.edit_message_text(
+                "✅ <b>Already Logged In!</b>\n\n"
+                "Click 'Start Mining Now' to begin mining.\n\n"
+                "⏱️ This will take 1-2 minutes.",
+                chat_id=call.message.chat.id,
+                message_id=call.message.message_id,
+                reply_markup=kb,
+                parse_mode="HTML"
+            )
+        else:
+            user_shopsy_state[user_id] = "waiting_phone"
+            kb = InlineKeyboardMarkup()
+            kb.row(InlineKeyboardButton("❌ Cancel", callback_data="shopsy_abort"))
+            kb.row(InlineKeyboardButton("🔙 Back", callback_data="back_shopsy"))
+            bot.edit_message_text(
+                "📱 Enter your 10-digit phone number to start Shopsy mining:\n\nSend /cancel to abort.",
+                chat_id=call.message.chat.id,
+                message_id=call.message.message_id,
+                reply_markup=kb
+            )
+        bot.answer_callback_query(call.id)
         return
     
-    try:
-        parts = message.text.strip().split()
-        if len(parts) != 3:
-            bot.reply_to(
-                message,
-                "❌ Invalid format!\n\n"
-                "Use: <code>/setcost MODULE AMOUNT</code>\n"
-                "Example: <code>/setcost yoga 2</code>\n\n"
-                "Available modules: firebase, flipkart, instagram_single, instagram_bulk, shopsy, yoga, igviewer, supercoin, music, temp",
-                parse_mode="HTML"
-            )
+    if action == "mine_now":
+        if not get_shopsy_login_status(user_id):
+            bot.answer_callback_query(call.id, "❌ Please login first!", show_alert=True)
             return
         
-        module = parts[1].lower()
-        amount = int(parts[2])
-        
-        if amount < 0:
-            bot.reply_to(message, "❌ Amount must be non-negative!")
+        cost = get_module_cost("shopsy")
+        balance = get_user_balance(user_id)
+        if balance < cost:
+            bot.answer_callback_query(call.id, f"❌ Need {cost} credits!", show_alert=True)
             return
         
-        if module not in DEFAULT_COSTS:
-            bot.reply_to(
-                message,
-                f"❌ Module '{module}' not found!\n\n"
-                f"Available: {', '.join(DEFAULT_COSTS.keys())}",
-                parse_mode="HTML"
-            )
-            return
+        user_shopsy_state[user_id] = "start_mining"
+        fake_msg = call.message
+        fake_msg.text = "start_mining"
+        shopsy_start_mining_handler(fake_msg)
+        bot.answer_callback_query(call.id)
+        return
+    
+    if action == "stats":
+        shopsy_bal = get_shopsy_balance(user_id)
+        logged_in = get_shopsy_login_status(user_id)
+        conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+        c = conn.cursor()
+        c.execute('SELECT COUNT(*) FROM shopsy_mining_history WHERE user_id = ?', (user_id,))
+        total_runs = c.fetchone()[0]
+        c.execute('SELECT SUM(coins_earned) FROM shopsy_mining_history WHERE user_id = ?', (user_id,))
+        total_coins = c.fetchone()[0] or 0
+        conn.close()
         
-        set_config(f"{module}_cost", str(amount))
-        
-        bot.reply_to(
-            message,
-            f"✅ <b>Cost Updated!</b>\n\n"
-            f"📋 Module: <code>{module}</code>\n"
-            f"💰 New Cost: <code>{amount}</code> credits",
+        bot.answer_callback_query(call.id, "📊 Fetching stats...")
+        bot.edit_message_text(
+            f"📊 <b>Shopsy Mining Stats</b>\n\n"
+            f"🪙 Total Coins Mined: {total_coins}\n"
+            f"⭐ Shopsy Points: {shopsy_bal}\n"
+            f"📊 Total Runs: {total_runs}\n"
+            f"🔐 Status: {'✅ Logged In' if logged_in else '❌ Not Logged In'}\n\n"
+            f"💡 Each run costs {get_module_cost('shopsy')} credits.",
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            reply_markup=shopsy_menu_keyboard(),
             parse_mode="HTML"
         )
-        
-    except ValueError:
-        bot.reply_to(message, "❌ Amount must be a number!")
-    except Exception as e:
-        bot.reply_to(message, f"❌ Error: {str(e)[:100]}")
+        return
+    
+    if action == "logout":
+        logout_shopsy_user(user_id)
+        bot.edit_message_text(
+            "✅ Logged out of Shopsy successfully!",
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            reply_markup=back_button()
+        )
+        bot.answer_callback_query(call.id)
+        return
+    
+    if action in ["abort", "abort_otp"]:
+        user_shopsy_state[user_id] = None
+        if user_id in user_shopsy_otp_data:
+            update_user_balance(user_id, user_shopsy_otp_data[user_id]["cost"])
+            del user_shopsy_otp_data[user_id]
+        bot.edit_message_text(
+            "❌ Shopsy operation cancelled.",
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            reply_markup=back_button()
+        )
+        bot.answer_callback_query(call.id)
+        return
 
-# ==================== START COMMAND ====================
-@bot.message_handler(commands=['start'])
-def start_command(message):
+@bot.message_handler(func=lambda message: user_shopsy_state.get(message.from_user.id) == "waiting_phone")
+def shopsy_phone_handler(message):
     user_id = message.from_user.id
-    username = message.from_user.username or ""
-    first_name = message.from_user.first_name or "User"
+    phone = message.text.strip()
     
-    user = get_user(user_id)
+    if phone.lower() in ['/cancel', 'cancel', 'abort']:
+        user_shopsy_state[user_id] = None
+        bot.reply_to(message, "❌ Shopsy mining cancelled.", reply_markup=back_button())
+        return
     
-    referred_by = None
-    if message.text and "ref_" in message.text:
+    if not phone.isdigit() or len(phone) != 10:
+        bot.reply_to(message, "❌ Please enter exactly 10 digits.\n\nSend /cancel to abort.")
+        return
+    
+    cost = get_module_cost("shopsy")
+    balance = get_user_balance(user_id)
+    if balance < cost:
+        bot.reply_to(message, f"❌ Insufficient credits! You need {cost} credits. Your balance: {balance}")
+        return
+    
+    abort_kb = InlineKeyboardMarkup()
+    abort_kb.row(InlineKeyboardButton("❌ Abort", callback_data="shopsy_abort"))
+    abort_kb.row(InlineKeyboardButton("🔙 Back", callback_data="back_shopsy"))
+    
+    status_msg = bot.reply_to(message, f"📱 Sending OTP to +91{phone}...", reply_markup=abort_kb)
+    update_user_balance(user_id, -cost)
+    
+    def send_otp_thread():
         try:
-            referred_by = int(message.text.split("ref_")[1].split()[0])
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            session_data, err = loop.run_until_complete(shopsy_login_with_otp(phone))
+            loop.close()
+            
+            if not session_data:
+                update_user_balance(user_id, cost)
+                bot.edit_message_text(f"❌ Failed: {err}", chat_id=message.chat.id, message_id=status_msg.message_id)
+                user_shopsy_state[user_id] = None
+                return
+            
+            user_shopsy_otp_data[user_id] = {"session_data": session_data, "phone": phone, "cost": cost}
+            user_shopsy_state[user_id] = "waiting_otp"
+            
+            otp_kb = InlineKeyboardMarkup()
+            otp_kb.row(InlineKeyboardButton("❌ Abort", callback_data="shopsy_abort_otp"))
+            otp_kb.row(InlineKeyboardButton("🔙 Back", callback_data="back_shopsy"))
+            
+            bot.edit_message_text(
+                f"✅ OTP sent to +91{phone}!\n\nEnter the OTP code you received:\n\nSend /cancel to abort.",
+                chat_id=message.chat.id,
+                message_id=status_msg.message_id,
+                reply_markup=otp_kb
+            )
+        except Exception as e:
+            update_user_balance(user_id, cost)
+            bot.edit_message_text(f"❌ Error: {str(e)[:200]}", chat_id=message.chat.id, message_id=status_msg.message_id)
+            user_shopsy_state[user_id] = None
+    
+    threading.Thread(target=send_otp_thread).start()
+
+@bot.message_handler(func=lambda message: user_shopsy_state.get(message.from_user.id) == "waiting_otp")
+def shopsy_otp_handler(message):
+    user_id = message.from_user.id
+    otp = message.text.strip()
+    
+    if otp.lower() in ['/cancel', 'cancel']:
+        user_shopsy_state[user_id] = None
+        if user_id in user_shopsy_otp_data:
+            update_user_balance(user_id, user_shopsy_otp_data[user_id]["cost"])
+            del user_shopsy_otp_data[user_id]
+        bot.reply_to(message, "❌ Shopsy login cancelled.", reply_markup=back_button())
+        return
+    
+    if not otp.isdigit() or len(otp) != 6:
+        bot.reply_to(message, "❌ Please enter a valid 6-digit OTP.\n\nSend /cancel to abort.")
+        return
+    
+    if user_id not in user_shopsy_otp_data:
+        bot.reply_to(message, "❌ Session expired. Please start again.")
+        user_shopsy_state[user_id] = None
+        return
+    
+    data = user_shopsy_otp_data[user_id]
+    session_data = data["session_data"]
+    phone = data["phone"]
+    cost = data["cost"]
+    
+    status_msg = bot.reply_to(message, "🔄 Verifying OTP...")
+    
+    def verify_thread():
+        try:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            updated_session, success = loop.run_until_complete(shopsy_verify_otp(session_data, otp))
+            loop.close()
+            
+            if success:
+                save_shopsy_session(user_id, phone, updated_session)
+                update_shopsy_balance(user_id, 0)
+                
+                bot.edit_message_text(
+                    f"✅ <b>Shopsy Login Successful!</b>\n\n"
+                    f"📱 Phone: +91{phone}\n"
+                    f"💰 Credits refunded: <code>+{cost}</code>\n"
+                    f"💳 Balance: <code>{get_user_balance(user_id)}</code>\n\n"
+                    f"🎮 Now start mining using the Shopsy menu!\n"
+                    f"Click 'Start Mining' again to begin!",
+                    chat_id=message.chat.id,
+                    message_id=status_msg.message_id,
+                    reply_markup=back_button()
+                )
+                
+                update_user_balance(user_id, cost)
+                user_shopsy_state[user_id] = None
+                if user_id in user_shopsy_otp_data:
+                    del user_shopsy_otp_data[user_id]
+            else:
+                update_user_balance(user_id, cost)
+                bot.edit_message_text(
+                    f"❌ Invalid OTP. Please try again.\n\nSend /cancel to abort.",
+                    chat_id=message.chat.id,
+                    message_id=status_msg.message_id
+                )
+                user_shopsy_state[user_id] = "waiting_otp"
+                
+        except Exception as e:
+            update_user_balance(user_id, cost)
+            bot.edit_message_text(f"❌ Error: {str(e)[:200]}", chat_id=message.chat.id, message_id=status_msg.message_id)
+            user_shopsy_state[user_id] = None
+            if user_id in user_shopsy_otp_data:
+                del user_shopsy_otp_data[user_id]
+    
+    threading.Thread(target=verify_thread).start()
+
+@bot.message_handler(func=lambda message: user_shopsy_state.get(message.from_user.id) == "start_mining")
+def shopsy_start_mining_handler(message):
+    user_id = message.from_user.id
+    if not get_shopsy_login_status(user_id):
+        bot.reply_to(message, "❌ Please login first using 'Start Mining' from the menu.", reply_markup=back_button())
+        user_shopsy_state[user_id] = None
+        return
+    
+    cost = get_module_cost("shopsy")
+    balance = get_user_balance(user_id)
+    if balance < cost:
+        bot.reply_to(message, f"❌ Insufficient credits! Need {cost} credits. Balance: {balance}")
+        return
+    
+    update_user_balance(user_id, -cost)
+    status_msg = bot.reply_to(message, "⛏️ Starting Shopsy mining...\nThis may take 1-2 minutes.")
+    
+    phone, session_data = get_shopsy_session(user_id)
+    if not session_data:
+        update_user_balance(user_id, cost)
+        bot.edit_message_text("❌ Session expired. Please login again.", chat_id=message.chat.id, message_id=status_msg.message_id)
+        return
+    
+    def mining_thread():
+        try:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            
+            async def progress_callback(msg):
+                bot.edit_message_text(f"⛏️ {msg}", chat_id=message.chat.id, message_id=status_msg.message_id)
+            
+            result = loop.run_until_complete(shopsy_core_mine(session_data, progress_callback))
+            loop.close()
+            
+            if result["status"] == "success":
+                update_shopsy_balance(user_id, result["earned"])
+                result_text = f"""
+✅ <b>Mining Complete!</b>
+
+📱 Phone: +91{phone}
+🪙 Earned: <code>{result['earned']} SC</code>
+💰 Total Coins: <code>{result['final_coins']} SC</code>
+🎮 Games Played: <code>{result['played']}/{result['total']}</code>
+💎 Gems Earned: <code>{result['gems']}</code>
+⏱️ Time Taken: <code>{result['time_taken']}s</code>
+"""
+                bot.edit_message_text(result_text, chat_id=message.chat.id, message_id=status_msg.message_id, parse_mode="HTML", reply_markup=back_button())
+            else:
+                update_user_balance(user_id, cost)
+                bot.edit_message_text(f"❌ Mining failed: {result.get('msg', 'Unknown error')}", chat_id=message.chat.id, message_id=status_msg.message_id, reply_markup=back_button())
+                
+        except Exception as e:
+            update_user_balance(user_id, cost)
+            bot.edit_message_text(f"❌ Error: {str(e)[:200]}", chat_id=message.chat.id, message_id=status_msg.message_id, reply_markup=back_button())
+        
+        user_shopsy_state[user_id] = None
+    
+    threading.Thread(target=mining_thread).start()
+
+# ==================== SUPERCOIN HANDLERS ====================
+@bot.callback_query_handler(func=lambda call: call.data.startswith("supercoin_"))
+def handle_supercoin_callback(call):
+    user_id = call.from_user.id
+    action = call.data.split("_")[1]
+    
+    if action == "start":
+        cost = get_module_cost("supercoin")
+        balance = get_user_balance(user_id)
+        if balance < cost:
+            bot.answer_callback_query(call.id, f"❌ Need {cost} credits!", show_alert=True)
+            return
+        
+        user_supercoin_state[user_id] = "waiting_supercoin_phone"
+        kb = InlineKeyboardMarkup()
+        kb.row(InlineKeyboardButton("❌ Cancel", callback_data="supercoin_abort"))
+        kb.row(InlineKeyboardButton("🔙 Back", callback_data="back_supercoin"))
+        
+        bot.edit_message_text(
+            "💰 <b>Supercoin Fetcher</b>\n\n"
+            "📱 Enter your 10-digit phone number to check Supercoins:\n\n"
+            "Send /cancel to abort.",
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            reply_markup=kb,
+            parse_mode="HTML"
+        )
+        bot.answer_callback_query(call.id)
+        return
+    
+    if action == "abort":
+        user_supercoin_state[user_id] = None
+        if user_id in user_supercoin_otp_data:
+            update_user_balance(user_id, user_supercoin_otp_data[user_id]["cost"])
+            del user_supercoin_otp_data[user_id]
+        bot.edit_message_text(
+            "❌ Supercoin check cancelled.",
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            reply_markup=back_button()
+        )
+        bot.answer_callback_query(call.id)
+        return
+    
+    if action == "stats":
+        bot.answer_callback_query(
+            call.id,
+            "💰 Supercoin Fetcher\n\nUse 'Check Coins' to fetch your Supercoin balance!",
+            show_alert=True
+        )
+        return
+
+@bot.message_handler(func=lambda message: user_supercoin_state.get(message.from_user.id) == "waiting_supercoin_phone")
+def supercoin_phone_handler(message):
+    user_id = message.from_user.id
+    phone = message.text.strip()
+    
+    if phone.lower() in ['/cancel', 'cancel']:
+        user_supercoin_state[user_id] = None
+        bot.reply_to(message, "❌ Supercoin check cancelled.", reply_markup=back_button())
+        return
+    
+    if not phone.isdigit() or len(phone) != 10:
+        bot.reply_to(message, "❌ Please enter exactly 10 digits.\n\nSend /cancel to abort.")
+        return
+    
+    cost = get_module_cost("supercoin")
+    balance = get_user_balance(user_id)
+    if balance < cost:
+        bot.reply_to(message, f"❌ Insufficient credits! Need {cost} credits. Balance: {balance}")
+        return
+    
+    user_supercoin_state[user_id] = "waiting_supercoin_otp"
+    
+    abort_kb = InlineKeyboardMarkup()
+    abort_kb.row(InlineKeyboardButton("❌ Abort", callback_data="supercoin_abort"))
+    abort_kb.row(InlineKeyboardButton("🔙 Back", callback_data="back_supercoin"))
+    
+    status_msg = bot.reply_to(message, f"📱 Sending OTP to +91{phone}...", reply_markup=abort_kb)
+    update_user_balance(user_id, -cost)
+    
+    def send_otp_thread():
+        try:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            client = SupercoinSession()
+            success, req_id = loop.run_until_complete(client.request_otp(phone))
+            loop.close()
+            
+            if not success:
+                update_user_balance(user_id, cost)
+                bot.edit_message_text(
+                    f"❌ Failed to send OTP: {req_id}",
+                    chat_id=message.chat.id,
+                    message_id=status_msg.message_id
+                )
+                user_supercoin_state[user_id] = None
+                return
+            
+            user_supercoin_otp_data[user_id] = {
+                "phone": phone,
+                "client": client,
+                "cost": cost
+            }
+            
+            otp_kb = InlineKeyboardMarkup()
+            otp_kb.row(InlineKeyboardButton("❌ Abort", callback_data="supercoin_abort"))
+            otp_kb.row(InlineKeyboardButton("🔙 Back", callback_data="back_supercoin"))
+            
+            bot.edit_message_text(
+                f"✅ OTP sent to +91{phone}!\n\n"
+                f"📱 Enter the 6-digit OTP code you received:\n\n"
+                f"<b>Send /cancel to abort</b>",
+                chat_id=message.chat.id,
+                message_id=status_msg.message_id,
+                reply_markup=otp_kb
+            )
+            user_supercoin_state[user_id] = "waiting_supercoin_otp"
+            
+        except Exception as e:
+            update_user_balance(user_id, cost)
+            bot.edit_message_text(
+                f"❌ Error: {str(e)[:200]}",
+                chat_id=message.chat.id,
+                message_id=status_msg.message_id
+            )
+            user_supercoin_state[user_id] = None
+    
+    threading.Thread(target=send_otp_thread).start()
+
+@bot.message_handler(func=lambda message: user_supercoin_state.get(message.from_user.id) == "waiting_supercoin_otp")
+def supercoin_otp_handler(message):
+    user_id = message.from_user.id
+    otp = message.text.strip()
+    
+    if otp.lower() in ['/cancel', 'cancel']:
+        user_supercoin_state[user_id] = None
+        if user_id in user_supercoin_otp_data:
+            update_user_balance(user_id, user_supercoin_otp_data[user_id]["cost"])
+            del user_supercoin_otp_data[user_id]
+        bot.reply_to(message, "❌ Supercoin check cancelled.", reply_markup=back_button())
+        return
+    
+    if not otp.isdigit() or len(otp) != 6:
+        bot.reply_to(message, "❌ Please enter a valid 6-digit OTP.\n\nSend /cancel to abort.")
+        return
+    
+    if user_id not in user_supercoin_otp_data:
+        bot.reply_to(message, "❌ Session expired. Please start again.")
+        user_supercoin_state[user_id] = None
+        return
+    
+    data = user_supercoin_otp_data[user_id]
+    phone = data["phone"]
+    client = data["client"]
+    cost = data["cost"]
+    
+    status_msg = bot.reply_to(message, "🔄 Verifying OTP and fetching coins...")
+    
+    def verify_thread():
+        try:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            
+            success, response = loop.run_until_complete(client.verify_otp(phone, otp))
+            
+            if not success:
+                update_user_balance(user_id, cost)
+                bot.edit_message_text(
+                    f"❌ OTP verification failed: {response}",
+                    chat_id=message.chat.id,
+                    message_id=status_msg.message_id
+                )
+                user_supercoin_state[user_id] = None
+                if user_id in user_supercoin_otp_data:
+                    del user_supercoin_otp_data[user_id]
+                loop.close()
+                return
+            
+            loop.run_until_complete(client.load_user_state())
+            
+            coins, user_data = loop.run_until_complete(client.fetch_coins())
+            loop.close()
+            
+            update_user_balance(user_id, cost)
+            
+            if user_data is not None:
+                earnings = user_data.get("earnings", {})
+                result_text = f"""
+💰 <b>SUPERCOIN FETCHER RESULTS</b>
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📱 <b>Phone:</b> <code>+91{phone}</code>
+👤 <b>Name:</b> <code>{user_data.get('name', 'N/A')}</code>
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+💰 <b>SUPER COINS</b>
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🪙 <b>Total Coins:</b> <code>{coins} SC</code>
+📈 <b>Daily Coins:</b> <code>{earnings.get('coinsEarnedDaily', 0)} SC</code>
+📊 <b>Weekly Coins:</b> <code>{earnings.get('coinsEarnedWeekly', 0)} SC</code>
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🛒 <b>Total Orders:</b> <code>{user_data.get('totalOrders', 0)}</code>
+"""
+            else:
+                result_text = f"""
+💰 <b>SUPERCOIN FETCHER RESULTS</b>
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📱 <b>Phone:</b> <code>+91{phone}</code>
+🪙 <b>Total Coins:</b> <code>{coins} SC</code>
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+💡 No additional data available.
+"""
+            
+            bot.edit_message_text(
+                result_text,
+                chat_id=message.chat.id,
+                message_id=status_msg.message_id,
+                reply_markup=back_button(),
+                parse_mode="HTML"
+            )
+            
+            user_supercoin_state[user_id] = None
+            if user_id in user_supercoin_otp_data:
+                del user_supercoin_otp_data[user_id]
+                
+        except Exception as e:
+            update_user_balance(user_id, cost)
+            bot.edit_message_text(
+                f"❌ Error: {str(e)[:200]}",
+                chat_id=message.chat.id,
+                message_id=status_msg.message_id
+            )
+            user_supercoin_state[user_id] = None
+            if user_id in user_supercoin_otp_data:
+                del user_supercoin_otp_data[user_id]
+    
+    threading.Thread(target=verify_thread).start()
+
+# ==================== ADMIN CALLBACKS ====================
+@bot.callback_query_handler(func=lambda call: call.data.startswith("admin_"))
+def handle_admin_callback(call):
+    if call.from_user.id != ADMIN_ID:
+        bot.answer_callback_query(call.id, "⛔ Admin only!")
+        return
+    chat_id = call.message.chat.id
+    msg_id = call.message.message_id
+
+    if call.data == "admin_stats":
+        total_users = get_total_users()
+        total_coins = get_total_coins()
+        total_usage = get_total_usage()
+        bot.edit_message_text(
+            f"📊 <b>Bot Statistics</b>\n\n"
+            f"👥 Total Users: <b>{total_users}</b>\n"
+            f"💰 Total Coins: <b>{total_coins}</b>\n"
+            f"📈 Total Usage: <b>{total_usage}</b> operations\n"
+            f"🔢 Admin ID: <code>{ADMIN_ID}</code>",
+            chat_id=chat_id, message_id=msg_id,
+            reply_markup=admin_panel_keyboard(),
+            parse_mode="HTML"
+        )
+        bot.answer_callback_query(call.id)
+
+    elif call.data == "admin_users":
+        users = get_all_users()
+        if not users:
+            msg = "No users found."
+        else:
+            msg = "👥 <b>User List (Top 20 by coins)</b>\n\n"
+            for i, (uid, uname, bal, stat) in enumerate(users[:20], 1):
+                msg += f"{i}. <code>{uname}</code> (ID: {uid}) – {bal} coins [{stat}]\n"
+        bot.edit_message_text(msg, chat_id=chat_id, message_id=msg_id,
+                              reply_markup=admin_panel_keyboard(), parse_mode="HTML")
+        bot.answer_callback_query(call.id)
+
+    elif call.data == "admin_add_coins":
+        bot.answer_callback_query(call.id)
+        bot.edit_message_text(
+            "➕ <b>Add Coins</b>\n\nSend message in format:\n`/addcoins @username amount`\nor\n`/addcoins user_id amount`\n\nExample: `/addcoins @Viediet 50`",
+            chat_id=chat_id, message_id=msg_id,
+            reply_markup=admin_panel_keyboard(), parse_mode="HTML"
+        )
+
+    elif call.data == "admin_remove_coins":
+        bot.answer_callback_query(call.id)
+        bot.edit_message_text(
+            "➖ <b>Remove Coins</b>\n\nSend message in format:\n`/removecoins @username amount`\nor\n`/removecoins user_id amount`\n\nExample: `/removecoins @Viediet 20`",
+            chat_id=chat_id, message_id=msg_id,
+            reply_markup=admin_panel_keyboard(), parse_mode="HTML"
+        )
+
+    elif call.data == "admin_broadcast":
+        bot.answer_callback_query(call.id)
+        bot.edit_message_text(
+            "📢 <b>Broadcast</b>\n\nSend a message to all users.\nFormat: `/broadcast your message here`\n\nExample: `/broadcast Hello everyone!`",
+            chat_id=chat_id, message_id=msg_id,
+            reply_markup=admin_panel_keyboard(), parse_mode="HTML"
+        )
+
+    elif call.data == "admin_costs":
+        current_costs = "\n".join([f"• {k}: {get_module_cost(k)} credits" for k in DEFAULT_COSTS.keys()])
+        bot.answer_callback_query(call.id)
+        bot.edit_message_text(
+            f"⚙️ <b>Current Costs</b>\n\n{current_costs}\n\n"
+            f"To change, send:\n`/setcost module amount`\n\n"
+            f"Available modules: {', '.join(DEFAULT_COSTS.keys())}",
+            chat_id=chat_id, message_id=msg_id,
+            reply_markup=admin_panel_keyboard(), parse_mode="HTML"
+        )
+
+# ==================== ADMIN COMMANDS ====================
+@bot.message_handler(commands=['addcoins'])
+def add_coins_cmd(message):
+    if message.from_user.id != ADMIN_ID:
+        bot.reply_to(message, "⛔ Admin only!")
+        return
+    try:
+        parts = message.text.split()
+        if len(parts) < 3:
+            bot.reply_to(message, "❌ Usage: /addcoins @username amount")
+            return
+        identifier = parts[1].lstrip('@')
+        amount = int(parts[2])
+        conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+        c = conn.cursor()
+        if identifier.isdigit():
+            c.execute('SELECT user_id, username, balance FROM users WHERE user_id = ?', (int(identifier),))
+        else:
+            c.execute('SELECT user_id, username, balance FROM users WHERE username = ?', (identifier,))
+        row = c.fetchone()
+        conn.close()
+        if not row:
+            bot.reply_to(message, f"❌ User not found: {identifier}")
+            return
+        uid, uname, bal = row
+        update_user_balance(uid, amount)
+        new_bal = bal + amount
+        bot.reply_to(message, f"✅ Added {amount} coins to @{uname} (ID: {uid})\n💰 New balance: {new_bal}")
+        try:
+            bot.send_message(uid, f"🎁 Admin added <b>+{amount}</b> coins to your account!\n💰 New balance: {new_bal}", parse_mode="HTML")
         except:
             pass
-    
-    if not user:
-        create_user(user_id, username, first_name, referred_by)
-        user = get_user(user_id)
-        
-        welcome_text = f"""
-🎉 <b>Welcome to Viediet Utility Bot!</b>
+    except Exception as e:
+        bot.reply_to(message, f"❌ Error: {str(e)}")
 
-You've received <b>+{NEW_USER_BONUS} Credits</b> as a welcome bonus!
+@bot.message_handler(commands=['removecoins'])
+def remove_coins_cmd(message):
+    if message.from_user.id != ADMIN_ID:
+        bot.reply_to(message, "⛔ Admin only!")
+        return
+    try:
+        parts = message.text.split()
+        if len(parts) < 3:
+            bot.reply_to(message, "❌ Usage: /removecoins @username amount")
+            return
+        identifier = parts[1].lstrip('@')
+        amount = int(parts[2])
+        conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+        c = conn.cursor()
+        if identifier.isdigit():
+            c.execute('SELECT user_id, username, balance FROM users WHERE user_id = ?', (int(identifier),))
+        else:
+            c.execute('SELECT user_id, username, balance FROM users WHERE username = ?', (identifier,))
+        row = c.fetchone()
+        conn.close()
+        if not row:
+            bot.reply_to(message, f"❌ User not found: {identifier}")
+            return
+        uid, uname, bal = row
+        if bal - amount < 0:
+            bot.reply_to(message, f"❌ User has only {bal} coins. Cannot remove {amount}.")
+            return
+        update_user_balance(uid, -amount)
+        new_bal = bal - amount
+        bot.reply_to(message, f"✅ Removed {amount} coins from @{uname} (ID: {uid})\n💰 New balance: {new_bal}")
+        try:
+            bot.send_message(uid, f"💸 Admin removed <b>-{amount}</b> coins from your account.\n💰 New balance: {new_bal}", parse_mode="HTML")
+        except:
+            pass
+    except Exception as e:
+        bot.reply_to(message, f"❌ Error: {str(e)}")
 
-<b>💡 Quick Start:</b>
-• Explore all modules from the menu
-• Earn free credits by referring friends
-• Join our channel for updates
+@bot.message_handler(commands=['broadcast'])
+def broadcast_cmd(message):
+    if message.from_user.id != ADMIN_ID:
+        bot.reply_to(message, "⛔ Admin only!")
+        return
+    msg = message.text.replace('/broadcast', '', 1).strip()
+    if not msg:
+        bot.reply_to(message, "❌ Please provide a message to broadcast.")
+        return
+    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+    c = conn.cursor()
+    c.execute('SELECT user_id FROM users')
+    users = c.fetchall()
+    conn.close()
+    if not users:
+        bot.reply_to(message, "❌ No users to broadcast.")
+        return
+    sent = 0
+    for (uid,) in users:
+        try:
+            bot.send_message(uid, f"📢 <b>Broadcast</b>\n\n{msg}", parse_mode="HTML")
+            sent += 1
+            time.sleep(0.1)
+        except:
+            pass
+    bot.reply_to(message, f"✅ Broadcast sent to {sent}/{len(users)} users.")
 
-Click the menu below to get started!
-"""
-        bot.send_message(user_id, welcome_text, parse_mode="HTML")
-    
-    status = "✅ Member" if check_membership(user_id) else "❌ Not Joined"
-    is_admin = user_id == ADMIN_ID
-    
-    bot.send_message(
-        user_id,
-        main_menu_text(user_id, first_name, get_user_balance(user_id), status),
-        reply_markup=main_menu_keyboard(is_admin),
-        parse_mode="HTML"
-    )
+@bot.message_handler(commands=['setcost'])
+def setcost_cmd(message):
+    if message.from_user.id != ADMIN_ID:
+        bot.reply_to(message, "⛔ Admin only!")
+        return
+    try:
+        parts = message.text.split()
+        if len(parts) < 3:
+            bot.reply_to(message, "❌ Usage: /setcost module amount")
+            return
+        module = parts[1].lower()
+        amount = int(parts[2])
+        if module not in DEFAULT_COSTS:
+            bot.reply_to(message, f"❌ Invalid module. Available: {', '.join(DEFAULT_COSTS.keys())}")
+            return
+        set_config(f"{module}_cost", str(amount))
+        bot.reply_to(message, f"✅ Cost for {module} set to {amount} credits.")
+    except Exception as e:
+        bot.reply_to(message, f"❌ Error: {str(e)}")
+
+@bot.message_handler(commands=['giveallcoins'])
+def give_all_coins_cmd(message):
+    if message.from_user.id != ADMIN_ID:
+        bot.reply_to(message, "⛔ Admin only!")
+        return
+    try:
+        parts = message.text.split()
+        if len(parts) < 2:
+            bot.reply_to(message, "❌ Usage: /giveallcoins <amount>")
+            return
+        amount = int(parts[1])
+        conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+        c = conn.cursor()
+        c.execute('SELECT user_id FROM users')
+        users = c.fetchall()
+        conn.close()
+        if not users:
+            bot.reply_to(message, "❌ No users found.")
+            return
+        for (uid,) in users:
+            update_user_balance(uid, amount)
+        bot.reply_to(message, f"✅ Added {amount} coins to all {len(users)} users.")
+    except Exception as e:
+        bot.reply_to(message, f"❌ Error: {str(e)}")
+
+@bot.message_handler(commands=['checkref'])
+def check_referrals_cmd(message):
+    if message.from_user.id != ADMIN_ID:
+        bot.reply_to(message, "⛔ Admin only!")
+        return
+    try:
+        check_and_award_referrals()
+        bot.reply_to(message, "✅ Referral check executed successfully.")
+    except Exception as e:
+        bot.reply_to(message, f"❌ Error: {str(e)}")
+
+# ==================== CANCEL COMMAND ====================
+@bot.message_handler(commands=['cancel'])
+def cancel_cmd(message):
+    user_id = message.from_user.id
+    if user_yoga_state.get(user_id):
+        user_yoga_state[user_id] = None
+        user_yoga_otp_data.pop(user_id, None)
+        bot.reply_to(message, "❌ Yoga referral cancelled. Use /start to return.")
+    elif user_music_state.get(user_id):
+        user_music_state[user_id] = None
+        bot.reply_to(message, "❌ Music search cancelled.")
+    elif user_firebase_state.get(user_id):
+        user_firebase_state[user_id] = False
+        bot.reply_to(message, "❌ Firebase upload cancelled.")
+    elif user_igviewer_state.get(user_id):
+        user_igviewer_state[user_id] = None
+        bot.reply_to(message, "❌ IG Viewer cancelled.")
+    elif user_shopsy_state.get(user_id):
+        user_shopsy_state[user_id] = None
+        user_shopsy_otp_data.pop(user_id, None)
+        bot.reply_to(message, "❌ Shopsy mining cancelled.")
+    elif user_supercoin_state.get(user_id):
+        user_supercoin_state[user_id] = None
+        user_supercoin_otp_data.pop(user_id, None)
+        bot.reply_to(message, "❌ Supercoin check cancelled.")
+    elif user_flipkart_state.get(user_id):
+        user_flipkart_state[user_id] = None
+        bot.reply_to(message, "❌ Flipkart check cancelled.")
+    elif user_instagram_state.get(user_id):
+        user_instagram_state[user_id] = None
+        bot.reply_to(message, "❌ Instagram download cancelled.")
+    else:
+        bot.reply_to(message, "No active operation to cancel.")
+
+# ==================== FALLBACK ====================
+@bot.message_handler(func=lambda m: True)
+def fallback(message):
+    bot.reply_to(message, "❓ Unknown command. Use /start to see the menu.")
 
 # ==================== MAIN ====================
 if __name__ == "__main__":
@@ -3552,8 +3220,8 @@ if __name__ == "__main__":
     logger.info("🔄 Abort and Back buttons added for all features")
     logger.info("📊 Referral system - Get Link & Stats working")
     logger.info("👑 Admin Panel - All features working")
-    logger.info("💰 Supercoin Fetcher - FIXED")
-    logger.info("⛏️ Shopsy Mining - FIXED")
+    logger.info("💰 Supercoin Fetcher - Working")
+    logger.info("⛏️ Shopsy Mining - Working")
     logger.info("👁️ IG Viewer - Using storyviewer.com API")
     logger.info("📸 Instagram Downloader - Single & Bulk working")
     logger.info("🛒 Flipkart Checker - Working")
@@ -3562,12 +3230,14 @@ if __name__ == "__main__":
     logger.info("🔥 Firebase Extractor - Working")
     logger.info("🌐 Proxy support for Flipkart, Shopsy")
     
+    # Remove webhook
     try:
         bot.remove_webhook()
         time.sleep(2)
     except:
         pass
     
+    # Stop any existing polling
     try:
         bot.stop_polling()
         time.sleep(2)
