@@ -1,5 +1,5 @@
 # menu.py - Complete Menu Functions for Viediet Bot
-# ADDED: Slay Your Play Module
+# UPDATED: Added Slay Your Play Module with Colored Buttons
 
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton
 
@@ -19,54 +19,63 @@ def colored_button(text, callback_data, style="default", emoji_id=None):
 # ==================== MAIN MENU ====================
 def main_menu_text(user_id, first_name, balance, status):
     return f"""
-╔══════════════════════════════════╗
-║     🚀 VIEDIET UTILITY BOT      ║
-╚══════════════════════════════════╝
+╔══════════════════════════════════════╗
+║     🚀 VIEDIET UTILITY BOT          ║
+╚══════════════════════════════════════╝
 
 👋 Welcome back, <b>{first_name}</b>!
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 💰 <b>Balance:</b> <code>{balance}</code> Credits
 👤 <b>User ID:</b> <code>{user_id}</code>
 📊 <b>Status:</b> {status}
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 <b>⚡ Quick Actions:</b>
-• Click <b>✨ Start Workflow</b> to access all modules
-• Check <b>📊 Total Stats</b> for your usage
-• Share <b>🔗 Bot Refer Link</b> to earn credits
+• Click modules below to access features
+• Check <b>📊 Stats</b> for your usage
+• Share <b>🔗 Referral Link</b> to earn credits
 
 <b>💡 Pro Tip:</b> Each module costs credits.
 Earn free credits by referring friends!
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 """
 
 def main_menu_keyboard(is_admin=False):
     kb = InlineKeyboardMarkup(row_width=2)
 
-    # Main modules with colors
+    # Row 1 - Firebase & Temp Mail
     kb.row(
         colored_button("🔥 Firebase Extractor", "module_firebase", "primary"),
         colored_button("📧 Temp Mail", "module_temp", "success")
     )
+    
+    # Row 2 - Flipkart & Instagram
     kb.row(
         colored_button("🛒 Flipkart Checker", "module_flipkart", "danger"),
         colored_button("📸 Instagram Downloader", "module_instagram", "primary")
     )
+    
+    # Row 3 - IG Viewer & Music
     kb.row(
         colored_button("👁️ IG Viewer", "module_igviewer", "success"),
         colored_button("🎵 Music Downloader", "module_music", "danger")
     )
+    
+    # Row 4 - Shopsy & Yoga
     kb.row(
         colored_button("🛍️ Shopsy Mining", "module_shopsy", "primary"),
         colored_button("🧘 Yoga Referral", "module_yoga", "success")
     )
+    
+    # Row 5 - Referral & Slay Your Play
     kb.row(
         colored_button("🔗 Referral System", "module_referral", "danger"),
         colored_button("🎮 Slay Your Play", "module_slay", "primary")
     )
 
+    # Row 6 - Admin (if admin)
     if is_admin:
         kb.row(colored_button("👑 Admin Panel", "module_admin", "primary"))
 
@@ -78,18 +87,18 @@ def back_button():
     return [colored_button("🔙 Back to Menu", "back_menu", "default")]
 
 # ==================== SLAY YOUR PLAY MENU ====================
-def slay_menu_text(user_id, balance, status, cost, has_session=False):
+def slay_menu_text(user_id, balance, status, cost, has_session=False, codes_found=0):
     session_status = "✅ Active" if has_session else "❌ Not Active"
     return f"""
-╔══════════════════════════════════╗
-║     🎮 SLAY YOUR PLAY           ║
-╚══════════════════════════════════╝
+╔══════════════════════════════════════╗
+║     🎮 SLAY YOUR PLAY              ║
+╚══════════════════════════════════════╝
 
 <b>📋 Module:</b> Slay Your Play Code Tester
 <b>💰 Cost:</b> <code>{cost}</code> Credits per scan
 <b>💳 Balance:</b> <code>{balance}</code> Credits
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 <b>📌 What it does:</b>
 Tests random 12-digit codes on SlayYourPlay
@@ -99,6 +108,9 @@ Tests random 12-digit codes on SlayYourPlay
 • 🛑 Auto-stop on valid code
 
 <b>📊 Status:</b> {session_status}
+<b>🎯 Codes Found:</b> <code>{codes_found}</code>
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 <b>📤 How to use:</b>
 1. Click <b>🎮 Start Scan</b>
@@ -132,15 +144,15 @@ def slay_menu_keyboard():
 # ==================== FIREBASE MENU ====================
 def firebase_menu_text(user_id, balance, status, cost):
     return f"""
-╔══════════════════════════════════╗
-║     🔥 FIREBASE EXTRACTOR       ║
-╚══════════════════════════════════╝
+╔══════════════════════════════════════╗
+║     🔥 FIREBASE EXTRACTOR           ║
+╚══════════════════════════════════════╝
 
 <b>📋 Module:</b> Firebase Extractor
 <b>💰 Cost:</b> <code>{cost}</code> Credits
 <b>💳 Balance:</b> <code>{balance}</code> Credits
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 <b>📌 What it does:</b>
 Extracts sensitive data from APK files:
@@ -172,14 +184,14 @@ def firebase_menu_keyboard():
 # ==================== TEMP MAIL MENU ====================
 def temp_menu_text(user_id):
     return f"""
-╔══════════════════════════════════╗
-║      📧 TEMPORARY EMAIL         ║
-╚══════════════════════════════════╝
+╔══════════════════════════════════════╗
+║      📧 TEMPORARY EMAIL             ║
+╚══════════════════════════════════════╝
 
 <b>📋 Module:</b> Temp Mail Generator
 <b>💰 Cost:</b> <code>FREE</code>
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 <b>📌 What it does:</b>
 Creates disposable email addresses
@@ -213,15 +225,15 @@ def temp_menu_keyboard():
 # ==================== FLIPKART MENU ====================
 def flipkart_menu_text(user_id, balance, status, cost):
     return f"""
-╔══════════════════════════════════╗
-║     🛒 FLIPKART CHECKER         ║
-╚══════════════════════════════════╝
+╔══════════════════════════════════════╗
+║     🛒 FLIPKART CHECKER             ║
+╚══════════════════════════════════════╝
 
 <b>📋 Module:</b> Flipkart Number Checker
 <b>💰 Cost:</b> <code>{cost}</code> Credits
 <b>💳 Balance:</b> <code>{balance}</code> Credits
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 <b>📌 What it does:</b>
 Check if a phone number is registered on Flipkart
@@ -251,15 +263,15 @@ def flipkart_menu_keyboard():
 # ==================== INSTAGRAM MENU ====================
 def instagram_menu_text(user_id, balance, status, cost):
     return f"""
-╔══════════════════════════════════╗
-║     📸 INSTAGRAM DOWNLOADER     ║
-╚══════════════════════════════════╝
+╔══════════════════════════════════════╗
+║     📸 INSTAGRAM DOWNLOADER         ║
+╚══════════════════════════════════════╝
 
 <b>📋 Module:</b> Instagram Reel Downloader
 <b>💰 Cost:</b> <code>{cost}</code> Credits per video
 <b>💳 Balance:</b> <code>{balance}</code> Credits
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 <b>📌 What it does:</b>
 Download Instagram Reels & Videos
@@ -289,15 +301,15 @@ def instagram_menu_keyboard():
 # ==================== IG VIEWER MENU ====================
 def igviewer_menu_text(user_id, balance, status, cost):
     return f"""
-╔══════════════════════════════════╗
-║      👁️ IG VIEWER              ║
-╚══════════════════════════════════╝
+╔══════════════════════════════════════╗
+║      👁️ IG VIEWER                  ║
+╚══════════════════════════════════════╝
 
 <b>📋 Module:</b> Instagram Profile Viewer
 <b>💰 Cost:</b> <code>{cost}</code> Credits
 <b>💳 Balance:</b> <code>{balance}</code> Credits
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 <b>📌 What it does:</b>
 View Instagram profiles anonymously
@@ -324,14 +336,14 @@ def igviewer_menu_keyboard():
 # ==================== MUSIC MENU ====================
 def music_menu_text(user_id):
     return f"""
-╔══════════════════════════════════╗
-║      🎵 MUSIC DOWNLOADER        ║
-╚══════════════════════════════════╝
+╔══════════════════════════════════════╗
+║      🎵 MUSIC DOWNLOADER            ║
+╚══════════════════════════════════════╝
 
 <b>📋 Module:</b> Music Downloader
 <b>💰 Cost:</b> <code>FREE</code>
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 <b>📌 What it does:</b>
 Download high-quality MP3 songs
@@ -363,15 +375,15 @@ def music_menu_keyboard():
 def shopsy_menu_text(user_id, balance, status, shopsy_balance, is_logged_in):
     login_status = "✅ Logged In" if is_logged_in else "❌ Not Logged In"
     return f"""
-╔══════════════════════════════════╗
-║      🛍️ SHOPSY MINING          ║
-╚══════════════════════════════════╝
+╔══════════════════════════════════════╗
+║      🛍️ SHOPSY MINING              ║
+╚══════════════════════════════════════╝
 
 <b>📋 Module:</b> Shopsy Auto-Mining
 <b>💰 Cost:</b> <code>{get_module_cost('shopsy')}</code> Credits
 <b>💳 Balance:</b> <code>{balance}</code> Credits
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 <b>📌 What it does:</b>
 Automatically play Shopsy games and earn coins
@@ -410,16 +422,16 @@ def shopsy_menu_keyboard():
 def yoga_menu_text(user_id, balance, status, yoga_code, reward, cost):
     code_display = f"`{yoga_code}`" if yoga_code else "❌ Not Set"
     return f"""
-╔══════════════════════════════════╗
-║      🧘 YOGA REFERRAL          ║
-╚══════════════════════════════════╝
+╔══════════════════════════════════════╗
+║      🧘 YOGA REFERRAL              ║
+╚══════════════════════════════════════╝
 
 <b>📋 Module:</b> Yoga Referral Bot
 <b>💰 Cost:</b> <code>{cost}</code> Credits
 <b>🎁 Reward:</b> <code>+{reward}</code> Credits
 <b>💳 Balance:</b> <code>{balance}</code> Credits
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 <b>📌 What it does:</b>
 Auto-register users on Habit.Yoga
@@ -456,14 +468,14 @@ def yoga_menu_keyboard():
 # ==================== REFERRAL MENU ====================
 def referral_menu_text(user_id, balance, referral_count):
     return f"""
-╔══════════════════════════════════╗
-║      🔗 REFERRAL SYSTEM         ║
-╚══════════════════════════════════╝
+╔══════════════════════════════════════╗
+║      🔗 REFERRAL SYSTEM             ║
+╚══════════════════════════════════════╝
 
 <b>📋 Module:</b> Referral Program
 <b>💰 Balance:</b> <code>{balance}</code> Credits
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 <b>📌 How it works:</b>
 • Share your referral link
@@ -497,13 +509,13 @@ def referral_menu_keyboard():
 # ==================== ADMIN MENU ====================
 def admin_panel_text():
     return f"""
-╔══════════════════════════════════╗
-║      👑 ADMIN PANEL            ║
-╚══════════════════════════════════╝
+╔══════════════════════════════════════╗
+║      👑 ADMIN PANEL                ║
+╚══════════════════════════════════════╝
 
 <b>📋 Admin Controls</b>
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 <b>📊 Statistics:</b>
 • Total Users
@@ -548,9 +560,9 @@ def admin_panel_keyboard():
 # ==================== HELP MENU ====================
 def help_menu_text():
     return """
-╔══════════════════════════════════╗
-║       💡 HELP & INFO           ║
-╚══════════════════════════════════╝
+╔══════════════════════════════════════╗
+║       💡 HELP & INFO               ║
+╚══════════════════════════════════════╝
 
 <b>🤖 Bot Commands:</b>
 
@@ -561,7 +573,7 @@ def help_menu_text():
 <b>/broadcast</b> - Admin only
 <b>/setcost</b> - Admin only
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 <b>💰 Earning Credits:</b>
 • 🎁 <b>+5</b> Welcome bonus
@@ -569,7 +581,7 @@ def help_menu_text():
 • 🧘 <b>+4</b> Per Yoga referral
 • 🛍️ Shopsy mining rewards
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 <b>📱 Modules:</b>
 • Firebase Extractor
@@ -582,7 +594,7 @@ def help_menu_text():
 • Yoga Referral
 • Slay Your Play
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 """
 
 # ==================== Helper Functions ====================
