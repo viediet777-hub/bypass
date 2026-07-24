@@ -1,5 +1,5 @@
 # menu.py - Complete Menu Functions for Viediet Bot
-# FIXED: Supercoin Fetcher replaced with Slay Your Play
+# REMOVED: Shopsy, Yoga, Slay features
 
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton
 
@@ -59,19 +59,13 @@ def main_menu_keyboard(is_admin=False):
         colored_button("🎵 Music Downloader", "module_music", "danger")
     )
     
-    # Row 4 - Shopsy & Yoga
-    kb.row(
-        colored_button("🛍️ Shopsy Mining", "module_shopsy", "primary"),
-        colored_button("🧘 Yoga Referral", "module_yoga", "success")
-    )
-    
-    # Row 5 - Referral System & Slay Your Play (REPLACED Supercoin)
+    # Row 4 - Referral System & Admin (Replaced Shopsy/Yoga)
     kb.row(
         colored_button("🔗 Referral System", "module_referral", "danger"),
-        colored_button("🎮 Slay Your Play", "module_slay", "primary")
+        colored_button("📊 Stats", "module_stats", "primary")
     )
 
-    # Row 6 - Admin (if admin)
+    # Row 5 - Admin (if admin)
     if is_admin:
         kb.row(colored_button("👑 Admin Panel", "module_admin", "primary"))
 
@@ -80,61 +74,6 @@ def main_menu_keyboard(is_admin=False):
 # ==================== BACK BUTTON HELPER ====================
 def back_button():
     return [colored_button("🔙 Back to Menu", "back_menu", "default")]
-
-# ==================== SLAY YOUR PLAY MENU ====================
-def slay_menu_text(user_id, balance, status, cost, has_session=False, codes_found=0):
-    session_status = "✅ Active" if has_session else "❌ Not Active"
-    return f"""
-╔══════════════════════════════════════╗
-║     🎮 SLAY YOUR PLAY              ║
-╚══════════════════════════════════════╝
-
-<b>📋 Module:</b> Slay Your Play Code Tester
-<b>💰 Cost:</b> <code>{cost}</code> Credits per scan
-<b>💳 Balance:</b> <code>{balance}</code> Credits
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-<b>📌 What it does:</b>
-Tests random 12-digit codes on SlayYourPlay
-• 🔍 Automated code testing
-• 🎯 Finds valid promo codes
-• 💰 Auto-submit reward
-• 🛑 Auto-stop on valid code
-
-<b>📊 Status:</b> {session_status}
-<b>🎯 Codes Found:</b> <code>{codes_found}</code>
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-<b>📤 How to use:</b>
-1. Click <b>🎮 Start Scan</b>
-2. Enter 10-digit mobile number
-3. Enter OTP received
-4. Auto-scan starts
-5. Stops when valid code found!
-
-<b>⚡ Features:</b>
-• 1 credit = 1 scan
-• Auto-stop on valid code
-• Proxy support
-• Real-time updates
-
-<b>💡 Tip:</b> Make sure you have proxy file!
-"""
-
-def slay_menu_keyboard():
-    kb = InlineKeyboardMarkup(row_width=2)
-    kb.row(
-        colored_button("🎮 Start Scan", "slay_start", "success"),
-        colored_button("📊 Status", "slay_status", "primary")
-    )
-    kb.row(
-        colored_button("🔄 Refresh Session", "slay_refresh", "primary"),
-        colored_button("🚪 Logout", "slay_logout", "danger")
-    )
-    kb.row(*back_button())
-    return kb
 
 # ==================== FIREBASE MENU ====================
 def firebase_menu_text(user_id, balance, status, cost):
@@ -366,100 +305,6 @@ def music_menu_keyboard():
     kb.row(*back_button())
     return kb
 
-# ==================== SHOPSY MENU ====================
-def shopsy_menu_text(user_id, balance, status, shopsy_balance, is_logged_in):
-    login_status = "✅ Logged In" if is_logged_in else "❌ Not Logged In"
-    return f"""
-╔══════════════════════════════════════╗
-║      🛍️ SHOPSY MINING              ║
-╚══════════════════════════════════════╝
-
-<b>📋 Module:</b> Shopsy Auto-Mining
-<b>💰 Cost:</b> <code>{get_module_cost('shopsy')}</code> Credits
-<b>💳 Balance:</b> <code>{balance}</code> Credits
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-<b>📌 What it does:</b>
-Automatically play Shopsy games and earn coins
-• 🎮 Auto-play games
-• 🪙 Earn coins
-• ⭐ Convert to points
-• 📊 Track earnings
-
-<b>📤 How to use:</b>
-1. Click <b>🚀 Start Mining</b>
-2. Enter 10-digit phone number
-3. Enter OTP received
-4. Auto-mine starts!
-
-<b>📊 Your Stats:</b>
-🪙 Shopsy Points: <code>{shopsy_balance}</code>
-🔐 Status: {login_status}
-⏱️ Mining: 1-2 minutes
-
-<b>💡 Tip:</b> Higher coins = more points!
-"""
-
-def shopsy_menu_keyboard():
-    kb = InlineKeyboardMarkup(row_width=2)
-    kb.row(
-        colored_button("🚀 Start Mining", "shopsy_start", "success"),
-        colored_button("📊 Stats", "shopsy_stats", "primary")
-    )
-    kb.row(
-        colored_button("🚪 Logout", "shopsy_logout", "danger")
-    )
-    kb.row(*back_button())
-    return kb
-
-# ==================== YOGA MENU ====================
-def yoga_menu_text(user_id, balance, status, yoga_code, reward, cost):
-    code_display = f"`{yoga_code}`" if yoga_code else "❌ Not Set"
-    return f"""
-╔══════════════════════════════════════╗
-║      🧘 YOGA REFERRAL              ║
-╚══════════════════════════════════════╝
-
-<b>📋 Module:</b> Yoga Referral Bot
-<b>💰 Cost:</b> <code>{cost}</code> Credits
-<b>🎁 Reward:</b> <code>+{reward}</code> Credits
-<b>💳 Balance:</b> <code>{balance}</code> Credits
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-<b>📌 What it does:</b>
-Auto-register users on Habit.Yoga
-• 📱 Phone number registration
-• 🔐 OTP auto-verify
-• 🎯 Earn referral rewards
-• 📊 Track your referrals
-
-<b>📤 How to use:</b>
-1. Click <b>🧘 Start Referral</b>
-2. Enter 10-digit phone number
-3. Enter OTP received
-4. Earn <b>+{reward} Credits</b>!
-
-<b>📊 Your Yoga Code:</b>
-{code_display}
-
-<b>💡 Tip:</b> Set your code first!
-Send link or code to setup.
-"""
-
-def yoga_menu_keyboard():
-    kb = InlineKeyboardMarkup(row_width=2)
-    kb.row(
-        colored_button("🧘 Start Referral", "yoga_start", "success"),
-        colored_button("📊 Stats", "yoga_stats", "primary")
-    )
-    kb.row(
-        colored_button("🔑 Set Code", "yoga_setcode", "danger")
-    )
-    kb.row(*back_button())
-    return kb
-
 # ==================== REFERRAL MENU ====================
 def referral_menu_text(user_id, balance, referral_count):
     return f"""
@@ -571,10 +416,7 @@ def help_menu_text():
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 <b>💰 Earning Credits:</b>
-• 🎁 <b>+5</b> Welcome bonus
 • 🔗 <b>+3</b> Per referral
-• 🧘 <b>+4</b> Per Yoga referral
-• 🛍️ Shopsy mining rewards
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -585,9 +427,6 @@ def help_menu_text():
 • Instagram Downloader
 • IG Viewer
 • Music Downloader
-• Shopsy Mining
-• Yoga Referral
-• Slay Your Play
 • Referral System
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -618,9 +457,6 @@ def get_module_cost(module):
         "flipkart": 1,
         "instagram_single": 1,
         "instagram_bulk": 1,
-        "shopsy": 1,
-        "yoga": 1,
         "igviewer": 1,
-        "slay": 1
     }
     return costs.get(module, 1)
